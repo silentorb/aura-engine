@@ -1,8 +1,8 @@
 //! Aura command-line interface — graph-driven audio rendering.
 
 use aura_integration::{
-    load_graph, parse_duration_spec, render_graph_to_pcm, write_pcm_to_wav, DurationSpec,
-    IntegrationError, SampleSpec,
+    parse_duration_spec, render_graph_file_to_pcm, write_pcm_to_wav, DurationSpec, IntegrationError,
+    SampleSpec,
 };
 use aura_sample::{SampleRate, SampleRateError};
 use std::env;
@@ -131,12 +131,11 @@ fn print_help() {
 }
 
 pub fn render_graph(config: &RenderGraphConfig) -> Result<(), CliError> {
-    let graph = load_graph(&config.graph)?;
     let spec = SampleSpec {
         sample_rate: config.sample_rate,
         duration: config.duration,
     };
-    let pcm = render_graph_to_pcm(&graph, spec)?;
+    let pcm = render_graph_file_to_pcm(&config.graph, spec)?;
     write_pcm_to_wav(&config.output, &pcm, config.sample_rate)?;
     Ok(())
 }

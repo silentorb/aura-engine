@@ -4,7 +4,10 @@ mod duration;
 mod translate;
 
 use translate::{infer_score_duration_secs, translate_graph};
-use aura_imp::{aura_registry, graph_from_json_path, Graph, GraphJsonError};
+use aura_imp::{
+    aura_registry_with_libraries, discover_graph_libraries, graph_from_json_path, Graph,
+    GraphJsonError, Registry, RegistryError,
+};
 use aura_io_wav::{write_wav32, WavError};
 use aura_render::{sample_offline, RenderError, RenderSpec, Sampler};
 use aura_sample::SampleRate;
@@ -29,11 +32,27 @@ pub enum IntegrationError {
     #[error("failed to create output directory: {0}")]
     CreateDir(#[from] std::io::Error),
     #[error("failed to load Aura Imp registry: {0}")]
-    Registry(String),
+    Registry(#[from] RegistryError),
+    #[error("failed to resolve graph composites: {0}")]
+    Resolve(String),
 }
 
-/// Loads an Imp graph from a JSON file path.
-pub fn load_graph(path: &Path) -> Result<Graph, IntegrationError> {
+/// A graph loaded with its neighboring graph libraries and merged registry.
+pub struct LoadedGraph {
+    pub graph: Graph,
+    pub registry: Registry,
+}
+
+/// Loads an Imp graph and neighboring graph libraries from a JSON file path.
+pub fn load_graph(path: &Path) -> Result<LoadedGraph, IntegrationError> {
+    let graph = graph_from_json_path(path)?;
+    let libraries = discover_graph_libraries(path)?;
+    let registry = aura_registry_with_libraries(&libraries)?;
+    Ok(LoadedGraph { graph, registry })
+}
+
+/// Loads an Imp graph from a JSON file path (graph only, no libraries).
+pub fn load_graph_only(path: &Path) -> Result<Graph, IntegrationError> {
     Ok(graph_from_json_path(path)?)
 }
 
@@ -69,10 +88,15 @@ pub fn sample_graph(sampler: &dyn Sampler, spec: SampleSpec) -> Result<Vec<f32>,
 }
 
 /// Loads, translates, and samples a graph to mono PCM.
-pub fn render_graph_to_pcm(graph: &Graph, spec: SampleSpec) -> Result<Vec<f32>, IntegrationError> {
-    let registry = aura_registry().map_err(|err| IntegrationError::Registry(err.to_string()))?;
-    let sampler = translate_graph(graph, &registry, spec.sample_rate)?;
+pub fn render_graph_to_pcm(loaded: &LoadedGraph, spec: SampleSpec) -> Result<Vec<f32>, IntegrationError> {
+    let sampler = translate_graph(&loaded.graph, &loaded.registry, spec.sample_rate)?;
     sample_graph(sampler.as_ref(), spec)
+}
+
+/// Loads, translates, and samples a graph file to mono PCM.
+pub fn render_graph_file_to_pcm(path: &Path, spec: SampleSpec) -> Result<Vec<f32>, IntegrationError> {
+    let loaded = load_graph(path)?;
+    render_graph_to_pcm(&loaded, spec)
 }
 
 /// Writes mono PCM samples to a 32-bit float WAV file.
@@ -119,6 +143,11 @@ pub fn parse_duration_spec(input: &str, tempo_bpm: f64) -> Result<DurationSpec, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    fn workspace_demo_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../demos").join(name)
+    }
 
     #[test]
     fn parse_duration_supports_seconds_and_measures() {
@@ -134,35 +163,31 @@ mod tests {
 
     #[test]
     fn render_sine_graph_matches_expected_frames() {
-        let json = include_str!("../../../demos/sine.json");
-        let graph = aura_imp::graph_from_json_str(json).expect("graph");
+        let loaded = load_graph(&workspace_demo_path("sine.json")).expect("load");
         let spec = SampleSpec {
             sample_rate: SampleRate::RATE_44100,
             duration: DurationSpec::Seconds(10.0),
         };
-        let pcm = render_graph_to_pcm(&graph, spec).expect("render");
+        let pcm = render_graph_to_pcm(&loaded, spec).expect("render");
         assert_eq!(pcm.len(), 441_000);
     }
 
     #[test]
     fn render_arpeggio_graph_matches_expected_frames() {
-        let json = include_str!("../../../demos/demo-01.json");
-        let graph = aura_imp::graph_from_json_str(json).expect("graph");
+        let loaded = load_graph(&workspace_demo_path("demo-01.json")).expect("load");
         let spec = SampleSpec {
             sample_rate: SampleRate::RATE_44100,
             duration: DurationSpec::measures_4_4(8.0, aura_composition::Tempo::default()),
         };
-        let pcm = render_graph_to_pcm(&graph, spec).expect("render");
+        let pcm = render_graph_to_pcm(&loaded, spec).expect("render");
         assert_eq!(pcm.len(), 705_600);
     }
 
     #[test]
     fn sampler_is_pure() {
-        let json = include_str!("../../../demos/sine.json");
-        let graph = aura_imp::graph_from_json_str(json).expect("graph");
-        let registry = aura_registry().expect("registry");
+        let loaded = load_graph(&workspace_demo_path("sine.json")).expect("load");
         let sampler =
-            translate_graph(&graph, &registry, SampleRate::RATE_44100).expect("translate");
+            translate_graph(&loaded.graph, &loaded.registry, SampleRate::RATE_44100).expect("translate");
         assert_eq!(sampler.at(0.25), sampler.at(0.25));
     }
 }

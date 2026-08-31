@@ -1,7 +1,8 @@
 //! Time source node library.
 
+use crate::node_def::primitive_node;
 use crate::signals::{signal, TIME};
-use imp_core_types::{NodeLibrary, NodeType, Port, PrimitiveValue};
+use imp_core_types::{NodeLibrary, Port, PrimitiveValue};
 use std::collections::BTreeMap;
 
 fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option<PrimitiveValue>) -> Port {
@@ -16,39 +17,34 @@ fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option
 pub fn time_node_library() -> NodeLibrary {
     let time = signal(TIME);
 
-    let mut types = BTreeMap::new();
-    types.insert(
-        "time".into(),
-        NodeType {
-            id: "time".into(),
-            type_params: Vec::new(),
-            implementation: None,
-            inputs: BTreeMap::new(),
-            outputs: BTreeMap::from([(
+    let definitions = vec![
+        primitive_node(
+            "time",
+            Vec::new(),
+            None,
+            BTreeMap::new(),
+            BTreeMap::from([(
                 "time".into(),
                 port("time", time.clone(), None),
             )]),
-        },
-    );
-    types.insert(
-        "time_elapsed".into(),
-        NodeType {
-            id: "time_elapsed".into(),
-            type_params: Vec::new(),
-            implementation: None,
-            inputs: BTreeMap::from([
+        ),
+        primitive_node(
+            "time_elapsed",
+            Vec::new(),
+            None,
+            BTreeMap::from([
                 ("time".into(), port("time", time.clone(), None)),
                 ("start".into(), port("start", time.clone(), None)),
             ]),
-            outputs: BTreeMap::from([(
+            BTreeMap::from([(
                 "elapsed".into(),
                 port("elapsed", time, None),
             )]),
-        },
-    );
+        ),
+    ];
 
     NodeLibrary {
         id: "aura.time".into(),
-        types,
+        definitions,
     }
 }

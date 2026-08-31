@@ -57,7 +57,10 @@ name = "aura-imp"
 version = "0.1.0"
 dependencies = [
  "imp_core_types",
+ "imp_graph_library",
+ "imp_graph_resolve",
  "imp_registry",
+ "imp_typecheck",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -88,6 +91,7 @@ dependencies = [
  "aura-render",
  "aura-sample",
  "aura-scheduler",
+ "imp_graph_resolve",
  "imp_typecheck",
  "serde_json",
  "tempfile",
@@ -412,6 +416,27 @@ name = "imp_core_types"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "imp_graph_library"
+version = "0.1.0"
+dependencies = [
+ "imp_core_types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "imp_graph_resolve"
+version = "0.1.0"
+dependencies = [
+ "imp_collection_transforms",
+ "imp_core_types",
+ "imp_registry",
+ "imp_typecheck",
+ "serde_json",
 ]
 
 [[package]]

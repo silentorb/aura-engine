@@ -15,7 +15,7 @@ use aura_dsp::{
     add, bandlimited_saw, deterministic_noise, exponential_sweep_sine, highpass_noise, multiply,
     sine,
 };
-use aura_imp::{Graph, Node, NodeId, PortReference, PrimitiveValue, Registry};
+use aura_imp::{flatten_graph, Graph, Node, NodeId, PortReference, PrimitiveValue, Registry};
 use aura_instrumentation::LinearAdsr;
 use aura_render::Sampler;
 use aura_sample::SampleRate;
@@ -55,6 +55,8 @@ pub enum TranslateError {
     InvalidLoopableSource { node: NodeId },
     #[error("graph type check failed: {message}")]
     TypeCheck { message: String },
+    #[error("graph resolve failed: {message}")]
+    Resolve { message: String },
 }
 
 enum NodeValue {
@@ -78,12 +80,14 @@ pub fn translate_graph(
         });
     }
 
-    let output_node = find_output_node(graph)?;
-    let edges_by_target = index_edges_by_target(graph);
+    let graph = flatten_graph(graph, registry).map_err(|message| TranslateError::Resolve { message })?;
+
+    let output_node = find_output_node(&graph)?;
+    let edges_by_target = index_edges_by_target(&graph);
     let mut visiting = BTreeSet::new();
 
     match translate_node(
-        graph,
+        &graph,
         registry,
         sample_rate,
         &edges_by_target,
@@ -111,6 +115,10 @@ fn find_output_node(graph: &Graph) -> Result<NodeId, TranslateError> {
         .filter(|node| node.node_type == "output")
         .map(|node| node.id.clone())
         .collect();
+
+    if outputs.iter().any(|id| id == "out") {
+        return Ok("out".into());
+    }
 
     match outputs.as_slice() {
         [] => Err(TranslateError::MissingOutput),
@@ -1565,8 +1573,12 @@ pub fn infer_score_duration_secs(graph: &Graph, sample_rate: SampleRate) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aura_imp::aura_registry;
+    use aura_imp::{aura_registry, aura_registry_with_libraries, discover_graph_libraries};
+    use std::path::PathBuf;
 
+    fn workspace_demo_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../demos").join(name)
+    }
     #[test]
     fn translate_sine_graph_is_pure() {
         let json = include_str!("../../../../demos/sine.json");
@@ -1580,7 +1592,9 @@ mod tests {
     fn translate_arpeggio_graph_with_loop_nodes() {
         let json = include_str!("../../../../demos/demo-01.json");
         let graph = aura_imp::graph_from_json_str(json).expect("graph");
-        let registry = aura_registry().expect("registry");
+        let graph_path = workspace_demo_path("demo-01.json");
+        let libraries = discover_graph_libraries(&graph_path).expect("libraries");
+        let registry = aura_registry_with_libraries(&libraries).expect("registry");
         translate_graph(&graph, &registry, SampleRate::RATE_44100).expect("translate");
     }
 

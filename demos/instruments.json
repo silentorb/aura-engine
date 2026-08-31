@@ -1,0 +1,486 @@
+{
+  "id": "aura.demo-instruments",
+  "definitions": [
+    {
+      "id": "sine_note_voice",
+      "name": "Sine note voice",
+      "inputs": {
+        "score": { "id": "score", "type": { "id": "score" } },
+        "time": { "id": "time", "type": { "id": "time" } }
+      },
+      "outputs": {
+        "audio": { "id": "audio", "type": { "id": "audio_mono" } }
+      },
+      "bindings": {
+        "inputs": { "score": "in_score", "time": "in_time" },
+        "outputs": { "audio": "out_audio" }
+      },
+      "body": {
+        "nodes": {
+          "in_score": { "id": "in_score", "type": "input", "inputs": {} },
+          "in_time": { "id": "in_time", "type": "input", "inputs": {} },
+          "out_audio": { "id": "out_audio", "type": "output", "inputs": {} },
+          "note": { "id": "note", "type": "note_at_time", "inputs": {} },
+          "semitone_hz": { "id": "semitone_hz", "type": "semitone_to_hz", "inputs": {} },
+          "start": { "id": "start", "type": "note_at_time", "inputs": {} },
+          "elapsed": { "id": "elapsed", "type": "time_elapsed", "inputs": {} },
+          "env": { "id": "env", "type": "note_envelope", "inputs": {} },
+          "osc": { "id": "osc", "type": "sine", "inputs": {} },
+          "voice": { "id": "voice", "type": "multiply", "inputs": {} }
+        },
+        "edges": {
+          "in_score_to_note": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "note", "port": "score" }
+          },
+          "in_score_to_start": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "start", "port": "score" }
+          },
+          "in_score_to_env": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "env", "port": "score" }
+          },
+          "in_time_to_note": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "note", "port": "time" }
+          },
+          "in_time_to_start": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "start", "port": "time" }
+          },
+          "in_time_to_env": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "env", "port": "time" }
+          },
+          "in_time_to_elapsed": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "elapsed", "port": "time" }
+          },
+          "note_semitone_to_hz": {
+            "from": { "node": "note", "port": "semitone" },
+            "to": { "node": "semitone_hz", "port": "semitone" }
+          },
+          "semitone_hz_to_osc": {
+            "from": { "node": "semitone_hz", "port": "frequency" },
+            "to": { "node": "osc", "port": "frequency" }
+          },
+          "start_to_elapsed": {
+            "from": { "node": "start", "port": "note_start" },
+            "to": { "node": "elapsed", "port": "start" }
+          },
+          "elapsed_to_osc": {
+            "from": { "node": "elapsed", "port": "elapsed" },
+            "to": { "node": "osc", "port": "time" }
+          },
+          "osc_to_voice_a": {
+            "from": { "node": "osc", "port": "audio" },
+            "to": { "node": "voice", "port": "a" }
+          },
+          "env_to_voice_b": {
+            "from": { "node": "env", "port": "value" },
+            "to": { "node": "voice", "port": "b" }
+          },
+          "voice_to_out": {
+            "from": { "node": "voice", "port": "audio" },
+            "to": { "node": "out_audio", "port": "value" }
+          }
+        }
+      }
+    },
+    {
+      "id": "kick_drum",
+      "name": "Kick drum",
+      "inputs": {
+        "score": { "id": "score", "type": { "id": "score" } },
+        "time": { "id": "time", "type": { "id": "time" } }
+      },
+      "outputs": {
+        "audio": { "id": "audio", "type": { "id": "audio_mono" } }
+      },
+      "bindings": {
+        "inputs": { "score": "in_score", "time": "in_time" },
+        "outputs": { "audio": "out_audio" }
+      },
+      "body": {
+        "nodes": {
+          "in_score": { "id": "in_score", "type": "input", "inputs": {} },
+          "in_time": { "id": "in_time", "type": "input", "inputs": {} },
+          "out_audio": { "id": "out_audio", "type": "output", "inputs": {} },
+          "kick_start": { "id": "kick_start", "type": "note_at_time", "inputs": {} },
+          "kick_dur": { "id": "kick_dur", "type": "note_at_time", "inputs": {} },
+          "kick_elapsed": { "id": "kick_elapsed", "type": "time_elapsed", "inputs": {} },
+          "kick_env": {
+            "id": "kick_env",
+            "type": "linear_adsr",
+            "inputs": {
+              "attack": 0.001,
+              "decay": 0.08,
+              "sustain": 0.0,
+              "release": 0.01
+            }
+          },
+          "kick_osc": {
+            "id": "kick_osc",
+            "type": "exponential_sweep_sine",
+            "inputs": {
+              "start_hz": 150.0,
+              "decay_rate": 12.0
+            }
+          },
+          "kick_voice": { "id": "kick_voice", "type": "multiply", "inputs": {} },
+          "kick_gain": {
+            "id": "kick_gain",
+            "type": "parameter",
+            "inputs": { "value": 0.9 }
+          },
+          "kick_out": { "id": "kick_out", "type": "multiply", "inputs": {} }
+        },
+        "edges": {
+          "in_score_to_kick_start": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "kick_start", "port": "score" }
+          },
+          "in_score_to_kick_dur": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "kick_dur", "port": "score" }
+          },
+          "in_time_to_kick_start": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "kick_start", "port": "time" }
+          },
+          "in_time_to_kick_dur": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "kick_dur", "port": "time" }
+          },
+          "kick_start_to_kick_elapsed": {
+            "from": { "node": "kick_start", "port": "note_start" },
+            "to": { "node": "kick_elapsed", "port": "start" }
+          },
+          "in_time_to_kick_elapsed": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "kick_elapsed", "port": "time" }
+          },
+          "kick_elapsed_to_kick_osc": {
+            "from": { "node": "kick_elapsed", "port": "elapsed" },
+            "to": { "node": "kick_osc", "port": "elapsed" }
+          },
+          "kick_elapsed_to_kick_env": {
+            "from": { "node": "kick_elapsed", "port": "elapsed" },
+            "to": { "node": "kick_env", "port": "elapsed" }
+          },
+          "kick_dur_to_kick_env": {
+            "from": { "node": "kick_dur", "port": "note_duration" },
+            "to": { "node": "kick_env", "port": "note_duration" }
+          },
+          "kick_osc_to_kick_voice_a": {
+            "from": { "node": "kick_osc", "port": "audio" },
+            "to": { "node": "kick_voice", "port": "a" }
+          },
+          "kick_env_to_kick_voice_b": {
+            "from": { "node": "kick_env", "port": "value" },
+            "to": { "node": "kick_voice", "port": "b" }
+          },
+          "kick_voice_to_kick_out_a": {
+            "from": { "node": "kick_voice", "port": "audio" },
+            "to": { "node": "kick_out", "port": "a" }
+          },
+          "kick_gain_to_kick_out_b": {
+            "from": { "node": "kick_gain", "port": "value" },
+            "to": { "node": "kick_out", "port": "b" }
+          },
+          "kick_out_to_out": {
+            "from": { "node": "kick_out", "port": "audio" },
+            "to": { "node": "out_audio", "port": "value" }
+          }
+        }
+      }
+    },
+    {
+      "id": "snare_drum",
+      "name": "Snare drum",
+      "inputs": {
+        "score": { "id": "score", "type": { "id": "score" } },
+        "time": { "id": "time", "type": { "id": "time" } }
+      },
+      "outputs": {
+        "audio": { "id": "audio", "type": { "id": "audio_mono" } }
+      },
+      "bindings": {
+        "inputs": { "score": "in_score", "time": "in_time" },
+        "outputs": { "audio": "out_audio" }
+      },
+      "body": {
+        "nodes": {
+          "in_score": { "id": "in_score", "type": "input", "inputs": {} },
+          "in_time": { "id": "in_time", "type": "input", "inputs": {} },
+          "out_audio": { "id": "out_audio", "type": "output", "inputs": {} },
+          "snare_start": { "id": "snare_start", "type": "note_at_time", "inputs": {} },
+          "snare_dur": { "id": "snare_dur", "type": "note_at_time", "inputs": {} },
+          "snare_elapsed": { "id": "snare_elapsed", "type": "time_elapsed", "inputs": {} },
+          "snare_env": {
+            "id": "snare_env",
+            "type": "linear_adsr",
+            "inputs": {
+              "attack": 0.001,
+              "decay": 0.12,
+              "sustain": 0.0,
+              "release": 0.01
+            }
+          },
+          "snare_noise": {
+            "id": "snare_noise",
+            "type": "highpass_noise",
+            "inputs": { "dt": 0.0001 }
+          },
+          "snare_voice": { "id": "snare_voice", "type": "multiply", "inputs": {} },
+          "snare_gain": {
+            "id": "snare_gain",
+            "type": "parameter",
+            "inputs": { "value": 0.6 }
+          },
+          "snare_out": { "id": "snare_out", "type": "multiply", "inputs": {} }
+        },
+        "edges": {
+          "in_score_to_snare_start": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "snare_start", "port": "score" }
+          },
+          "in_score_to_snare_dur": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "snare_dur", "port": "score" }
+          },
+          "in_time_to_snare_start": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "snare_start", "port": "time" }
+          },
+          "in_time_to_snare_dur": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "snare_dur", "port": "time" }
+          },
+          "snare_start_to_snare_elapsed": {
+            "from": { "node": "snare_start", "port": "note_start" },
+            "to": { "node": "snare_elapsed", "port": "start" }
+          },
+          "in_time_to_snare_elapsed": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "snare_elapsed", "port": "time" }
+          },
+          "snare_start_to_snare_noise_seed": {
+            "from": { "node": "snare_start", "port": "note_start" },
+            "to": { "node": "snare_noise", "port": "seed" }
+          },
+          "in_time_to_snare_noise": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "snare_noise", "port": "time" }
+          },
+          "snare_elapsed_to_snare_env": {
+            "from": { "node": "snare_elapsed", "port": "elapsed" },
+            "to": { "node": "snare_env", "port": "elapsed" }
+          },
+          "snare_dur_to_snare_env": {
+            "from": { "node": "snare_dur", "port": "note_duration" },
+            "to": { "node": "snare_env", "port": "note_duration" }
+          },
+          "snare_noise_to_snare_voice_a": {
+            "from": { "node": "snare_noise", "port": "audio" },
+            "to": { "node": "snare_voice", "port": "a" }
+          },
+          "snare_env_to_snare_voice_b": {
+            "from": { "node": "snare_env", "port": "value" },
+            "to": { "node": "snare_voice", "port": "b" }
+          },
+          "snare_voice_to_snare_out_a": {
+            "from": { "node": "snare_voice", "port": "audio" },
+            "to": { "node": "snare_out", "port": "a" }
+          },
+          "snare_gain_to_snare_out_b": {
+            "from": { "node": "snare_gain", "port": "value" },
+            "to": { "node": "snare_out", "port": "b" }
+          },
+          "snare_out_to_out": {
+            "from": { "node": "snare_out", "port": "audio" },
+            "to": { "node": "out_audio", "port": "value" }
+          }
+        }
+      }
+    },
+    {
+      "id": "bass_saw_voice",
+      "name": "Bass saw voice",
+      "inputs": {
+        "score": { "id": "score", "type": { "id": "score" } },
+        "time": { "id": "time", "type": { "id": "time" } }
+      },
+      "outputs": {
+        "audio": { "id": "audio", "type": { "id": "audio_mono" } }
+      },
+      "bindings": {
+        "inputs": { "score": "in_score", "time": "in_time" },
+        "outputs": { "audio": "out_audio" }
+      },
+      "body": {
+        "nodes": {
+          "in_score": { "id": "in_score", "type": "input", "inputs": {} },
+          "in_time": { "id": "in_time", "type": "input", "inputs": {} },
+          "out_audio": { "id": "out_audio", "type": "output", "inputs": {} },
+          "bass_note": { "id": "bass_note", "type": "note_at_time", "inputs": {} },
+          "bass_start": { "id": "bass_start", "type": "note_at_time", "inputs": {} },
+          "bass_dur": { "id": "bass_dur", "type": "note_at_time", "inputs": {} },
+          "bass_elapsed": { "id": "bass_elapsed", "type": "time_elapsed", "inputs": {} },
+          "bass_hz": { "id": "bass_hz", "type": "semitone_to_hz", "inputs": {} },
+          "bass_cutoff_base": {
+            "id": "bass_cutoff_base",
+            "type": "parameter",
+            "inputs": { "value": 800.0 }
+          },
+          "bass_cutoff_mult": {
+            "id": "bass_cutoff_mult",
+            "type": "note_param_at_time",
+            "inputs": { "param": "cutoff_mult" }
+          },
+          "bass_cutoff_env": {
+            "id": "bass_cutoff_env",
+            "type": "linear_adsr",
+            "inputs": {
+              "attack": 0.002,
+              "decay": 0.08,
+              "sustain": 0.3,
+              "release": 0.02
+            }
+          },
+          "bass_cutoff_mul1": { "id": "bass_cutoff_mul1", "type": "multiply_control", "inputs": {} },
+          "bass_cutoff": { "id": "bass_cutoff", "type": "multiply_control", "inputs": {} },
+          "bass_amp_env": {
+            "id": "bass_amp_env",
+            "type": "linear_adsr",
+            "inputs": {
+              "attack": 0.005,
+              "decay": 0.06,
+              "sustain": 0.15,
+              "release": 0.03
+            }
+          },
+          "bass_osc": { "id": "bass_osc", "type": "bandlimited_saw", "inputs": {} },
+          "bass_voice": { "id": "bass_voice", "type": "multiply", "inputs": {} },
+          "bass_gain": {
+            "id": "bass_gain",
+            "type": "parameter",
+            "inputs": { "value": 0.55 }
+          },
+          "bass_out": { "id": "bass_out", "type": "multiply", "inputs": {} }
+        },
+        "edges": {
+          "in_score_to_bass_note": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "bass_note", "port": "score" }
+          },
+          "in_score_to_bass_start": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "bass_start", "port": "score" }
+          },
+          "in_score_to_bass_dur": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "bass_dur", "port": "score" }
+          },
+          "in_score_to_bass_cutoff_mult": {
+            "from": { "node": "in_score", "port": "value" },
+            "to": { "node": "bass_cutoff_mult", "port": "score" }
+          },
+          "in_time_to_bass_note": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "bass_note", "port": "time" }
+          },
+          "in_time_to_bass_start": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "bass_start", "port": "time" }
+          },
+          "in_time_to_bass_dur": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "bass_dur", "port": "time" }
+          },
+          "in_time_to_bass_cutoff_mult": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "bass_cutoff_mult", "port": "time" }
+          },
+          "bass_note_to_bass_hz": {
+            "from": { "node": "bass_note", "port": "semitone" },
+            "to": { "node": "bass_hz", "port": "semitone" }
+          },
+          "bass_hz_to_bass_osc_freq": {
+            "from": { "node": "bass_hz", "port": "frequency" },
+            "to": { "node": "bass_osc", "port": "frequency" }
+          },
+          "bass_start_to_bass_elapsed": {
+            "from": { "node": "bass_start", "port": "note_start" },
+            "to": { "node": "bass_elapsed", "port": "start" }
+          },
+          "in_time_to_bass_elapsed": {
+            "from": { "node": "in_time", "port": "value" },
+            "to": { "node": "bass_elapsed", "port": "time" }
+          },
+          "bass_elapsed_to_bass_osc": {
+            "from": { "node": "bass_elapsed", "port": "elapsed" },
+            "to": { "node": "bass_osc", "port": "elapsed" }
+          },
+          "bass_elapsed_to_bass_amp_env": {
+            "from": { "node": "bass_elapsed", "port": "elapsed" },
+            "to": { "node": "bass_amp_env", "port": "elapsed" }
+          },
+          "bass_elapsed_to_bass_cutoff_env": {
+            "from": { "node": "bass_elapsed", "port": "elapsed" },
+            "to": { "node": "bass_cutoff_env", "port": "elapsed" }
+          },
+          "bass_dur_to_bass_amp_env": {
+            "from": { "node": "bass_dur", "port": "note_duration" },
+            "to": { "node": "bass_amp_env", "port": "note_duration" }
+          },
+          "bass_dur_to_bass_cutoff_env": {
+            "from": { "node": "bass_dur", "port": "note_duration" },
+            "to": { "node": "bass_cutoff_env", "port": "note_duration" }
+          },
+          "bass_cutoff_base_to_mul1_a": {
+            "from": { "node": "bass_cutoff_base", "port": "value" },
+            "to": { "node": "bass_cutoff_mul1", "port": "a" }
+          },
+          "bass_cutoff_mult_to_mul1_b": {
+            "from": { "node": "bass_cutoff_mult", "port": "value" },
+            "to": { "node": "bass_cutoff_mul1", "port": "b" }
+          },
+          "bass_cutoff_mul1_to_cutoff_a": {
+            "from": { "node": "bass_cutoff_mul1", "port": "value" },
+            "to": { "node": "bass_cutoff", "port": "a" }
+          },
+          "bass_cutoff_env_to_cutoff_b": {
+            "from": { "node": "bass_cutoff_env", "port": "value" },
+            "to": { "node": "bass_cutoff", "port": "b" }
+          },
+          "bass_cutoff_to_bass_osc": {
+            "from": { "node": "bass_cutoff", "port": "value" },
+            "to": { "node": "bass_osc", "port": "cutoff" }
+          },
+          "bass_osc_to_bass_voice_a": {
+            "from": { "node": "bass_osc", "port": "audio" },
+            "to": { "node": "bass_voice", "port": "a" }
+          },
+          "bass_amp_env_to_bass_voice_b": {
+            "from": { "node": "bass_amp_env", "port": "value" },
+            "to": { "node": "bass_voice", "port": "b" }
+          },
+          "bass_voice_to_bass_out_a": {
+            "from": { "node": "bass_voice", "port": "audio" },
+            "to": { "node": "bass_out", "port": "a" }
+          },
+          "bass_gain_to_bass_out_b": {
+            "from": { "node": "bass_gain", "port": "value" },
+            "to": { "node": "bass_out", "port": "b" }
+          },
+          "bass_out_to_out": {
+            "from": { "node": "bass_out", "port": "audio" },
+            "to": { "node": "out_audio", "port": "value" }
+          }
+        }
+      }
+    }
+  ]
+}

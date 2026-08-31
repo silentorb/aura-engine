@@ -1,7 +1,8 @@
 //! Envelope node library.
 
+use crate::node_def::primitive_node;
 use crate::signals::{signal, CONTROL, TIME};
-use imp_core_types::{NodeLibrary, NodeType, Port, PrimitiveValue};
+use imp_core_types::{NodeLibrary, Port, PrimitiveValue};
 use std::collections::BTreeMap;
 
 fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option<PrimitiveValue>) -> Port {
@@ -17,14 +18,12 @@ pub fn envelope_node_library() -> NodeLibrary {
     let control = signal(CONTROL);
     let time = signal(TIME);
 
-    let mut types = BTreeMap::new();
-    types.insert(
-        "linear_adsr".into(),
-        NodeType {
-            id: "linear_adsr".into(),
-            type_params: Vec::new(),
-            implementation: None,
-            inputs: BTreeMap::from([
+    let definitions = vec![
+        primitive_node(
+            "linear_adsr",
+            Vec::new(),
+            None,
+            BTreeMap::from([
                 (
                     "attack".into(),
                     port("attack", control.clone(), Some(PrimitiveValue::Number(0.005))),
@@ -47,31 +46,28 @@ pub fn envelope_node_library() -> NodeLibrary {
                     port("note_duration", time.clone(), None),
                 ),
             ]),
-            outputs: BTreeMap::from([(
+            BTreeMap::from([(
                 "value".into(),
-                port("value", control, None),
+                port("value", control.clone(), None),
             )]),
-        },
-    );
-    types.insert(
-        "note_envelope".into(),
-        NodeType {
-            id: "note_envelope".into(),
-            type_params: Vec::new(),
-            implementation: None,
-            inputs: BTreeMap::from([
+        ),
+        primitive_node(
+            "note_envelope",
+            Vec::new(),
+            None,
+            BTreeMap::from([
                 ("score".into(), port("score", signal(crate::signals::SCORE), None)),
                 ("time".into(), port("time", time, None)),
             ]),
-            outputs: BTreeMap::from([(
+            BTreeMap::from([(
                 "value".into(),
                 port("value", signal(CONTROL), None),
             )]),
-        },
-    );
+        ),
+    ];
 
     NodeLibrary {
         id: "aura.envelope".into(),
-        types,
+        definitions,
     }
 }
