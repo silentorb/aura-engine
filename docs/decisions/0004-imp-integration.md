@@ -12,17 +12,17 @@ Aura needs a declarative way to define synthesis graphs. [Imp](https://github.co
 
 ## Decision (historical)
 
-1. Add **`aura-imp`** — Aura-specific Imp node libraries and registry helpers; depends on `imp_core_types` and `imp_registry` only.
+1. Add **`aura_imp`** — Aura-specific Imp node libraries and registry helpers; depends on `imp_core_types` and `imp_registry` only.
 2. ~~Provision **imp-rust** in the devcontainer image at build time (`COPY imp-rust /opt/imp-rust`); Cargo path deps point at `/opt/imp-rust/crates/*`.~~ **Superseded:** bind-mount sibling `imp-rust` at `.mnt/imp-rust`; Cargo path deps point at `.mnt/imp-rust/crates/*`.
 3. Defer **`imp_execution`** for DSP.
 
 ## Current direction (see ADR 0006)
 
 - Imp graphs denote **`Time → Sample`** pure functions.
-- **`aura-integration::translate_graph`** composes `Sampler` closures; not FunDSP, not stock `imp_execution`.
+- **`aura_integration::translate_graph`** composes `Sampler` closures; not FunDSP, not stock `imp_execution`.
 - Node libraries: `aura.time`, `aura.dsp`, `aura.envelope`, `aura.music`.
 
 ## Consequences
 
 - imp-rust is live-mounted from the host (`~/dev/imp-rust` → `.mnt/imp-rust`); changes are picked up without rebuilding the devcontainer image.
-- Composition and music nodes extend `aura-imp`; translation delegates to domain crates.
+- Composition and music nodes extend `aura_imp`; translation delegates to domain crates.

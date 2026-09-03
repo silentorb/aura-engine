@@ -16,7 +16,7 @@ Adopt libraries with distinct roles:
 |---------|------|
 | **DASP** (`dasp_sample`, `dasp_signal`) | Sample type traits and signal abstractions; bridges PCM to CPAL sample formats |
 | **CPAL** | Cross-platform real-time audio I/O (deferred in devcontainer) |
-| **`aura-dsp`** | Pure `Time → Sample` functions (replaces FunDSP) |
+| **`aura_dsp`** | Pure `Time → Sample` functions (replaces FunDSP) |
 
 Historical note: FunDSP was initially adopted for synthesis; removed because sequential `tick` state conflicts with Aura's FP sampling model.
 

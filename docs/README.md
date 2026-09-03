@@ -18,6 +18,7 @@ Never let code silently drift from documented requirements or design.
 | [`requirements/`](requirements/) | Product definition, goals, and behavioral requirements |
 | [`design/`](design/) | Architecture, module boundaries, and system design |
 | [`decisions/`](decisions/) | Architecture decision records (ADRs) — dated, append-only |
+| [`rust-style.md`](rust-style.md) | Rust crate naming and layout conventions |
 
 ## When to update
 

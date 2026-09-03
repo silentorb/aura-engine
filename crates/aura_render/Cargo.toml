@@ -1,13 +1,13 @@
 [package]
-name = "aura-render"
+name = "aura_render"
 description = "Offline audio rendering for Aura"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-aura-dsp = { path = "../aura-dsp" }
-aura-sample = { path = "../aura-sample" }
+aura_dsp = { path = "../aura_dsp" }
+aura_sample = { path = "../aura_sample" }
 thiserror = { workspace = true }
 
 [dev-dependencies]

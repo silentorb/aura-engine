@@ -1,5 +1,5 @@
 [package]
-name = "aura-composition"
+name = "aura_composition"
 description = "Musical notation types and utilities for Aura"
 version.workspace = true
 edition.workspace = true

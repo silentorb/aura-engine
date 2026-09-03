@@ -4,7 +4,7 @@ How musical notation becomes audio in Aura. This document governs integration ac
 
 ## Purpose and scope
 
-Aura separates **what** music is (notation), **when** it happens (scheduling), **how** it sounds (instrumentation and synthesis), and **where** it goes (I/O). Surface programs load Imp graphs via [`aura-integration`](../../crates/aura-integration) and [`aura-cli`](../../crates/aura-cli).
+Aura separates **what** music is (notation), **when** it happens (scheduling), **how** it sounds (instrumentation and synthesis), and **where** it goes (I/O). Surface programs load Imp graphs via [`aura_integration`](../../crates/aura_integration) and [`aura_cli`](../../crates/aura_cli).
 
 See also [`architecture.md`](architecture.md) and [`imp-execution.md`](imp-execution.md).
 
@@ -31,11 +31,11 @@ See also [`architecture.md`](architecture.md) and [`imp-execution.md`](imp-execu
 
 ```mermaid
 flowchart LR
-  graph[Imp graph JSON] --> integration[aura-integration]
-  integration --> composition[aura-composition]
-  integration --> scheduler[aura-scheduler]
-  integration --> dsp[aura-dsp]
-  integration --> wav[aura-io-wav]
+  graph[Imp graph JSON] --> integration[aura_integration]
+  integration --> composition[aura_composition]
+  integration --> scheduler[aura_scheduler]
+  integration --> dsp[aura_dsp]
+  integration --> wav[aura_io_wav]
 ```
 
 1. **Imp graph** — denotes `Time → Sample`; music nodes delegate to composition crates at translate time.
@@ -50,7 +50,7 @@ flowchart LR
 
 By default, each note is sampled as a **distinct instrument instance**, independent of other notes. Instrument parameter changes are **per note**, not global. Like MIDI velocity, each note may carry custom parameters and its own envelope.
 
-**Per-note parameters (`NoteParams`):** Each `NoteEvent` carries an extensible `HashMap<String, f64>` of custom parameters (e.g. `cutoff_mult` via [`note_params::CUTOFF_MULT`](../../crates/aura-composition/src/lib.rs)). Generators attach params at composition time; [`NoteSchedule`](../../crates/aura-integration/src/translate/note_schedule.rs) preserves velocity and params through the Imp path. Loop repetition wraps **beat time** over each score's measure-aligned `cycle_beats` (from `Score::with_cycle_measures`), then converts to seconds at the wired tempo. Graphs read params at sample time via the `note_param_at_time` node (translate-time `param` literal names the key) or the `velocity` output on `note_at_time`.
+**Per-note parameters (`NoteParams`):** Each `NoteEvent` carries an extensible `HashMap<String, f64>` of custom parameters (e.g. `cutoff_mult` via [`note_params::CUTOFF_MULT`](../../crates/aura_composition/src/lib.rs)). Generators attach params at composition time; [`NoteSchedule`](../../crates/aura_integration/src/translate/note_schedule.rs) preserves velocity and params through the Imp path. Loop repetition wraps **beat time** over each score's measure-aligned `cycle_beats` (from `Score::with_cycle_measures`), then converts to seconds at the wired tempo. Graphs read params at sample time via the `note_param_at_time` node (translate-time `param` literal names the key) or the `velocity` output on `note_at_time`.
 
 ### Rule 2: Future-aware sampling
 
@@ -101,22 +101,22 @@ Aura models music in its own terms: semitones, scale degrees, intervals, chords,
 
 | Crate | Role |
 |-------|------|
-| [`aura-composition`](../../crates/aura-composition) | Notation types, beat↔second conversion |
-| [`aura-composer`](../../crates/aura-composer) | Procedural generators (e.g. arpeggios, drum grids) |
-| [`aura-scheduler`](../../crates/aura-scheduler) | Offline timeline, frame offsets, `ScheduleContext` |
-| [`aura-instrumentation`](../../crates/aura-instrumentation) | `Instrument` trait, per-note render, mix-down |
-| [`aura-imp`](../../crates/aura-imp) | Imp node libraries and JSON helpers |
-| [`aura-dsp`](../../crates/aura-dsp) | Pure Time → Sample DSP functions |
-| [`aura-render`](../../crates/aura-render) | Offline sampling via `Sampler` |
-| [`aura-sample`](../../crates/aura-sample) | Sample rate, seconds→frames |
-| [`aura-integration`](../../crates/aura-integration) | Graph translation and render glue |
-| [`aura-cli`](../../crates/aura-cli) | Thin graph-driven CLI |
+| [`aura_composition`](../../crates/aura_composition) | Notation types, beat↔second conversion |
+| [`aura_composer`](../../crates/aura_composer) | Procedural generators (e.g. arpeggios, drum grids) |
+| [`aura_scheduler`](../../crates/aura_scheduler) | Offline timeline, frame offsets, `ScheduleContext` |
+| [`aura_instrumentation`](../../crates/aura_instrumentation) | `Instrument` trait, per-note render, mix-down |
+| [`aura_imp`](../../crates/aura_imp) | Imp node libraries and JSON helpers |
+| [`aura_dsp`](../../crates/aura_dsp) | Pure Time → Sample DSP functions |
+| [`aura_render`](../../crates/aura_render) | Offline sampling via `Sampler` |
+| [`aura_sample`](../../crates/aura_sample) | Sample rate, seconds→frames |
+| [`aura_integration`](../../crates/aura_integration) | Graph translation and render glue |
+| [`aura_cli`](../../crates/aura_cli) | Thin graph-driven CLI |
 
-Dependency direction flows inward. **Integration belongs at the surface**—`aura-integration`, CLI, and demo scripts declare every crate they wire together directly.
+Dependency direction flows inward. **Integration belongs at the surface**—`aura_integration`, CLI, and demo scripts declare every crate they wire together directly.
 
 ## Integration at the surface
 
-An indirect dependency is a hidden direct dependency. Core library crates expose focused APIs and must not bury orchestration. `aura-integration` and thin surface programs own the wiring: load graph → translate → sample → write WAV.
+An indirect dependency is a hidden direct dependency. Core library crates expose focused APIs and must not bury orchestration. `aura_integration` and thin surface programs own the wiring: load graph → translate → sample → write WAV.
 
 ## Open questions
 

@@ -25,3 +25,4 @@ Architecture and system design for Aura.
 | Document | Description |
 |----------|-------------|
 | [`architecture.md`](architecture.md) | High-level system overview and component boundaries |
+| [`../rust-style.md`](../rust-style.md) | Rust crate naming and layout conventions |

@@ -9,12 +9,12 @@ Aura needs notation types, procedural generators, temporal scheduling, and per-n
 ## Decision
 
 1. Add domain crates:
-   - **`aura-composition`** — notation types and musical-time utilities
-   - **`aura-composer`** — procedural generators
-   - **`aura-scheduler`** — offline beat→frame scheduling and `ScheduleContext` (lookahead)
-   - **`aura-instrumentation`** — `Instrument` trait, per-note sampling, mix-down
+   - **`aura_composition`** — notation types and musical-time utilities
+   - **`aura_composer`** — procedural generators
+   - **`aura_scheduler`** — offline beat→frame scheduling and `ScheduleContext` (lookahead)
+   - **`aura_instrumentation`** — `Instrument` trait, per-note sampling, mix-down
 
-2. Surface integration via **`aura-integration`** (library) and a thin graph-driven **`aura-cli`**. Demo graphs live under [`demos/`](../../demos/).
+2. Surface integration via **`aura_integration`** (library) and a thin graph-driven **`aura_cli`**. Demo graphs live under [`demos/`](../../demos/).
 
 3. Push orchestration to the surface. Core crates do not hide wiring behind transitive dependencies.
 
@@ -23,5 +23,5 @@ Aura needs notation types, procedural generators, temporal scheduling, and per-n
 ## Consequences
 
 - Clear separation: what (composition) → when (scheduler) → how (instrumentation/synthesis) → wiring (integration / CLI).
-- Smoke test: `./demos/render-all.sh` or `cargo run -p aura-cli -- --graph ... --output ...`.
+- Smoke test: `./demos/render-all.sh` or `cargo run -p aura_cli -- --graph ... --output ...`.
 - Live CPAL scheduling remains a follow-up.

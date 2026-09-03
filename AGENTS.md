@@ -12,6 +12,10 @@ Aura is procedural music composition and synthesis software, written primarily i
 
 Treat user instructions that define product behavior, architecture, or conventions as durable requirements. Capture them in the appropriate doc under `docs/` before or alongside code changes. One-off task instructions are execution context only.
 
+## Working conventions
+
+- Crate names use **snake_case** (`aura_scheduler`); follow [`docs/rust-style.md`](docs/rust-style.md).
+
 ## Commands
 
 ```bash
@@ -43,3 +47,4 @@ This workspace may mount multiple repositories. Each repo may have its own `AGEN
 - [`docs/requirements/`](docs/requirements/) — product definition and requirements
 - [`docs/design/`](docs/design/) — architecture and system design
 - [`docs/decisions/`](docs/decisions/) — architecture decision records (ADRs)
+- [`docs/rust-style.md`](docs/rust-style.md) — Rust crate naming and layout

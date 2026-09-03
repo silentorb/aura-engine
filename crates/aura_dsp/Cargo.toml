@@ -1,5 +1,5 @@
 [package]
-name = "aura-dsp"
+name = "aura_dsp"
 description = "Pure Time → Sample DSP functions for Aura"
 version.workspace = true
 edition.workspace = true

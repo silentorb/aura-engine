@@ -1,4 +1,4 @@
-# 0007. Drop FunDSP; pure aura-dsp Time → Sample functions
+# 0007. Drop FunDSP; pure aura_dsp Time → Sample functions
 
 Date: 2026-08-30
 
@@ -9,9 +9,9 @@ FunDSP's `AudioUnit::tick` model is sequentially stateful (phase accumulators, f
 ## Decision
 
 1. **Remove FunDSP** from the workspace dependency graph.
-2. **`aura-dsp`** provides pure functions such as `sine(frequency, time)`.
-3. **`aura-render`** samples `Sampler` implementations over a render interval.
-4. **`aura-io-wav`** writes mono `f32` PCM directly (no FunDSP `Wave`).
+2. **`aura_dsp`** provides pure functions such as `sine(frequency, time)`.
+3. **`aura_render`** samples `Sampler` implementations over a render interval.
+4. **`aura_io_wav`** writes mono `f32` PCM directly (no FunDSP `Wave`).
 5. Supersede the FunDSP role described in [0002](./0002-audio-stack.md); DASP and CPAL remain.
 
 ## Consequences

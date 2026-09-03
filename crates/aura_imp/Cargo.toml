@@ -1,5 +1,5 @@
 [package]
-name = "aura-imp"
+name = "aura_imp"
 description = "Imp graph integration for Aura"
 version.workspace = true
 edition.workspace = true

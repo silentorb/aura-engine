@@ -1,13 +1,13 @@
 [package]
-name = "aura-scheduler"
+name = "aura_scheduler"
 description = "Offline musical event scheduling for Aura"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-aura-composition = { path = "../aura-composition" }
-aura-sample = { path = "../aura-sample" }
+aura_composition = { path = "../aura_composition" }
+aura_sample = { path = "../aura_sample" }
 thiserror = { workspace = true }
 
 [dev-dependencies]

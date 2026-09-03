@@ -24,17 +24,17 @@ See [`notation-synthesis.md`](../design/notation-synthesis.md) and [`imp-executi
 
 | Domain | Description |
 |--------|-------------|
-| Composition | Notation types (`aura-composition`) and generators (`aura-composer`) |
-| Sequencing | Offline scheduling (`aura-scheduler`); live dispatch deferred |
-| Instrumentation | Per-note sampling and mix-down (`aura-instrumentation`) |
-| Synthesis | Imp graphs (`aura-imp`) and pure DSP (`aura-dsp`) |
-| Integration | Graph translation and sampling (`aura-integration`) |
+| Composition | Notation types (`aura_composition`) and generators (`aura_composer`) |
+| Sequencing | Offline scheduling (`aura_scheduler`); live dispatch deferred |
+| Instrumentation | Per-note sampling and mix-down (`aura_instrumentation`) |
+| Synthesis | Imp graphs (`aura_imp`) and pure DSP (`aura_dsp`) |
+| Integration | Graph translation and sampling (`aura_integration`) |
 | Rendering | Offline WAV export via thin CLI and demo scripts |
 
 ### Rendering (initial scope)
 
 - Load Imp JSON graphs; translate to `Sampler`; sample over a specified duration.
-- Write 32-bit float WAV files to untracked `output/` via `aura-cli` or [`demos/render-all.sh`](../../demos/render-all.sh).
+- Write 32-bit float WAV files to untracked `output/` via `aura_cli` or [`demos/render-all.sh`](../../demos/render-all.sh).
 - Real-time playback via CPAL is planned but deferred.
 
 ### Integration requirements

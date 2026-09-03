@@ -1,5 +1,5 @@
 [package]
-name = "aura-sample"
+name = "aura_sample"
 description = "Sample primitives and audio timing types for Aura"
 version.workspace = true
 edition.workspace = true

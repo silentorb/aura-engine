@@ -25,35 +25,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "aura-cli"
+name = "aura_cli"
 version = "0.1.0"
 dependencies = [
- "aura-integration",
- "aura-sample",
+ "aura_integration",
+ "aura_sample",
  "tempfile",
  "thiserror 2.0.20",
 ]
 
 [[package]]
-name = "aura-composer"
+name = "aura_composer"
 version = "0.1.0"
 dependencies = [
- "aura-composition",
+ "aura_composition",
 ]
 
 [[package]]
-name = "aura-composition"
+name = "aura_composition"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.20",
 ]
 
 [[package]]
-name = "aura-dsp"
+name = "aura_dsp"
 version = "0.1.0"
 
 [[package]]
-name = "aura-imp"
+name = "aura_imp"
 version = "0.1.0"
 dependencies = [
  "imp_core_types",
@@ -67,30 +67,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "aura-instrumentation"
+name = "aura_instrumentation"
 version = "0.1.0"
 dependencies = [
- "aura-composer",
- "aura-composition",
- "aura-dsp",
- "aura-sample",
- "aura-scheduler",
+ "aura_composer",
+ "aura_composition",
+ "aura_dsp",
+ "aura_sample",
+ "aura_scheduler",
  "thiserror 2.0.20",
 ]
 
 [[package]]
-name = "aura-integration"
+name = "aura_integration"
 version = "0.1.0"
 dependencies = [
- "aura-composer",
- "aura-composition",
- "aura-dsp",
- "aura-imp",
- "aura-instrumentation",
- "aura-io-wav",
- "aura-render",
- "aura-sample",
- "aura-scheduler",
+ "aura_composer",
+ "aura_composition",
+ "aura_dsp",
+ "aura_imp",
+ "aura_instrumentation",
+ "aura_io_wav",
+ "aura_render",
+ "aura_sample",
+ "aura_scheduler",
  "imp_graph_resolve",
  "imp_typecheck",
  "serde_json",
@@ -99,37 +99,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "aura-io-cpal"
+name = "aura_io_cpal"
 version = "0.1.0"
 dependencies = [
- "aura-render",
- "aura-sample",
+ "aura_render",
+ "aura_sample",
  "cpal",
  "dasp_sample",
 ]
 
 [[package]]
-name = "aura-io-wav"
+name = "aura_io_wav"
 version = "0.1.0"
 dependencies = [
- "aura-dsp",
- "aura-render",
- "aura-sample",
+ "aura_dsp",
+ "aura_render",
+ "aura_sample",
  "tempfile",
  "thiserror 2.0.20",
 ]
 
 [[package]]
-name = "aura-render"
+name = "aura_render"
 version = "0.1.0"
 dependencies = [
- "aura-dsp",
- "aura-sample",
+ "aura_dsp",
+ "aura_sample",
  "thiserror 2.0.20",
 ]
 
 [[package]]
-name = "aura-sample"
+name = "aura_sample"
 version = "0.1.0"
 dependencies = [
  "dasp_sample",
@@ -138,11 +138,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "aura-scheduler"
+name = "aura_scheduler"
 version = "0.1.0"
 dependencies = [
- "aura-composition",
- "aura-sample",
+ "aura_composition",
+ "aura_sample",
  "thiserror 2.0.20",
 ]
 

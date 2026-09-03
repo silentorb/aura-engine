@@ -40,4 +40,4 @@ What becomes easier or harder as a result?
 | [0004](0004-imp-integration.md) | Imp integration | 2026-08-29 | Accepted |
 | [0005](0005-composition-instrumentation-crates.md) | Composition, scheduler, and instrumentation crates | 2026-08-30 | Accepted |
 | [0006](0006-imp-time-to-sample.md) | Imp graphs as Time → Sample functions | 2026-08-30 | Accepted |
-| [0007](0007-drop-fundsp.md) | Drop FunDSP; pure aura-dsp | 2026-08-30 | Accepted |
+| [0007](0007-drop-fundsp.md) | Drop FunDSP; pure aura_dsp | 2026-08-30 | Accepted |

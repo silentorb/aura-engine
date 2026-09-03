@@ -1,15 +1,15 @@
 [package]
-name = "aura-io-wav"
+name = "aura_io_wav"
 description = "WAV file I/O for Aura"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-aura-render = { path = "../aura-render" }
-aura-sample = { path = "../aura-sample" }
+aura_render = { path = "../aura_render" }
+aura_sample = { path = "../aura_sample" }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-aura-dsp = { path = "../aura-dsp" }
+aura_dsp = { path = "../aura_dsp" }

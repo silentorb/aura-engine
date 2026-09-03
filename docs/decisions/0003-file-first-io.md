@@ -8,10 +8,10 @@ The initial development environment is WSL/devcontainer, where real-time audio o
 
 ## Decision
 
-Implement offline WAV export first via `aura-io-wav` (32-bit float). Add `aura-io-cpal` as a compile-time stub with sample conversion tests but no active playback. Default CLI output goes to the gitignored `output/` directory.
+Implement offline WAV export first via `aura_io_wav` (32-bit float). Add `aura_io_cpal` as a compile-time stub with sample conversion tests but no active playback. Default CLI output goes to the gitignored `output/` directory.
 
 ## Consequences
 
 - Development and CI can validate audio generation without audio hardware.
-- Real-time playback is deferred; `aura-io-cpal` must be completed before live output.
+- Real-time playback is deferred; `aura_io_cpal` must be completed before live output.
 - FunDSP native WAV I/O (`Wave::save_wav32`) is sufficient for now; `hound` can be added later if CPAL interop requires it.

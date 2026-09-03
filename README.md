@@ -30,7 +30,7 @@ This renders `demos/demo-01.json` to `output/demo-01.wav` (32-bit float, mono, 4
 ### CLI
 
 ```bash
-cargo run -p aura-cli -- \
+cargo run -p aura_cli -- \
   --graph demos/demo-01.json \
   --output output/demo-01.wav \
   --duration 2m \
@@ -53,18 +53,18 @@ aura --graph PATH --output PATH [OPTIONS]
 
 | Crate | Purpose |
 |-------|---------|
-| `aura-sample` | DASP sample primitives and timing types |
-| `aura-composition` | Notation types and musical time |
-| `aura-composer` | Procedural composition generators |
-| `aura-scheduler` | Offline event scheduling |
-| `aura-instrumentation` | Per-note instruments and mix-down |
-| `aura-imp` | Imp node libraries and JSON helpers |
-| `aura-dsp` | Pure Time → Sample DSP functions |
-| `aura-render` | Offline sampling via `Sampler` |
-| `aura-io-wav` | WAV file I/O |
-| `aura-io-cpal` | CPAL playback stub (deferred) |
-| `aura-integration` | Imp graph translation and render glue |
-| `aura-cli` | Thin graph-driven CLI |
+| `aura_sample` | DASP sample primitives and timing types |
+| `aura_composition` | Notation types and musical time |
+| `aura_composer` | Procedural composition generators |
+| `aura_scheduler` | Offline event scheduling |
+| `aura_instrumentation` | Per-note instruments and mix-down |
+| `aura_imp` | Imp node libraries and JSON helpers |
+| `aura_dsp` | Pure Time → Sample DSP functions |
+| `aura_render` | Offline sampling via `Sampler` |
+| `aura_io_wav` | WAV file I/O |
+| `aura_io_cpal` | CPAL playback stub (deferred) |
+| `aura_integration` | Imp graph translation and render glue |
+| `aura_cli` | Thin graph-driven CLI |
 
 ## Dependency graph
 
@@ -75,17 +75,17 @@ flowchart TD
     impReg[imp_registry]
   end
 
-  sample[aura-sample]
-  composition[aura-composition]
-  composer[aura-composer]
-  scheduler[aura-scheduler]
-  instrumentation[aura-instrumentation]
-  auraImp[aura-imp]
-  dsp[aura-dsp]
-  render[aura-render]
-  ioWav[aura-io-wav]
-  integration[aura-integration]
-  cli[aura-cli]
+  sample[aura_sample]
+  composition[aura_composition]
+  composer[aura_composer]
+  scheduler[aura_scheduler]
+  instrumentation[aura_instrumentation]
+  auraImp[aura_imp]
+  dsp[aura_dsp]
+  render[aura_render]
+  ioWav[aura_io_wav]
+  integration[aura_integration]
+  cli[aura_cli]
 
   auraImp --> impCore
   auraImp --> impReg

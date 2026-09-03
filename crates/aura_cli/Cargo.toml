@@ -1,5 +1,5 @@
 [package]
-name = "aura-cli"
+name = "aura_cli"
 description = "Aura command-line interface"
 version.workspace = true
 edition.workspace = true
@@ -10,8 +10,8 @@ name = "aura"
 path = "src/main.rs"
 
 [dependencies]
-aura-integration = { path = "../aura-integration" }
-aura-sample = { path = "../aura-sample" }
+aura_integration = { path = "../aura_integration" }
+aura_sample = { path = "../aura_sample" }
 thiserror = { workspace = true }
 
 [dev-dependencies]

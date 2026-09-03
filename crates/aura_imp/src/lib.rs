@@ -1,7 +1,7 @@
 //! Imp graph integration for Aura.
 //!
 //! Aura Imp graphs denote pure **Time → Sample** functions. Translation and sampling
-//! live in `aura-integration`; this crate provides node libraries and JSON helpers.
+//! live in `aura_integration`; this crate provides node libraries and JSON helpers.
 
 pub mod constraints;
 pub mod dsp;
