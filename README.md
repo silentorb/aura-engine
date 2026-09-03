@@ -54,8 +54,8 @@ aura --graph PATH --output PATH [OPTIONS]
 | Crate | Purpose |
 |-------|---------|
 | `aura_sample` | DASP sample primitives and timing types |
-| `aura_composition` | Notation types and musical time |
-| `aura_composer` | Procedural composition generators |
+| `aura_sequencing` | Notation types and musical time |
+| `aura_composition` | Procedural composition generators |
 | `aura_scheduler` | Offline event scheduling |
 | `aura_instrumentation` | Per-note instruments and mix-down |
 | `aura_imp` | Imp node libraries and JSON helpers |
@@ -76,8 +76,8 @@ flowchart TD
   end
 
   sample[aura_sample]
+  sequencing[aura_sequencing]
   composition[aura_composition]
-  composer[aura_composer]
   scheduler[aura_scheduler]
   instrumentation[aura_instrumentation]
   auraImp[aura_imp]
@@ -89,8 +89,8 @@ flowchart TD
 
   auraImp --> impCore
   auraImp --> impReg
-  composer --> composition
-  scheduler --> composition
+  composition --> sequencing
+  scheduler --> sequencing
   scheduler --> sample
   instrumentation --> scheduler
   instrumentation --> dsp
@@ -100,7 +100,7 @@ flowchart TD
   ioWav --> render
   ioWav --> sample
   integration --> auraImp
-  integration --> composer
+  integration --> composition
   integration --> scheduler
   integration --> instrumentation
   integration --> dsp

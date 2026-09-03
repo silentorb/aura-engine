@@ -1,11 +1,11 @@
 [package]
 name = "aura_composition"
-description = "Musical notation types and utilities for Aura"
+description = "Procedural composition generators for Aura"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-thiserror = { workspace = true }
+aura_sequencing = { path = "../aura_sequencing" }
 
 [dev-dependencies]

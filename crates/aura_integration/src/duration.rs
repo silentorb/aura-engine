@@ -1,6 +1,6 @@
 //! Duration specification for graph rendering.
 
-use aura_composition::{Tempo, TimeSignature};
+use aura_sequencing::{Tempo, TimeSignature};
 use aura_sample::SampleRate;
 
 /// How long to sample a graph.

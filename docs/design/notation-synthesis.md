@@ -32,6 +32,7 @@ See also [`architecture.md`](architecture.md) and [`imp-execution.md`](imp-execu
 ```mermaid
 flowchart LR
   graph[Imp graph JSON] --> integration[aura_integration]
+  integration --> sequencing[aura_sequencing]
   integration --> composition[aura_composition]
   integration --> scheduler[aura_scheduler]
   integration --> dsp[aura_dsp]
@@ -50,7 +51,7 @@ flowchart LR
 
 By default, each note is sampled as a **distinct instrument instance**, independent of other notes. Instrument parameter changes are **per note**, not global. Like MIDI velocity, each note may carry custom parameters and its own envelope.
 
-**Per-note parameters (`NoteParams`):** Each `NoteEvent` carries an extensible `HashMap<String, f64>` of custom parameters (e.g. `cutoff_mult` via [`note_params::CUTOFF_MULT`](../../crates/aura_composition/src/lib.rs)). Generators attach params at composition time; [`NoteSchedule`](../../crates/aura_integration/src/translate/note_schedule.rs) preserves velocity and params through the Imp path. Loop repetition wraps **beat time** over each score's measure-aligned `cycle_beats` (from `Score::with_cycle_measures`), then converts to seconds at the wired tempo. Graphs read params at sample time via the `note_param_at_time` node (translate-time `param` literal names the key) or the `velocity` output on `note_at_time`.
+**Per-note parameters (`NoteParams`):** Each `NoteEvent` carries an extensible `HashMap<String, f64>` of custom parameters (e.g. `cutoff_mult` via [`note_params::CUTOFF_MULT`](../../crates/aura_sequencing/src/lib.rs)). Generators attach params at composition time; [`NoteSchedule`](../../crates/aura_integration/src/translate/note_schedule.rs) preserves velocity and params through the Imp path. Loop repetition wraps **beat time** over each score's measure-aligned `cycle_beats` (from `Score::with_cycle_measures`), then converts to seconds at the wired tempo. Graphs read params at sample time via the `note_param_at_time` node (translate-time `param` literal names the key) or the `velocity` output on `note_at_time`.
 
 ### Rule 2: Future-aware sampling
 
@@ -101,8 +102,8 @@ Aura models music in its own terms: semitones, scale degrees, intervals, chords,
 
 | Crate | Role |
 |-------|------|
-| [`aura_composition`](../../crates/aura_composition) | Notation types, beat↔second conversion |
-| [`aura_composer`](../../crates/aura_composer) | Procedural generators (e.g. arpeggios, drum grids) |
+| [`aura_sequencing`](../../crates/aura_sequencing) | Notation types, beat↔second conversion |
+| [`aura_composition`](../../crates/aura_composition) | Procedural generators (e.g. arpeggios, drum grids) |
 | [`aura_scheduler`](../../crates/aura_scheduler) | Offline timeline, frame offsets, `ScheduleContext` |
 | [`aura_instrumentation`](../../crates/aura_instrumentation) | `Instrument` trait, per-note render, mix-down |
 | [`aura_imp`](../../crates/aura_imp) | Imp node libraries and JSON helpers |

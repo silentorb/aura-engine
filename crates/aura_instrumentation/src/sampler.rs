@@ -65,12 +65,12 @@ pub enum SampleError {
 mod tests {
     use super::*;
     use crate::sine::SineInstrument;
-    use aura_composition::{NoteEvent, Score, Semitone, Tempo, TimeSignature};
+    use aura_sequencing::{NoteEvent, Score, Semitone, Tempo, TimeSignature};
     use aura_scheduler::schedule_offline;
     use aura_sample::SampleRate;
 
     fn arpeggio_score() -> Score {
-        aura_composer::arpeggio(aura_composer::ArpeggioConfig {
+        aura_composition::arpeggio(aura_composition::ArpeggioConfig {
             subdivision: 16,
             ..Default::default()
         })

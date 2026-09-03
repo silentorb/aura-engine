@@ -6,8 +6,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-aura_composer = { path = "../aura_composer" }
 aura_composition = { path = "../aura_composition" }
+aura_sequencing = { path = "../aura_sequencing" }
 aura_dsp = { path = "../aura_dsp" }
 aura_imp = { path = "../aura_imp" }
 aura_instrumentation = { path = "../aura_instrumentation" }

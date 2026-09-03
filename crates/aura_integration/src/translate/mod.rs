@@ -3,11 +3,11 @@
 mod note_schedule;
 
 use note_schedule::NoteSchedule;
-use aura_composer::{
+use aura_composition::{
     arpeggio, bass_line, drum_grid, epic_minor_progression, ArpeggioConfig, BassLineConfig,
     DrumGridConfig, DrumLane,
 };
-use aura_composition::{
+use aura_sequencing::{
     ChordProgression, ChordSignal, ProgressionSignal, Score, ScoreSignal, Semitone, Tempo,
     TimeSignature,
 };
@@ -1600,7 +1600,7 @@ mod tests {
 
     #[test]
     fn looped_note_envelope_is_active_in_second_cycle() {
-        use aura_composer::{arpeggio, ArpeggioConfig};
+        use aura_composition::{arpeggio, ArpeggioConfig};
 
         let score = arpeggio(ArpeggioConfig::default());
         let signal = ScoreSignal::finite(score).with_looping(true);

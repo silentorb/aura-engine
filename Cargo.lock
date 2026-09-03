@@ -35,17 +35,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "aura_composer"
-version = "0.1.0"
-dependencies = [
- "aura_composition",
-]
-
-[[package]]
 name = "aura_composition"
 version = "0.1.0"
 dependencies = [
- "thiserror 2.0.20",
+ "aura_sequencing",
 ]
 
 [[package]]
@@ -70,11 +63,11 @@ dependencies = [
 name = "aura_instrumentation"
 version = "0.1.0"
 dependencies = [
- "aura_composer",
  "aura_composition",
  "aura_dsp",
  "aura_sample",
  "aura_scheduler",
+ "aura_sequencing",
  "thiserror 2.0.20",
 ]
 
@@ -82,7 +75,6 @@ dependencies = [
 name = "aura_integration"
 version = "0.1.0"
 dependencies = [
- "aura_composer",
  "aura_composition",
  "aura_dsp",
  "aura_imp",
@@ -91,6 +83,7 @@ dependencies = [
  "aura_render",
  "aura_sample",
  "aura_scheduler",
+ "aura_sequencing",
  "imp_graph_resolve",
  "imp_typecheck",
  "serde_json",
@@ -141,8 +134,15 @@ dependencies = [
 name = "aura_scheduler"
 version = "0.1.0"
 dependencies = [
- "aura_composition",
  "aura_sample",
+ "aura_sequencing",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "aura_sequencing"
+version = "0.1.0"
+dependencies = [
  "thiserror 2.0.20",
 ]
 

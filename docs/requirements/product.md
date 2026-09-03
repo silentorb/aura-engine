@@ -24,8 +24,8 @@ See [`notation-synthesis.md`](../design/notation-synthesis.md) and [`imp-executi
 
 | Domain | Description |
 |--------|-------------|
-| Composition | Notation types (`aura_composition`) and generators (`aura_composer`) |
-| Sequencing | Offline scheduling (`aura_scheduler`); live dispatch deferred |
+| Sequencing | Notation types (`aura_sequencing`); offline scheduling (`aura_scheduler`); live dispatch deferred |
+| Composition | Procedural generators (`aura_composition`) |
 | Instrumentation | Per-note sampling and mix-down (`aura_instrumentation`) |
 | Synthesis | Imp graphs (`aura_imp`) and pure DSP (`aura_dsp`) |
 | Integration | Graph translation and sampling (`aura_integration`) |

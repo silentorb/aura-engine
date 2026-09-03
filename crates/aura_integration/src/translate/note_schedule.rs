@@ -1,6 +1,6 @@
 //! Sample-time note lookup from a score.
 
-use aura_composition::{beats_to_seconds, wrap_beat, NoteParams, Score, ScoreSignal, Semitone, Tempo};
+use aura_sequencing::{beats_to_seconds, wrap_beat, NoteParams, Score, ScoreSignal, Semitone, Tempo};
 use aura_sample::SampleRate;
 
 #[derive(Debug, Clone)]
@@ -119,10 +119,10 @@ impl NoteSchedule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aura_composer::{
+    use aura_composition::{
         arpeggio, bass_line, drum_grid, ArpeggioConfig, BassLineConfig, DrumGridConfig, DrumLane,
     };
-    use aura_composition::{note_params, ScoreSignal};
+    use aura_sequencing::{note_params, ScoreSignal};
 
     #[test]
     fn active_at_finds_note_window() {
@@ -174,11 +174,11 @@ mod tests {
 
     #[test]
     fn looped_demo_channels_stay_phase_locked_over_many_cycles() {
-        use aura_composer::{
+        use aura_composition::{
             arpeggio, bass_line, drum_grid, epic_minor_progression, ArpeggioConfig,
             BassLineConfig, DrumGridConfig, DrumLane,
         };
-        use aura_composition::{ScoreSignal, Semitone, TimeSignature};
+        use aura_sequencing::{ScoreSignal, Semitone, TimeSignature};
 
         let progression = epic_minor_progression(Semitone::A3, 1, TimeSignature::FOUR_FOUR);
         let arp_config = ArpeggioConfig {

@@ -131,7 +131,7 @@ pub fn parse_duration_spec(input: &str, tempo_bpm: f64) -> Result<DurationSpec, 
 
     if let Some(stripped) = trimmed.strip_suffix('m') {
         let measures: f64 = stripped.parse().map_err(|_| DurationParseError::InvalidMeasures(0.0))?;
-        let tempo = aura_composition::Tempo::new(tempo_bpm)
+        let tempo = aura_sequencing::Tempo::new(tempo_bpm)
             .map_err(|_| DurationParseError::InvalidMeasures(measures))?;
         return Ok(DurationSpec::measures_4_4(measures, tempo));
     }
@@ -157,7 +157,7 @@ mod tests {
         let measures = parse_duration_spec("2m", 120.0).expect("measures");
         assert_eq!(
             measures,
-            DurationSpec::measures_4_4(2.0, aura_composition::Tempo::default()),
+            DurationSpec::measures_4_4(2.0, aura_sequencing::Tempo::default()),
         );
     }
 
@@ -177,7 +177,7 @@ mod tests {
         let loaded = load_graph(&workspace_demo_path("demo-01.json")).expect("load");
         let spec = SampleSpec {
             sample_rate: SampleRate::RATE_44100,
-            duration: DurationSpec::measures_4_4(8.0, aura_composition::Tempo::default()),
+            duration: DurationSpec::measures_4_4(8.0, aura_sequencing::Tempo::default()),
         };
         let pcm = render_graph_to_pcm(&loaded, spec).expect("render");
         assert_eq!(pcm.len(), 705_600);

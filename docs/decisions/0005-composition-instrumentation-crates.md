@@ -9,8 +9,8 @@ Aura needs notation types, procedural generators, temporal scheduling, and per-n
 ## Decision
 
 1. Add domain crates:
-   - **`aura_composition`** — notation types and musical-time utilities
-   - **`aura_composer`** — procedural generators
+   - **`aura_sequencing`** — notation types and musical-time utilities
+   - **`aura_composition`** — procedural generators
    - **`aura_scheduler`** — offline beat→frame scheduling and `ScheduleContext` (lookahead)
    - **`aura_instrumentation`** — `Instrument` trait, per-note sampling, mix-down
 

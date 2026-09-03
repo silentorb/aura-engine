@@ -8,7 +8,8 @@ Aura is a **library-first framework**. Surface programs load Imp graphs and rend
 
 | Component | Role |
 |-----------|------|
-| Composition | Notation types (`aura_composition`) and procedural generators (`aura_composer`) |
+| Sequencing | Notation types and musical time (`aura_sequencing`) |
+| Composition | Procedural generators (`aura_composition`) |
 | Scheduler | Offline timeline and event dispatch (`aura_scheduler`); live CPAL dispatch deferred |
 | Synthesizer | Imp node libraries (`aura_imp`) and pure DSP (`aura_dsp`) |
 | Integration | Graph translation and sampling (`aura_integration`) |
@@ -20,9 +21,9 @@ Aura is a **library-first framework**. Surface programs load Imp graphs and rend
 | Crate | Role | Key dependencies |
 |-------|------|------------------|
 | [`aura_sample`](../../crates/aura_sample) | Sample primitives, sample rate, timing math | DASP |
-| [`aura_composition`](../../crates/aura_composition) | Notation types, musical time | thiserror |
-| [`aura_composer`](../../crates/aura_composer) | Procedural generators | aura_composition |
-| [`aura_scheduler`](../../crates/aura_scheduler) | Offline schedule, lookahead context | aura_composition, aura_sample |
+| [`aura_sequencing`](../../crates/aura_sequencing) | Notation types, musical time | thiserror |
+| [`aura_composition`](../../crates/aura_composition) | Procedural generators | aura_sequencing |
+| [`aura_scheduler`](../../crates/aura_scheduler) | Offline schedule, lookahead context | aura_sequencing, aura_sample |
 | [`aura_instrumentation`](../../crates/aura_instrumentation) | Instruments, per-note render, mix-down | aura_scheduler, aura_dsp, aura_sample |
 | [`aura_imp`](../../crates/aura_imp) | Imp node libraries and JSON helpers | imp_core_types, imp_registry |
 | [`aura_dsp`](../../crates/aura_dsp) | Pure Time → Sample DSP functions | — |

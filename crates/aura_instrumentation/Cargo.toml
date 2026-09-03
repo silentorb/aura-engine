@@ -6,12 +6,12 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-aura_composition = { path = "../aura_composition" }
+aura_sequencing = { path = "../aura_sequencing" }
 aura_dsp = { path = "../aura_dsp" }
 aura_sample = { path = "../aura_sample" }
 aura_scheduler = { path = "../aura_scheduler" }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-aura_composer = { path = "../aura_composer" }
+aura_composition = { path = "../aura_composition" }
 aura_scheduler = { path = "../aura_scheduler" }

@@ -1,6 +1,6 @@
 //! Offline musical event scheduling for Aura.
 
-use aura_composition::{beats_to_seconds, sort_events_by_start, NoteEvent, Score};
+use aura_sequencing::{beats_to_seconds, sort_events_by_start, NoteEvent, Score};
 use aura_sample::{duration_to_frame_count, SampleRate};
 use thiserror::Error;
 
@@ -109,7 +109,7 @@ pub enum ScheduleError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aura_composition::{NoteEvent, Semitone, Tempo, TimeSignature};
+    use aura_sequencing::{NoteEvent, Semitone, Tempo, TimeSignature};
 
     fn sample_score() -> Score {
         Score::new(

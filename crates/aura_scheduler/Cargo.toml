@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-aura_composition = { path = "../aura_composition" }
+aura_sequencing = { path = "../aura_sequencing" }
 aura_sample = { path = "../aura_sample" }
 thiserror = { workspace = true }
 

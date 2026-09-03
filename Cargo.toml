@@ -2,8 +2,8 @@
 resolver = "2"
 members = [
     "crates/aura_sample",
+    "crates/aura_sequencing",
     "crates/aura_composition",
-    "crates/aura_composer",
     "crates/aura_scheduler",
     "crates/aura_instrumentation",
     "crates/aura_imp",
