@@ -82,7 +82,7 @@ By default, instruments resolve harmony **once at note-on** (`start_beats` / `st
 Percussion in the arpeggio demo uses **separate scores per lane** (kick and snare each get their own `drum_grid` → `note_at_time` chain) because different hits need different synthesis subgraphs. Lanes are mixed at sample time with an `add` node.
 
 - **Kick** — `exponential_sweep_sine` (closed-form pitch drop) × `linear_adsr` amplitude envelope.
-- **Snare** — deterministic noise through a **stateless high-pass** (`noise(t) - noise(t - dt)`), not an IIR filter, to stay compatible with seekable pure `f(t)` sampling ([ADR 0007](../decisions/0007-drop-fundsp.md)).
+- **Snare** — deterministic noise through a **stateless high-pass** (`noise(t) - noise(t - dt)`), not an IIR filter, to stay compatible with seekable pure `f(t)` sampling (see [`imp-execution.md`](imp-execution.md) and [`../crates/aura_dsp/design/overview.md`](../crates/aura_dsp/design/overview.md)).
 
 Drum hits use `NoteEvent` timing only; semitone is unused on drum lanes.
 

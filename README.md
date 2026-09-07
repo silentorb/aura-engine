@@ -112,7 +112,7 @@ flowchart TD
 
 ## Documentation
 
-- [`docs/`](docs/) — requirements, design, and decision records
+- [`docs/`](docs/) — scoping (motivation) and design (declarative requirements), including per-crate docs
 - [`AGENTS.md`](AGENTS.md) — agent workflow and conventions
 
 ## License

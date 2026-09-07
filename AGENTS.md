@@ -6,11 +6,28 @@ Aura is procedural music composition and synthesis software, written primarily i
 
 ## Source of truth
 
-[`docs/README.md`](docs/README.md) is the entry point for all project documentation. Requirements and design docs under `docs/` define what the software should be; code must conform to them. When docs and code disagree, update code or explicitly revise the doc — never silently drift.
+[`docs/README.md`](docs/README.md) is the entry point for all project documentation. **Design** docs under `docs/` define what the software must be (declarative requirements); code must conform to them. **Scoping** holds motivation and context. When docs and code disagree, update code or explicitly revise the doc — never silently drift.
 
-## Persistent requirements
+## Scoping vs design
 
-Treat user instructions that define product behavior, architecture, or conventions as durable requirements. Capture them in the appropriate doc under `docs/` before or alongside code changes. One-off task instructions are execution context only.
+Follow [Silent Orb: Scoping and Design](https://silentorb.com/business/product/scoping-and-design/):
+
+- **Scoping** (`docs/scoping/`, `docs/crates/<crate>/scoping/`) — gather motivation, goals, background, inspiration, context (write-friendly).
+- **Design** (`docs/design/`, `docs/crates/<crate>/design/`) — refine into declarative requirements that define the product (read-friendly). Design may link to scoping for motivation origins.
+
+Prefer gather then refine. When phases overlap, switch modes consciously. Do not keep an append-only decision log; edit living design in place.
+
+## Capturing durable intent
+
+Treat user instructions that define product behavior, architecture, or conventions as durable. Before or alongside code changes:
+
+1. Capture **why** (goals, intent, background) in the appropriate **scoping** doc.
+2. Capture **what must be true** (requirements, non-goals, avoided approaches) in the appropriate **design** doc.
+3. Leave one-off task instructions as execution context only.
+
+Plans that change durable intent must include an explicit scoping and/or design update step.
+
+When reversing a direction: add a brief avoided-approach requirement in design; optionally note background in scoping; remove obsolete design prescriptions.
 
 ## Working conventions
 
@@ -44,7 +61,24 @@ This workspace may mount multiple repositories. Each repo may have its own `AGEN
 
 ## Where to look
 
-- [`docs/requirements/`](docs/requirements/) — product definition and requirements
-- [`docs/design/`](docs/design/) — architecture and system design
-- [`docs/decisions/`](docs/decisions/) — architecture decision records (ADRs)
+- [`docs/scoping/`](docs/scoping/) — product motivation, goals, background
+- [`docs/design/`](docs/design/) — cross-cutting declarative design
+- [`docs/crates/`](docs/crates/) — per-crate scoping and design
 - [`docs/rust-style.md`](docs/rust-style.md) — Rust crate naming and layout
+
+### Crate docs
+
+| Crate | Design |
+|-------|--------|
+| `aura_sample` | [`docs/crates/aura_sample/design/overview.md`](docs/crates/aura_sample/design/overview.md) |
+| `aura_sequencing` | [`docs/crates/aura_sequencing/design/overview.md`](docs/crates/aura_sequencing/design/overview.md) |
+| `aura_composition` | [`docs/crates/aura_composition/design/overview.md`](docs/crates/aura_composition/design/overview.md) |
+| `aura_scheduler` | [`docs/crates/aura_scheduler/design/overview.md`](docs/crates/aura_scheduler/design/overview.md) |
+| `aura_instrumentation` | [`docs/crates/aura_instrumentation/design/overview.md`](docs/crates/aura_instrumentation/design/overview.md) |
+| `aura_imp` | [`docs/crates/aura_imp/design/overview.md`](docs/crates/aura_imp/design/overview.md) |
+| `aura_dsp` | [`docs/crates/aura_dsp/design/overview.md`](docs/crates/aura_dsp/design/overview.md) |
+| `aura_render` | [`docs/crates/aura_render/design/overview.md`](docs/crates/aura_render/design/overview.md) |
+| `aura_io_wav` | [`docs/crates/aura_io_wav/design/overview.md`](docs/crates/aura_io_wav/design/overview.md) |
+| `aura_io_cpal` | [`docs/crates/aura_io_cpal/design/overview.md`](docs/crates/aura_io_cpal/design/overview.md) |
+| `aura_integration` | [`docs/crates/aura_integration/design/overview.md`](docs/crates/aura_integration/design/overview.md) |
+| `aura_cli` | [`docs/crates/aura_cli/design/overview.md`](docs/crates/aura_cli/design/overview.md) |

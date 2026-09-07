@@ -1,8 +1,8 @@
 # Architecture
 
-High-level system overview for Aura.
+Declarative system requirements for Aura’s crate layout and data flow.
 
-Aura is a **library-first framework**. Surface programs load Imp graphs and render audio via [`aura_integration`](../../crates/aura_integration). See [`notation-synthesis.md`](notation-synthesis.md) and [`imp-execution.md`](imp-execution.md).
+Aura is a **library-first framework**. Surface programs load Imp graphs and render audio via [`aura_integration`](../../crates/aura_integration). See [`notation-synthesis.md`](notation-synthesis.md) and [`imp-execution.md`](imp-execution.md). Motivation: [`../scoping/background.md`](../scoping/background.md).
 
 ## High-level components
 
@@ -17,6 +17,8 @@ Aura is a **library-first framework**. Surface programs load Imp graphs and rend
 | I/O | Offline WAV export (`aura_io_wav`); CPAL playback stub (`aura_io_cpal`, deferred) |
 
 ## Crate layout
+
+Organize Rust source as a Cargo workspace of small crates under `crates/`. New features land in the smallest crate that owns the concern. Crate boundaries enforce explicit `Cargo.toml` dependencies; cross-crate APIs are deliberate.
 
 | Crate | Role | Key dependencies |
 |-------|------|------------------|
@@ -35,9 +37,22 @@ Aura is a **library-first framework**. Surface programs load Imp graphs and rend
 
 Dependency direction flows inward: surface programs → integration → I/O → render → domain crates → sample / dsp → imp.
 
+Per-crate design: [`../crates/`](../crates/).
+
 ### Surface integration
 
 An indirect dependency is a hidden direct dependency. Orchestration lives in `aura_integration` and thin surface programs (`aura_cli`, demo scripts), not inside core libraries.
+
+## Audio stack roles
+
+| Library / crate | Role |
+|-----------------|------|
+| **DASP** (`dasp_sample`, `dasp_signal`) | Sample type traits and signal abstractions; bridges PCM to CPAL formats |
+| **CPAL** | Cross-platform real-time audio I/O (deferred in devcontainer) |
+| **`aura_dsp`** | Pure `Time → Sample` functions |
+| **`aura_io_wav`** | Offline 32-bit float WAV I/O |
+
+Offline and future real-time paths must share the same pure `Sampler::at(t)` functions.
 
 ## Data flow
 
@@ -64,11 +79,17 @@ Music nodes (`arpeggio`, `epic_minor_progression`, `note_at_time`, …) delegate
 
 Future CPAL output will call the same `Sampler::at(t)` functions (or block variants) as offline rendering.
 
-## Considerations
+## Constraints
 
-- **Real-time audio** — deferred in WSL/devcontainer
+- **Real-time audio** — deferred in WSL/devcontainer; file-first WAV is the primary validation path
 - **Determinism** — pure `f(t)` sampling; see [`notation-synthesis.md`](notation-synthesis.md)
 - **Modularity** — composition, scheduling, instrumentation, and synthesis are separable via crate boundaries
+
+## Non-goals / avoided approaches
+
+- A single monolithic crate for all Aura domains
+- FunDSP-style sequential `tick` DSP as the primary synthesis model
+- Hiding surface orchestration behind transitive core-crate dependencies
 
 ## Open questions
 
