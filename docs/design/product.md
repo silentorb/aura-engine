@@ -30,10 +30,19 @@ Declarative product requirements for Aura. Motivation and goals: [`../scoping/pr
 
 Detail: [`notation-synthesis.md`](notation-synthesis.md).
 
+## Repository boundaries
+
+- **aura-engine** (this repo) owns Rust crates, product docs, and demos.
+- **aura-workbench** owns Dev Container / Compose orchestration and multi-repo mounts.
+- **aura-editor** owns editor UI (separate from the engine crate tree).
+
+Repos and projects use kebab-case; Rust crates use snake_case.
+
 ## Non-goals / avoided approaches
 
 - Live CPAL playback until the dev environment supports it reliably
 - Stock `imp_execution` for Aura’s primary sampler path
 - FunDSP-style sequential `tick` DSP for the primary synthesis path
+- Embedding workbench orchestration (Compose/Dev Container entrypoint) inside this engine repo
 
 Background: [`../scoping/background.md`](../scoping/background.md).

@@ -25,4 +25,4 @@ Optimize for **capture** over perfect organization. Prefer adding a short note t
 | Document | Description |
 |----------|-------------|
 | [`product.md`](product.md) | Vision, goals, open questions |
-| [`background.md`](background.md) | Cross-cutting background and avoided-direction context |
+| [`background.md`](background.md) | Cross-cutting background, multi-repo/env context, avoided directions |

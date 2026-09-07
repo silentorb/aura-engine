@@ -24,7 +24,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/silentorb/aura"
+repository = "https://github.com/silentorb/aura-engine"
 
 [workspace.dependencies]
 imp_core_types = { path = ".mnt/imp-rust/crates/imp_core_types" }

@@ -12,7 +12,19 @@ Aura needs both offline rendering (disk) and eventual real-time playback, with s
 
 ## Dev environment
 
-Primary development is WSL/devcontainer, where real-time audio output is unreliable. Offline WAV validation is the practical first path; live CPAL remains deferred until the environment supports it.
+Primary development is WSL via **aura-workbench** (Dev Container + Compose): separate containers for the engine and editor. Real-time audio output is unreliable in this setup. Offline WAV validation is the practical first path; live CPAL remains deferred until the environment supports it.
+
+## Multi-repo layout
+
+Aura splits across kebab-case repos so orchestration stays out of the product tree:
+
+| Repo | Role |
+|------|------|
+| `aura-workbench` | Primary workspace; Compose/Dev Container; mounts siblings |
+| `aura-engine` | This product (Rust crates, docs, demos) |
+| `aura-editor` | Editor UI (separate stack; placeholder at split time) |
+
+Imp siblings remain path dependencies under `.mnt/` inside the engine container. Motivation: keep engine cloneable as product source while the workbench owns how developers attach tools and sibling checkouts.
 
 ## Declarative graphs via Imp
 

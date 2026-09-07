@@ -1,8 +1,10 @@
-# Aura — Agent Instructions
+# Aura Engine — Agent Instructions
 
 ## Project
 
-Aura is procedural music composition and synthesis software, written primarily in Rust.
+Aura Engine (`aura-engine`) is procedural music composition and synthesis software, written primarily in Rust. This repository is the **engine product**, not the Dev Container entrypoint.
+
+Primary workspace: sibling **aura-workbench** (Compose + Dev Container). Prefer opening workbench; work in `/workspaces/aura-workbench/.mnt/aura-engine` when attached to the engine service.
 
 ## Source of truth
 
@@ -32,6 +34,7 @@ When reversing a direction: add a brief avoided-approach requirement in design; 
 ## Working conventions
 
 - Crate names use **snake_case** (`aura_scheduler`); follow [`docs/rust-style.md`](docs/rust-style.md).
+- Repos and projects use **kebab-case** (`aura-engine`).
 
 ## Commands
 
@@ -57,7 +60,9 @@ Do not rely on unit tests alone for demo audio — tests assert frame counts and
 
 ## Workspace
 
-This workspace may mount multiple repositories. Each repo may have its own `AGENTS.md` and `docs/`. Prefer the nearest `AGENTS.md` and that repo's `docs/` when working in a given tree. This file governs Aura only.
+Aura development mounts multiple repositories via **aura-workbench**. Each repo may have its own `AGENTS.md` and `docs/`. Prefer the nearest `AGENTS.md` and that repo's `docs/` when working in a given tree. This file governs **aura-engine** only.
+
+Orchestration (Compose, Dev Container, multi-repo mounts) lives in **aura-workbench**, not here.
 
 ## Where to look
 

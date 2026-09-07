@@ -1,6 +1,8 @@
-# Aura
+# Aura Engine
 
-Procedural music composition and synthesis software.
+Procedural music composition and synthesis software (Rust).
+
+This repository is the **engine** product (`aura-engine`). Primary development opens the sibling **aura-workbench** host folder, which starts engine and editor containers via Docker Compose.
 
 ## Status
 
@@ -12,11 +14,29 @@ Rust (primary).
 
 ## Development environment
 
-This project uses a [Dev Container](.devcontainer/devcontainer.json) built from a custom Dockerfile. Sibling imp repos are bind-mounted under `.mnt/` at container start (expected host layout: `~/dev/aura`, `~/dev/imp-rust`, `~/dev/imp-spec`, `~/dev/imp-ts`). Cargo path deps resolve `imp-rust` from `.mnt/imp-rust`.
+Do **not** open this repo alone as the Dev Container entrypoint. Use **aura-workbench**:
 
-Open the repository in a Dev Container to get rust-analyzer, Clippy, and LLDB preconfigured.
+1. Open `~/dev/aura-workbench` in Cursor.
+2. Reopen in Container (Compose starts `engine` + `editor`).
+3. Work in `/workspaces/aura-workbench/.mnt/aura-engine` (this tree).
+
+Imp siblings are bind-mounted under the workbench `.mnt/` tree and again under this repo’s `.mnt/` (`imp-rust`, `imp-spec`, `imp-ts`) so Cargo path deps resolve `imp-rust` from `.mnt/imp-rust`.
+
+Expected host layout:
+
+```text
+~/dev/
+  aura-workbench/
+  aura-engine/
+  aura-editor/
+  imp-rust/
+  imp-spec/
+  imp-ts/
+```
 
 ## Quick start
+
+From `/workspaces/aura-workbench/.mnt/aura-engine` in the workbench engine service:
 
 ```bash
 cargo build

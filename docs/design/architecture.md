@@ -4,6 +4,8 @@ Declarative system requirements for Aura’s crate layout and data flow.
 
 Aura is a **library-first framework**. Surface programs load Imp graphs and render audio via [`aura_integration`](../../crates/aura_integration). See [`notation-synthesis.md`](notation-synthesis.md) and [`imp-execution.md`](imp-execution.md). Motivation: [`../scoping/background.md`](../scoping/background.md).
 
+This repository is **aura-engine**. Day-to-day development attaches through **aura-workbench**, which mounts this tree and Imp path deps; orchestration does not live in this repo.
+
 ## High-level components
 
 | Component | Role |
@@ -48,7 +50,7 @@ An indirect dependency is a hidden direct dependency. Orchestration lives in `au
 | Library / crate | Role |
 |-----------------|------|
 | **DASP** (`dasp_sample`, `dasp_signal`) | Sample type traits and signal abstractions; bridges PCM to CPAL formats |
-| **CPAL** | Cross-platform real-time audio I/O (deferred in devcontainer) |
+| **CPAL** | Cross-platform real-time audio I/O (deferred under workbench/WSL) |
 | **`aura_dsp`** | Pure `Time → Sample` functions |
 | **`aura_io_wav`** | Offline 32-bit float WAV I/O |
 
