@@ -34,6 +34,7 @@ When reversing a direction: add a brief avoided-approach requirement in design; 
 ## Working conventions
 
 - Crate names use **snake_case** (`aura_scheduler`); follow [`docs/rust-style.md`](docs/rust-style.md).
+- Error handling follows [`docs/rust-style.md`](docs/rust-style.md#errors).
 - Repos and projects use **kebab-case** (`aura-engine`).
 
 ## Commands
@@ -69,7 +70,7 @@ Orchestration (Compose, Dev Container, multi-repo mounts) lives in **aura-workbe
 - [`docs/scoping/`](docs/scoping/) — product motivation, goals, background
 - [`docs/design/`](docs/design/) — cross-cutting declarative design
 - [`docs/crates/`](docs/crates/) — per-crate scoping and design
-- [`docs/rust-style.md`](docs/rust-style.md) — Rust crate naming and layout
+- [`docs/rust-style.md`](docs/rust-style.md) — Rust crate naming, layout, and error handling
 
 ### Crate docs
 
