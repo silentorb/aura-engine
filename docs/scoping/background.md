@@ -30,7 +30,7 @@ Imp siblings remain path dependencies under `.mnt/` inside the engine container.
 
 Aura needs a portable declarative DAG for synthesis. [Imp](https://github.com/silentorb/imp-spec) provides `Graph`, node libraries, and registries. Stock `imp_execution` evaluates collection/path graphs into tabular rows — the wrong model for continuous audio buffers.
 
-imp-rust is bind-mounted at `.mnt/imp-rust` (host `~/dev/imp-rust`) so Cargo path deps pick up sibling changes without rebuilding the image.
+imp-rs is bind-mounted at `.mnt/imp-rs` (host `~/dev/imp-rs`) so Cargo path deps pick up sibling changes without rebuilding the image.
 
 ## Seekable sampling vs sequential DSP
 

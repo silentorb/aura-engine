@@ -2,9 +2,7 @@
 
 ## Project
 
-Aura Engine (`aura-engine`) is procedural music composition and synthesis software, written primarily in Rust. This repository is the **engine product**, not the Dev Container entrypoint.
-
-Primary workspace: sibling **aura-workbench** (Compose + Dev Container). Prefer opening workbench; work in `/workspaces/aura-workbench/.mnt/aura-engine` when attached to the engine service.
+Aura Engine (`aura-engine`) is procedural music composition and synthesis software, written primarily in Rust. This repository is the **engine product**. Multi-repo Docker Compose orchestration lives in **aura-workbench**, not here.
 
 ## Source of truth
 
@@ -61,9 +59,7 @@ Do not rely on unit tests alone for demo audio — tests assert frame counts and
 
 ## Workspace
 
-Aura development mounts multiple repositories via **aura-workbench**. Each repo may have its own `AGENTS.md` and `docs/`. Prefer the nearest `AGENTS.md` and that repo's `docs/` when working in a given tree. This file governs **aura-engine** only.
-
-Orchestration (Compose, Dev Container, multi-repo mounts) lives in **aura-workbench**, not here.
+This file governs **aura-engine** only. Orchestration (Compose, Dev Container, multi-repo mounts) lives in **aura-workbench**, not here.
 
 ## Where to look
 

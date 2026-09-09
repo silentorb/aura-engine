@@ -13,11 +13,11 @@ members = [
     "crates/aura_io_cpal",
     "crates/aura_integration",
     "crates/aura_cli",
-    ".mnt/imp-rust/crates/imp_core_types",
-    ".mnt/imp-rust/crates/imp_registry",
-    ".mnt/imp-rust/crates/imp_typecheck",
-    ".mnt/imp-rust/crates/imp_graph_library",
-    ".mnt/imp-rust/crates/imp_graph_resolve",
+    ".mnt/imp-rs/crates/imp_core_types",
+    ".mnt/imp-rs/crates/imp_registry",
+    ".mnt/imp-rs/crates/imp_typecheck",
+    ".mnt/imp-rs/crates/imp_graph_library",
+    ".mnt/imp-rs/crates/imp_graph_resolve",
 ]
 
 [workspace.package]
@@ -27,12 +27,12 @@ license = "MIT"
 repository = "https://github.com/silentorb/aura-engine"
 
 [workspace.dependencies]
-imp_core_types = { path = ".mnt/imp-rust/crates/imp_core_types" }
-imp_registry = { path = ".mnt/imp-rust/crates/imp_registry" }
-imp_typecheck = { path = ".mnt/imp-rust/crates/imp_typecheck" }
-imp_graph_library = { path = ".mnt/imp-rust/crates/imp_graph_library" }
-imp_graph_resolve = { path = ".mnt/imp-rust/crates/imp_graph_resolve" }
-imp_collection_transforms = { path = ".mnt/imp-rust/crates/imp_collection_transforms" }
+imp_core_types = { path = ".mnt/imp-rs/crates/imp_core_types" }
+imp_registry = { path = ".mnt/imp-rs/crates/imp_registry" }
+imp_typecheck = { path = ".mnt/imp-rs/crates/imp_typecheck" }
+imp_graph_library = { path = ".mnt/imp-rs/crates/imp_graph_library" }
+imp_graph_resolve = { path = ".mnt/imp-rs/crates/imp_graph_resolve" }
+imp_collection_transforms = { path = ".mnt/imp-rs/crates/imp_collection_transforms" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dasp_sample = "0.11"

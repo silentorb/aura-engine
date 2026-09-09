@@ -1,6 +1,6 @@
 # Rust style guide
 
-Living style for **Aura** crates. Naming aligns with sibling [imp-rust](../.mnt/imp-rust/docs/rust-style.md).
+Living style for **Aura** crates. Naming aligns with [imp-rs `docs/rust-style.md`](https://github.com/silentorb/imp-rs/blob/main/docs/rust-style.md).
 
 ## Naming and layout
 
@@ -11,7 +11,7 @@ Living style for **Aura** crates. Naming aligns with sibling [imp-rust](../.mnt/
 
 ## Errors
 
-Error handling aligns with Imp’s [Errors](../.mnt/imp-rust/docs/rust-style.md#errors) section. In short:
+Error handling aligns with Imp’s [Errors](https://github.com/silentorb/imp-rs/blob/main/docs/rust-style.md#errors) section. In short:
 
 - Prefer `Result` / explicit status for **expected** failure; panic only for programmer invariants or documented fail-fast aborts.
 - Prefer precise, explicit error flows over broad catch-all handling.
