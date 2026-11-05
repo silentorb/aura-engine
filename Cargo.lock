@@ -99,6 +99,7 @@ dependencies = [
  "aura_sample",
  "cpal",
  "dasp_sample",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 # aura_io_cpal — scoping
 
-Real-time output is desired long-term but unreliable in the current WSL/devcontainer environment. The crate exists as a deferred bridge so offline-first development can proceed without abandoning the CPAL path.
+Real-time output lets surfaces (CLI, editor) preview Imp graphs through the same `Sampler` model as offline WAV. WSL/devcontainer hosts often lack a usable default device; the crate must degrade with a clear error so offline-first development stays unblocked.
 
 See [`../../../scoping/background.md`](../../../scoping/background.md).

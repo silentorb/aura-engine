@@ -10,5 +10,6 @@ aura_render = { path = "../aura_render" }
 aura_sample = { path = "../aura_sample" }
 cpal = { workspace = true }
 dasp_sample = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]

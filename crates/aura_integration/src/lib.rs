@@ -15,7 +15,7 @@ use std::path::Path;
 use thiserror::Error;
 
 pub use duration::{DurationParseError, DurationSpec, SampleSpec};
-pub use translate::TranslateError;
+pub use translate::{find_output_node, TranslateError};
 
 #[derive(Debug, Error)]
 pub enum IntegrationError {

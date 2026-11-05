@@ -108,7 +108,9 @@ pub fn translate_graph(
     }
 }
 
-fn find_output_node(graph: &Graph) -> Result<NodeId, TranslateError> {
+/// Resolves the graph's audio sink: prefer node id `out` among `output` nodes,
+/// else require exactly one `output` node.
+pub fn find_output_node(graph: &Graph) -> Result<NodeId, TranslateError> {
     let outputs: Vec<_> = graph
         .nodes
         .values()

@@ -17,7 +17,7 @@ Declarative product requirements for Aura. Motivation and goals: [`../scoping/pr
 
 - Load Imp JSON graphs; translate to `Sampler`; sample over a specified duration.
 - Write 32-bit float WAV files to untracked `output/` via `aura_cli` or [`demos/render-all.sh`](../../demos/render-all.sh).
-- Real-time playback via CPAL is planned but deferred.
+- Real-time playback via CPAL (`aura_io_cpal::PlaybackEngine`) streams the same `Sampler::at(t)` path from `t = 0`; device absence (e.g. some WSL hosts) is an environment limit.
 
 ## Integration requirements
 
@@ -40,7 +40,7 @@ Repos and projects use kebab-case; Rust crates use snake_case.
 
 ## Non-goals / avoided approaches
 
-- Live CPAL playback until the dev environment supports it reliably
+- Requiring a live audio device for CI or offline WAV workflows
 - Stock `imp_execution` for Aura’s primary sampler path
 - FunDSP-style sequential `tick` DSP for the primary synthesis path
 - Embedding workbench orchestration (Compose/Dev Container entrypoint) inside this engine repo

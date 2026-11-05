@@ -2,18 +2,25 @@
 
 ## Summary
 
-CPAL bridge for real-time playback. Currently a compile-time stub with sample-format conversion support; active playback is deferred.
+CPAL bridge for real-time playback. `PlaybackEngine` streams a pure `Sampler::at(t)` from `t = 0` on the default output device until stopped.
 
 ## Requirements
 
-- Remain present in the workspace so DASP↔CPAL sample conversion and dependencies stay wired.
-- Future playback must sample the same pure `Sampler::at(t)` functions as offline render.
-- Do not block offline WAV workflows.
+- Sample the same pure `Sampler::at(t)` functions as offline render.
+- Expose `start(sampler, sample_rate)`, `stop()`, and `is_playing()`.
+- Fail with a clear error when no default output device exists (common under WSL/devcontainer); never panic.
+- Do not block offline WAV workflows or require audio hardware in CI.
+- Mono sampler output is duplicated across output channels.
 
 ## Non-goals / avoided approaches
 
 - Requiring live audio hardware for CI or default demos
 - A separate synthesis model for real-time vs offline
+- Transport UI, playhead, or seek APIs in this crate (callers own start time; this crate always begins at `t = 0`)
+
+## Environment note
+
+Device availability depends on the host. The API is present; absent devices are an environment limit, not a missing feature.
 
 ## See also
 

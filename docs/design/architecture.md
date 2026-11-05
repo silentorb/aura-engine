@@ -12,11 +12,11 @@ This repository is **aura-engine**. Day-to-day development attaches through **au
 |-----------|------|
 | Sequencing | Notation types and musical time (`aura_sequencing`) |
 | Composition | Procedural generators (`aura_composition`) |
-| Scheduler | Offline timeline and event dispatch (`aura_scheduler`); live CPAL dispatch deferred |
+| Scheduler | Offline timeline and event dispatch (`aura_scheduler`); live CPAL event dispatch deferred |
 | Synthesizer | Imp node libraries (`aura_imp`) and pure DSP (`aura_dsp`) |
 | Integration | Graph translation and sampling (`aura_integration`) |
 | Instrumentation | Per-note sampling and mix-down (`aura_instrumentation`) |
-| I/O | Offline WAV export (`aura_io_wav`); CPAL playback stub (`aura_io_cpal`, deferred) |
+| I/O | Offline WAV export (`aura_io_wav`); CPAL live stream (`aura_io_cpal`) |
 
 ## Crate layout
 
@@ -33,7 +33,7 @@ Organize Rust source as a Cargo workspace of small crates under `crates/`. New f
 | [`aura_dsp`](../../crates/aura_dsp) | Pure Time → Sample DSP functions | — |
 | [`aura_render`](../../crates/aura_render) | Offline sampling via `Sampler` | aura_dsp, aura_sample |
 | [`aura_io_wav`](../../crates/aura_io_wav) | 32-bit float WAV write/read verification | aura_render, aura_sample |
-| [`aura_io_cpal`](../../crates/aura_io_cpal) | Real-time playback stub (CPAL bridge) | CPAL, DASP, aura_render |
+| [`aura_io_cpal`](../../crates/aura_io_cpal) | Real-time playback (`PlaybackEngine` over CPAL) | CPAL, DASP, aura_render |
 | [`aura_integration`](../../crates/aura_integration) | Imp graph translation and render glue | aura_imp, composition stack, render, io-wav |
 | [`aura_cli`](../../crates/aura_cli) | Thin graph-driven CLI | aura_integration |
 
@@ -50,7 +50,7 @@ An indirect dependency is a hidden direct dependency. Orchestration lives in `au
 | Library / crate | Role |
 |-----------------|------|
 | **DASP** (`dasp_sample`, `dasp_signal`) | Sample type traits and signal abstractions; bridges PCM to CPAL formats |
-| **CPAL** | Cross-platform real-time audio I/O (deferred under workbench/WSL) |
+| **CPAL** | Cross-platform real-time audio I/O (device may be absent under workbench/WSL) |
 | **`aura_dsp`** | Pure `Time → Sample` functions |
 | **`aura_io_wav`** | Offline 32-bit float WAV I/O |
 
@@ -77,13 +77,13 @@ flowchart LR
 
 Music nodes (`arpeggio`, `epic_minor_progression`, `note_at_time`, …) delegate to composition crates at **translate time**. Sample-time evaluation uses precomputed schedule tables — timing remains explicit via the `time` signal. Chord progressions are **data signals** (`chord_progression` port type) composed at translate time and sampleable per frame via `ChordSignal`. Tempo and time signature are separate **data signals** (`tempo`, `time_signature` port types) wired between producer nodes (`constant_tempo`, `constant_time_signature`) and consumers.
 
-### Real-time playback (deferred)
+### Real-time playback
 
-Future CPAL output will call the same `Sampler::at(t)` functions (or block variants) as offline rendering.
+`aura_io_cpal::PlaybackEngine` opens the default output device and calls the same `Sampler::at(t)` functions as offline rendering, advancing `t` from 0 until stopped. Missing devices return a clear error.
 
 ## Constraints
 
-- **Real-time audio** — deferred in WSL/devcontainer; file-first WAV is the primary validation path
+- **Real-time audio** — API available; device may be absent in WSL/devcontainer; file-first WAV remains the primary automated validation path
 - **Determinism** — pure `f(t)` sampling; see [`notation-synthesis.md`](notation-synthesis.md)
 - **Modularity** — composition, scheduling, instrumentation, and synthesis are separable via crate boundaries
 
