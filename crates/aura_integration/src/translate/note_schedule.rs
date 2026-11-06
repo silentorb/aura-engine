@@ -71,10 +71,23 @@ impl NoteSchedule {
     }
 
     pub fn active_at(&self, t: f64) -> Option<&ScheduledNote> {
+        self.overlapping_at(t).into_iter().next()
+    }
+
+    /// All notes whose beat window contains `t` (supports overlapping chords).
+    pub fn overlapping_at(&self, t: f64) -> Vec<&ScheduledNote> {
         let beat = self.wrapped_beat(t);
-        self.notes.iter().find(|note| {
-            beat >= note.start_beats && beat < note.start_beats + note.duration_beats
-        })
+        self.notes
+            .iter()
+            .filter(|note| {
+                beat >= note.start_beats && beat < note.start_beats + note.duration_beats
+            })
+            .collect()
+    }
+
+    /// Elapsed seconds from `note`'s onset at global time `t` (respects loop wrap).
+    pub fn note_local_secs_for(&self, note: &ScheduledNote, t: f64) -> f64 {
+        (self.wrapped_beat(t) - note.start_beats) * self.seconds_per_beat
     }
 
     fn beat_at(&self, t: f64) -> f64 {
@@ -101,7 +114,7 @@ impl NoteSchedule {
     /// Elapsed seconds from the active note's onset (correct across loop cycles).
     pub fn note_local_secs(&self, t: f64) -> Option<f64> {
         let note = self.active_at(t)?;
-        Some((self.wrapped_beat(t) - note.start_beats) * self.seconds_per_beat)
+        Some(self.note_local_secs_for(note, t))
     }
 
     /// Global start time of the active note instance (for `time_elapsed` wiring).
@@ -133,6 +146,26 @@ mod tests {
         let schedule = NoteSchedule::from_score(&score, SampleRate::RATE_44100);
         assert!(schedule.active_at(0.0).is_some());
         assert!(schedule.active_at(10.0).is_none());
+    }
+
+    #[test]
+    fn overlapping_at_returns_chord_notes() {
+        use aura_sequencing::{NoteEvent, Score, Semitone, Tempo, TimeSignature};
+
+        let score = Score::new(
+            TimeSignature::FOUR_FOUR,
+            Tempo::default(),
+            vec![
+                NoteEvent::new(Semitone(60), 0.0, 1.0),
+                NoteEvent::new(Semitone(64), 0.0, 1.0),
+                NoteEvent::new(Semitone(67), 0.5, 1.0),
+            ],
+        );
+        let schedule = NoteSchedule::from_score(&score, SampleRate::RATE_44100);
+        // Default tempo 120 → 0.5 s/beat. t=0.1s → beat 0.2 (two notes); t=0.3s → beat 0.6 (three).
+        assert_eq!(schedule.overlapping_at(0.1).len(), 2);
+        assert_eq!(schedule.overlapping_at(0.3).len(), 3);
+        assert!(schedule.overlapping_at(2.0).is_empty());
     }
 
     #[test]

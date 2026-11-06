@@ -15,7 +15,7 @@ use std::path::Path;
 use thiserror::Error;
 
 pub use duration::{DurationParseError, DurationSpec, SampleSpec};
-pub use translate::{find_output_node, TranslateError};
+pub use translate::{find_output_node, translate_graph_with_bindings, TranslateError};
 
 #[derive(Debug, Error)]
 pub enum IntegrationError {
@@ -63,6 +63,21 @@ pub fn translate_graph_to_sampler(
     sample_rate: SampleRate,
 ) -> Result<Box<dyn Sampler>, IntegrationError> {
     Ok(translate_graph(graph, registry, sample_rate)?)
+}
+
+/// Translates an Imp graph with bound [`aura_sequencing::ScoreSignal`] values for `external_score` nodes.
+pub fn translate_graph_to_sampler_with_bindings(
+    graph: &Graph,
+    registry: &aura_imp::Registry,
+    sample_rate: SampleRate,
+    score_bindings: &std::collections::BTreeMap<aura_imp::NodeId, aura_sequencing::ScoreSignal>,
+) -> Result<Box<dyn Sampler>, IntegrationError> {
+    Ok(translate_graph_with_bindings(
+        graph,
+        registry,
+        sample_rate,
+        score_bindings,
+    )?)
 }
 
 /// Resolves render duration from explicit spec or score-implied length.

@@ -65,6 +65,8 @@ Non-real-time rendering must be **100% deterministic and reproducible**. Randomi
 
 Aura favors **functional notation generation** over a fixed, destructive sequence of stored notes. DAWs often apply loops and filters on top of stored MIDI; Aura inverts that—dynamic, abstract generators form the foundation, with optional embedded snippets of concrete notation.
 
+Literal and editor-authored scores enter the same pipeline as generators: both produce `Score` / `ScoreSignal`. The Imp `external_score` node binds a translate-time `ScoreSignal` (injected by the caller) so concrete note lists feed the same `score` ports as `arpeggio` / `bass_line` / `drum_grid`. Polyphonic audition uses `poly_sine_score` (per-note sine × envelope × velocity mix); monophonic demo voices (`note_at_time` / `sine_note_voice`) remain unchanged.
+
 ### Rule 5: Modular nested patterns
 
 Every aspect of music production should be expressible as **modular, reusable patterns** organized into libraries. Patterns support nested abstraction and composition. Generators (e.g. `arpeggio`, `drum_grid`) emit one finite cycle; the generic `loop<T: Loopable>` node applies unbounded repetition by modulus. Render duration is external (CLI `--duration`).
