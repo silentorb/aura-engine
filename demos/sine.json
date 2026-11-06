@@ -1,4 +1,5 @@
 {
+  "type": "imp-graph",
   "nodes": {
     "time": {
       "id": "time",
