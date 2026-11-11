@@ -337,7 +337,7 @@ pub fn music_node_library() -> NodeLibrary {
             None,
             BTreeMap::from([(
                 "semitone".into(),
-                port("semitone", control, None),
+                port("semitone", control.clone(), None),
             )]),
             BTreeMap::from([(
                 "frequency".into(),
@@ -349,6 +349,19 @@ pub fn music_node_library() -> NodeLibrary {
             Vec::new(),
             None,
             BTreeMap::new(),
+            BTreeMap::from([(
+                "score".into(),
+                port("score", score.clone(), None),
+            )]),
+        ),
+        primitive_node(
+            "notation_score",
+            Vec::new(),
+            None,
+            BTreeMap::from([(
+                "path".into(),
+                port("path", control, None),
+            )]),
             BTreeMap::from([(
                 "score".into(),
                 port("score", score.clone(), None),

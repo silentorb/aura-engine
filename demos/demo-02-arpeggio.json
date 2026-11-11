@@ -1,0 +1,27 @@
+{
+  "type": "notation",
+  "version": 1,
+  "tempoBpm": 120.0,
+  "timeSignature": {
+    "beatsPerBar": 4,
+    "beatUnit": 4
+  },
+  "events": [
+    { "semitone": 57, "startBeats": 0.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 60, "startBeats": 1.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 64, "startBeats": 2.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 57, "startBeats": 3.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 65, "startBeats": 4.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 69, "startBeats": 5.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 72, "startBeats": 6.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 65, "startBeats": 7.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 60, "startBeats": 8.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 64, "startBeats": 9.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 67, "startBeats": 10.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 60, "startBeats": 11.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 67, "startBeats": 12.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 71, "startBeats": 13.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 74, "startBeats": 14.0, "durationBeats": 1.0, "velocity": 1.0 },
+    { "semitone": 67, "startBeats": 15.0, "durationBeats": 1.0, "velocity": 1.0 }
+  ]
+}

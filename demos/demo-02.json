@@ -1,0 +1,230 @@
+{
+  "type": "imp-graph",
+  "nodes": {
+    "time": {
+      "id": "time",
+      "type": "time",
+      "inputs": {}
+    },
+    "tempo": {
+      "id": "tempo",
+      "type": "constant_tempo",
+      "inputs": {}
+    },
+    "meter": {
+      "id": "meter",
+      "type": "constant_time_signature",
+      "inputs": {}
+    },
+    "prog": {
+      "id": "prog",
+      "type": "epic_minor_progression",
+      "inputs": {}
+    },
+    "loop_prog": {
+      "id": "loop_prog",
+      "type": "loop",
+      "inputs": {}
+    },
+    "arp": {
+      "id": "arp",
+      "type": "notation_score",
+      "inputs": {
+        "path": "demo-02-arpeggio.json"
+      }
+    },
+    "loop_arp": {
+      "id": "loop_arp",
+      "type": "loop",
+      "inputs": {}
+    },
+    "arp_voice": {
+      "id": "arp_voice",
+      "type": "sine_note_voice",
+      "inputs": {}
+    },
+    "kick_grid": {
+      "id": "kick_grid",
+      "type": "drum_grid",
+      "inputs": {
+        "lane": 0.0
+      }
+    },
+    "loop_kick": {
+      "id": "loop_kick",
+      "type": "loop",
+      "inputs": {}
+    },
+    "kick": {
+      "id": "kick",
+      "type": "kick_drum",
+      "inputs": {}
+    },
+    "snare_grid": {
+      "id": "snare_grid",
+      "type": "drum_grid",
+      "inputs": {
+        "lane": 1.0
+      }
+    },
+    "loop_snare": {
+      "id": "loop_snare",
+      "type": "loop",
+      "inputs": {}
+    },
+    "snare": {
+      "id": "snare",
+      "type": "snare_drum",
+      "inputs": {}
+    },
+    "mix_arp_kick": {
+      "id": "mix_arp_kick",
+      "type": "add",
+      "inputs": {}
+    },
+    "mix_all": {
+      "id": "mix_all",
+      "type": "add",
+      "inputs": {}
+    },
+    "bass": {
+      "id": "bass",
+      "type": "bass_line",
+      "inputs": {}
+    },
+    "loop_bass": {
+      "id": "loop_bass",
+      "type": "loop",
+      "inputs": {}
+    },
+    "bass_voice": {
+      "id": "bass_voice",
+      "type": "bass_saw_voice",
+      "inputs": {}
+    },
+    "mix_final": {
+      "id": "mix_final",
+      "type": "add",
+      "inputs": {}
+    },
+    "out": {
+      "id": "out",
+      "type": "output",
+      "inputs": {}
+    }
+  },
+  "edges": {
+    "meter_to_prog": {
+      "from": { "node": "meter", "port": "time_signature" },
+      "to": { "node": "prog", "port": "time_signature" }
+    },
+    "prog_to_loop_prog": {
+      "from": { "node": "prog", "port": "progression" },
+      "to": { "node": "loop_prog", "port": "value" }
+    },
+    "arp_to_loop_arp": {
+      "from": { "node": "arp", "port": "score" },
+      "to": { "node": "loop_arp", "port": "value" }
+    },
+    "loop_arp_to_arp_voice_score": {
+      "from": { "node": "loop_arp", "port": "value" },
+      "to": { "node": "arp_voice", "port": "score" }
+    },
+    "time_to_arp_voice": {
+      "from": { "node": "time", "port": "time" },
+      "to": { "node": "arp_voice", "port": "time" }
+    },
+    "tempo_to_kick_grid": {
+      "from": { "node": "tempo", "port": "tempo" },
+      "to": { "node": "kick_grid", "port": "tempo" }
+    },
+    "meter_to_kick_grid": {
+      "from": { "node": "meter", "port": "time_signature" },
+      "to": { "node": "kick_grid", "port": "time_signature" }
+    },
+    "kick_grid_to_loop_kick": {
+      "from": { "node": "kick_grid", "port": "score" },
+      "to": { "node": "loop_kick", "port": "value" }
+    },
+    "loop_kick_to_kick_score": {
+      "from": { "node": "loop_kick", "port": "value" },
+      "to": { "node": "kick", "port": "score" }
+    },
+    "time_to_kick": {
+      "from": { "node": "time", "port": "time" },
+      "to": { "node": "kick", "port": "time" }
+    },
+    "tempo_to_snare_grid": {
+      "from": { "node": "tempo", "port": "tempo" },
+      "to": { "node": "snare_grid", "port": "tempo" }
+    },
+    "meter_to_snare_grid": {
+      "from": { "node": "meter", "port": "time_signature" },
+      "to": { "node": "snare_grid", "port": "time_signature" }
+    },
+    "snare_grid_to_loop_snare": {
+      "from": { "node": "snare_grid", "port": "score" },
+      "to": { "node": "loop_snare", "port": "value" }
+    },
+    "loop_snare_to_snare_score": {
+      "from": { "node": "loop_snare", "port": "value" },
+      "to": { "node": "snare", "port": "score" }
+    },
+    "time_to_snare": {
+      "from": { "node": "time", "port": "time" },
+      "to": { "node": "snare", "port": "time" }
+    },
+    "arp_voice_to_mix_arp_kick_a": {
+      "from": { "node": "arp_voice", "port": "audio" },
+      "to": { "node": "mix_arp_kick", "port": "a" }
+    },
+    "kick_to_mix_arp_kick_b": {
+      "from": { "node": "kick", "port": "audio" },
+      "to": { "node": "mix_arp_kick", "port": "b" }
+    },
+    "mix_arp_kick_to_mix_all_a": {
+      "from": { "node": "mix_arp_kick", "port": "audio" },
+      "to": { "node": "mix_all", "port": "a" }
+    },
+    "snare_to_mix_all_b": {
+      "from": { "node": "snare", "port": "audio" },
+      "to": { "node": "mix_all", "port": "b" }
+    },
+    "tempo_to_bass": {
+      "from": { "node": "tempo", "port": "tempo" },
+      "to": { "node": "bass", "port": "tempo" }
+    },
+    "meter_to_bass": {
+      "from": { "node": "meter", "port": "time_signature" },
+      "to": { "node": "bass", "port": "time_signature" }
+    },
+    "loop_prog_to_bass": {
+      "from": { "node": "loop_prog", "port": "value" },
+      "to": { "node": "bass", "port": "progression" }
+    },
+    "bass_to_loop_bass": {
+      "from": { "node": "bass", "port": "score" },
+      "to": { "node": "loop_bass", "port": "value" }
+    },
+    "loop_bass_to_bass_voice_score": {
+      "from": { "node": "loop_bass", "port": "value" },
+      "to": { "node": "bass_voice", "port": "score" }
+    },
+    "time_to_bass_voice": {
+      "from": { "node": "time", "port": "time" },
+      "to": { "node": "bass_voice", "port": "time" }
+    },
+    "mix_all_to_mix_final_a": {
+      "from": { "node": "mix_all", "port": "audio" },
+      "to": { "node": "mix_final", "port": "a" }
+    },
+    "bass_voice_to_mix_final_b": {
+      "from": { "node": "bass_voice", "port": "audio" },
+      "to": { "node": "mix_final", "port": "b" }
+    },
+    "mix_final_to_out": {
+      "from": { "node": "mix_final", "port": "audio" },
+      "to": { "node": "out", "port": "value" }
+    }
+  }
+}

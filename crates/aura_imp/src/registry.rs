@@ -165,6 +165,8 @@ mod tests {
         assert!(get_node_type(&registry, "constant_tempo").is_some());
         assert!(get_node_type(&registry, "constant_time_signature").is_some());
         assert!(get_node_type(&registry, "loop").is_some());
+        assert!(get_node_type(&registry, "notation_score").is_some());
+        assert!(get_node_type(&registry, "external_score").is_some());
     }
 
     #[test]

@@ -42,7 +42,7 @@ flowchart LR
 1. **Imp graph** — denotes `Time → Sample`; music nodes delegate to composition crates at translate time.
 2. **Translation** — `translate_graph` composes pure `Sampler` closures.
 3. **Sampling** — `sample_graph` applies `f(t)` per frame over the render duration.
-4. **Notation path** — `arpeggio`, `drum_grid`, `epic_minor_progression`, `loop`, `constant_tempo`, `constant_time_signature`, and related nodes build scores, progressions, tempo, and meter; generators emit **one cycle** measured in **bars**; `loop` compositors repeat via beat/measure modulus at sample time (not seconds).
+4. **Notation path** — `arpeggio`, `drum_grid`, `epic_minor_progression`, `notation_score`, `loop`, `constant_tempo`, `constant_time_signature`, and related nodes build scores, progressions, tempo, and meter; generators emit **one cycle** measured in **bars**; `notation_score` loads a sibling Aura `notation` JSON file; `loop` compositors repeat via beat/measure modulus at sample time (not seconds).
 5. **Output** — CLI or demo scripts write WAV files.
 
 ## Integration rules
@@ -65,7 +65,7 @@ Non-real-time rendering must be **100% deterministic and reproducible**. Randomi
 
 Aura favors **functional notation generation** over a fixed, destructive sequence of stored notes. DAWs often apply loops and filters on top of stored MIDI; Aura inverts that—dynamic, abstract generators form the foundation, with optional embedded snippets of concrete notation.
 
-Literal and editor-authored scores enter the same pipeline as generators: both produce `Score` / `ScoreSignal`. The Imp `external_score` node binds a translate-time `ScoreSignal` (injected by the caller) so concrete note lists feed the same `score` ports as `arpeggio` / `bass_line` / `drum_grid`. Polyphonic audition uses `poly_sine_score` (per-note sine × envelope × velocity mix); monophonic demo voices (`note_at_time` / `sine_note_voice`) remain unchanged.
+Literal and editor-authored scores enter the same pipeline as generators: both produce `Score` / `ScoreSignal`. The Imp `external_score` node binds a translate-time `ScoreSignal` (injected by the caller) — including when the Aura editor opens a `notation` file as a nullary embedded-score node and auditions that payload. The Imp `notation_score` node is the complementary **path-reference** path: it loads an on-disk Aura `notation` JSON file (path relative to the graph file) into the same `ScoreSignal` at translate time. Opening a notation document in the editor and referencing a notation file from a graph are therefore distinct; on-disk `type: "notation"` shape is unchanged in both cases. Both feed the same `score` ports as `arpeggio` / `bass_line` / `drum_grid`. Polyphonic audition uses `poly_sine_score` (per-note sine × envelope × velocity mix); monophonic demo voices (`note_at_time` / `sine_note_voice`) remain unchanged. Demo-01 builds the lead procedurally; demo-02 uses `notation_score` with a sibling notation file of the same arpeggio cycle.
 
 ### Rule 5: Modular nested patterns
 

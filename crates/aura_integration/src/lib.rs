@@ -1,6 +1,7 @@
 //! Surface integration: Imp graph translation and sampling for Aura.
 
 mod duration;
+mod notation_file;
 mod translate;
 
 use translate::{infer_score_duration_secs, translate_graph};
@@ -11,11 +12,16 @@ use aura_imp::{
 use aura_io_wav::{write_wav32, WavError};
 use aura_render::{sample_offline, RenderError, RenderSpec, Sampler};
 use aura_sample::SampleRate;
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 pub use duration::{DurationParseError, DurationSpec, SampleSpec};
-pub use translate::{find_output_node, translate_graph_with_bindings, TranslateError};
+pub use notation_file::{score_from_notation_path, score_from_notation_str, NotationFileError};
+pub use translate::{
+    find_output_node, translate_graph_with_bindings, translate_graph_with_options, TranslateError,
+    TranslateOptions,
+};
 
 #[derive(Debug, Error)]
 pub enum IntegrationError {
@@ -41,6 +47,8 @@ pub enum IntegrationError {
 pub struct LoadedGraph {
     pub graph: Graph,
     pub registry: Registry,
+    /// Directory containing the graph file; used to resolve relative `notation_score` paths.
+    pub graph_dir: Option<PathBuf>,
 }
 
 /// Loads an Imp graph and neighboring graph libraries from a JSON file path.
@@ -48,7 +56,12 @@ pub fn load_graph(path: &Path) -> Result<LoadedGraph, IntegrationError> {
     let graph = graph_from_json_path(path)?;
     let libraries = discover_graph_libraries(path)?;
     let registry = aura_registry_with_libraries(&libraries)?;
-    Ok(LoadedGraph { graph, registry })
+    let graph_dir = path.parent().map(Path::to_path_buf);
+    Ok(LoadedGraph {
+        graph,
+        registry,
+        graph_dir,
+    })
 }
 
 /// Loads an Imp graph from a JSON file path (graph only, no libraries).
@@ -65,12 +78,27 @@ pub fn translate_graph_to_sampler(
     Ok(translate_graph(graph, registry, sample_rate)?)
 }
 
+/// Translates an Imp graph with optional score bindings and a graph directory for `notation_score`.
+pub fn translate_graph_to_sampler_with_options(
+    graph: &Graph,
+    registry: &aura_imp::Registry,
+    sample_rate: SampleRate,
+    options: TranslateOptions<'_>,
+) -> Result<Box<dyn Sampler>, IntegrationError> {
+    Ok(translate_graph_with_options(
+        graph,
+        registry,
+        sample_rate,
+        options,
+    )?)
+}
+
 /// Translates an Imp graph with bound [`aura_sequencing::ScoreSignal`] values for `external_score` nodes.
 pub fn translate_graph_to_sampler_with_bindings(
     graph: &Graph,
     registry: &aura_imp::Registry,
     sample_rate: SampleRate,
-    score_bindings: &std::collections::BTreeMap<aura_imp::NodeId, aura_sequencing::ScoreSignal>,
+    score_bindings: &BTreeMap<aura_imp::NodeId, aura_sequencing::ScoreSignal>,
 ) -> Result<Box<dyn Sampler>, IntegrationError> {
     Ok(translate_graph_with_bindings(
         graph,
@@ -104,7 +132,16 @@ pub fn sample_graph(sampler: &dyn Sampler, spec: SampleSpec) -> Result<Vec<f32>,
 
 /// Loads, translates, and samples a graph to mono PCM.
 pub fn render_graph_to_pcm(loaded: &LoadedGraph, spec: SampleSpec) -> Result<Vec<f32>, IntegrationError> {
-    let sampler = translate_graph(&loaded.graph, &loaded.registry, spec.sample_rate)?;
+    let empty_bindings = BTreeMap::new();
+    let sampler = translate_graph_with_options(
+        &loaded.graph,
+        &loaded.registry,
+        spec.sample_rate,
+        TranslateOptions {
+            score_bindings: &empty_bindings,
+            graph_dir: loaded.graph_dir.as_deref(),
+        },
+    )?;
     sample_graph(sampler.as_ref(), spec)
 }
 
@@ -190,6 +227,17 @@ mod tests {
     #[test]
     fn render_arpeggio_graph_matches_expected_frames() {
         let loaded = load_graph(&workspace_demo_path("demo-01.json")).expect("load");
+        let spec = SampleSpec {
+            sample_rate: SampleRate::RATE_44100,
+            duration: DurationSpec::measures_4_4(8.0, aura_sequencing::Tempo::default()),
+        };
+        let pcm = render_graph_to_pcm(&loaded, spec).expect("render");
+        assert_eq!(pcm.len(), 705_600);
+    }
+
+    #[test]
+    fn render_static_arpeggio_demo_matches_expected_frames() {
+        let loaded = load_graph(&workspace_demo_path("demo-02.json")).expect("load");
         let spec = SampleSpec {
             sample_rate: SampleRate::RATE_44100,
             duration: DurationSpec::measures_4_4(8.0, aura_sequencing::Tempo::default()),

@@ -86,6 +86,7 @@ dependencies = [
  "aura_sequencing",
  "imp_graph_resolve",
  "imp_typecheck",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",

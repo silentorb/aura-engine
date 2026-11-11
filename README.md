@@ -23,7 +23,7 @@ cargo clippy
 ./demos/render-all.sh
 ```
 
-This renders `demos/demo-01.json` to `output/demo-01.wav` (32-bit float, mono, 44100 Hz). The `output/` directory is gitignored.
+This renders `demos/demo-01.json` and `demos/demo-02.json` to `output/demo-01.wav` and `output/demo-02.wav` (32-bit float, mono, 44100 Hz). Demo-01 builds the arpeggio procedurally; demo-02 loads the same cycle from sibling `demos/demo-02-arpeggio.json` via `notation_score`. The `output/` directory is gitignored.
 
 ### CLI
 
