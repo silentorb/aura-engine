@@ -33,6 +33,7 @@ imp_typecheck = { path = ".mnt/imp-rs/crates/imp_typecheck" }
 imp_graph_library = { path = ".mnt/imp-rs/crates/imp_graph_library" }
 imp_graph_resolve = { path = ".mnt/imp-rs/crates/imp_graph_resolve" }
 imp_collection_transforms = { path = ".mnt/imp-rs/crates/imp_collection_transforms" }
+imp_mir = { path = ".mnt/imp-rs/crates/imp_mir" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dasp_sample = "0.11"

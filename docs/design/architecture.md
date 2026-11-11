@@ -34,8 +34,10 @@ Organize Rust source as a Cargo workspace of small crates under `crates/`. New f
 | [`aura_render`](../../crates/aura_render) | Offline sampling via `Sampler` | aura_dsp, aura_sample |
 | [`aura_io_wav`](../../crates/aura_io_wav) | 32-bit float WAV write/read verification | aura_render, aura_sample |
 | [`aura_io_cpal`](../../crates/aura_io_cpal) | Real-time playback (`PlaybackEngine` over CPAL) | CPAL, DASP, aura_render |
-| [`aura_integration`](../../crates/aura_integration) | Imp graph translation and render glue | aura_imp, composition stack, render, io-wav |
-| [`aura_cli`](../../crates/aura_cli) | Thin graph-driven CLI | aura_integration |
+| [`aura_integration`](../../crates/aura_integration) | Imp graph translation, render glue, thin Miro host helpers | aura_imp, composition stack, render, io-wav, `imp_mir` |
+| [`aura_cli`](../../crates/aura_cli) | Thin graph-driven CLI (+ `miro-sync`) | aura_integration |
+
+Mir sync fabric is **`imp_mir`** (imp-rs), not an Aura crate. See [`miro.md`](miro.md).
 
 Dependency direction flows inward: surface programs → integration → I/O → render → domain crates → sample / dsp → imp.
 

@@ -84,3 +84,5 @@ This file governs **aura-engine** only. Orchestration (Compose, Dev Container, m
 | `aura_io_cpal` | [`docs/crates/aura_io_cpal/design/overview.md`](docs/crates/aura_io_cpal/design/overview.md) |
 | `aura_integration` | [`docs/crates/aura_integration/design/overview.md`](docs/crates/aura_integration/design/overview.md) |
 | `aura_cli` | [`docs/crates/aura_cli/design/overview.md`](docs/crates/aura_cli/design/overview.md) |
+
+Miro / Mir sync: [`docs/design/miro.md`](docs/design/miro.md) (runtime in imp-rs `imp_mir`, not an Aura crate).

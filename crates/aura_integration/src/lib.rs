@@ -1,6 +1,7 @@
 //! Surface integration: Imp graph translation and sampling for Aura.
 
 mod duration;
+mod miro;
 mod notation_file;
 mod translate;
 
@@ -17,6 +18,10 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 pub use duration::{DurationParseError, DurationSpec, SampleSpec};
+pub use miro::{
+    aura_json_kind, aura_json_kind_fn, miro_sync_content_root, open_aura_miro_session,
+    open_aura_miro_session_in_memory, pull_graph, AuraMiroError,
+};
 pub use notation_file::{score_from_notation_path, score_from_notation_str, NotationFileError};
 pub use translate::{
     find_output_node, translate_graph_with_bindings, translate_graph_with_options, TranslateError,

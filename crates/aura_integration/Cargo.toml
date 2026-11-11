@@ -16,6 +16,7 @@ aura_render = { path = "../aura_render" }
 aura_sample = { path = "../aura_sample" }
 aura_scheduler = { path = "../aura_scheduler" }
 imp_graph_resolve = { workspace = true }
+imp_mir = { workspace = true }
 imp_typecheck = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

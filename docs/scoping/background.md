@@ -39,3 +39,7 @@ Aura targets explicit time and seekable pure `f(t)` sampling. Sequential `tick` 
 ## Domain separation
 
 Notation types, procedural generators, temporal scheduling, and per-note instrument sampling are separate concerns so the notation→audio pipeline can evolve without collapsing into one module. Motivation for that split: clear *what* → *when* → *how* → *wiring*.
+
+## Miro / multi-store sync
+
+Aura wants text files as the VCS-friendly authoring SoT, a queryable SQLite projection, and pull-based app memory (editor `ModelGraph` later). That profile is **Miro** on the **Mir** sync fabric. The fabric is Imp-generic (`imp_mir` in imp-rs); Aura only supplies Aura JSON codecs and thin session helpers. Specs: [Mir](https://github.com/silentorb/mir). Design: [`../design/miro.md`](../design/miro.md).
