@@ -1929,6 +1929,7 @@ mod tests {
                             node: "voice".into(),
                             port: "score".into(),
                         },
+                        order: None,
                     },
                 ),
                 (
@@ -1942,6 +1943,7 @@ mod tests {
                             node: "voice".into(),
                             port: "time".into(),
                         },
+                        order: None,
                     },
                 ),
                 (
@@ -1955,6 +1957,7 @@ mod tests {
                             node: "out".into(),
                             port: "value".into(),
                         },
+                        order: None,
                     },
                 ),
             ]),
@@ -2032,6 +2035,7 @@ mod tests {
                             node: "voice".into(),
                             port: "score".into(),
                         },
+                        order: None,
                     },
                 ),
                 (
@@ -2045,6 +2049,7 @@ mod tests {
                             node: "voice".into(),
                             port: "time".into(),
                         },
+                        order: None,
                     },
                 ),
                 (
@@ -2058,6 +2063,7 @@ mod tests {
                             node: "out".into(),
                             port: "value".into(),
                         },
+                        order: None,
                     },
                 ),
             ]),
@@ -2146,6 +2152,7 @@ mod tests {
                             node: "voice".into(),
                             port: "score".into(),
                         },
+                        order: None,
                     },
                 ),
                 (
@@ -2159,6 +2166,7 @@ mod tests {
                             node: "voice".into(),
                             port: "time".into(),
                         },
+                        order: None,
                     },
                 ),
                 (
@@ -2172,6 +2180,7 @@ mod tests {
                             node: "out".into(),
                             port: "value".into(),
                         },
+                        order: None,
                     },
                 ),
             ]),
@@ -2244,6 +2253,7 @@ mod tests {
                         node: "bad_loop".into(),
                         port: "value".into(),
                     },
+                    order: None,
                 },
             )]),
         };

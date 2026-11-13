@@ -16,6 +16,7 @@ fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option
         id: id.into(),
         signal_type,
         default_value,
+        variadic: false,
     }
 }
 
