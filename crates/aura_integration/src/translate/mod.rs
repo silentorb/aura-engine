@@ -37,6 +37,8 @@ pub enum TranslateError {
     UnknownNodeType { node: NodeId, node_type: String },
     #[error("unwired required input `{port}` on node `{node}`")]
     UnwiredInput { node: NodeId, port: String },
+    #[error("singleton input `{port}` on node `{node}` has multiple inbound edges")]
+    DuplicateEdgeTarget { node: NodeId, port: String },
     #[error("cycle detected at node `{node}`")]
     CycleDetected { node: NodeId },
     #[error("expected numeric literal on node `{node}` port `{port}`")]
@@ -178,13 +180,26 @@ pub fn find_output_node(graph: &Graph) -> Result<NodeId, TranslateError> {
     }
 }
 
-fn index_edges_by_target(graph: &Graph) -> BTreeMap<TargetKey, PortReference> {
-    let mut edges_by_target = BTreeMap::new();
+fn index_edges_by_target(graph: &Graph) -> BTreeMap<TargetKey, Vec<PortReference>> {
+    let mut edges_by_target: BTreeMap<TargetKey, Vec<(Option<i64>, PortReference)>> =
+        BTreeMap::new();
     for edge in graph.edges.values() {
         let key = (edge.to.node.clone(), edge.to.port.clone());
-        edges_by_target.insert(key, edge.from.clone());
+        edges_by_target
+            .entry(key)
+            .or_default()
+            .push((edge.order, edge.from.clone()));
     }
     edges_by_target
+        .into_iter()
+        .map(|(key, mut sources)| {
+            sources.sort_by_key(|(order, _)| *order);
+            (
+                key,
+                sources.into_iter().map(|(_, source)| source).collect(),
+            )
+        })
+        .collect()
 }
 
 /// Loads sibling Aura notation files referenced by `notation_score` nodes into score bindings.
@@ -237,7 +252,7 @@ fn translate_node(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
@@ -373,7 +388,7 @@ fn translate_node(
             Ok(NodeValue::Signal(Box::new(MultiplyControlSampler { a, b })))
         }
         "add" => {
-            let a = signal_input(
+            let inputs = signal_inputs_variadic(
                 graph,
                 registry,
                 sample_rate,
@@ -381,19 +396,9 @@ fn translate_node(
                 visiting,
                 score_bindings,
                 node_id,
-                "a",
+                "inputs",
             )?;
-            let b = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                score_bindings,
-                node_id,
-                "b",
-            )?;
-            Ok(NodeValue::Signal(Box::new(AddSampler { a, b })))
+            Ok(NodeValue::Signal(Box::new(AddSampler { inputs })))
         }
         "exponential_sweep_sine" => {
             let start_hz = signal_input(
@@ -780,7 +785,7 @@ fn translate_note_at_time_port(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
@@ -819,7 +824,7 @@ fn translate_note_param_at_time_port(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node: &Node,
@@ -855,7 +860,7 @@ fn translate_chord_at_time_port(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
@@ -910,7 +915,7 @@ fn translate_tempo_at_time_port(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
@@ -954,7 +959,7 @@ fn translate_time_signature_at_time_port(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
@@ -999,7 +1004,7 @@ fn translate_loop_value(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
@@ -1029,7 +1034,7 @@ fn resolve_score_signal_input(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
@@ -1057,7 +1062,7 @@ fn resolve_progression_signal_input(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
@@ -1085,13 +1090,13 @@ fn resolve_tempo_input(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
     port: &str,
 ) -> Result<Tempo, TranslateError> {
-    let Some(source) = edges_by_target.get(&(node_id.into(), port.into())) else {
+    let Some(source) = wired_source_optional(edges_by_target, node_id, port)? else {
         return Ok(Tempo::default());
     };
     match translate_node(
@@ -1115,13 +1120,13 @@ fn resolve_time_signature_input(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
     port: &str,
 ) -> Result<TimeSignature, TranslateError> {
-    let Some(source) = edges_by_target.get(&(node_id.into(), port.into())) else {
+    let Some(source) = wired_source_optional(edges_by_target, node_id, port)? else {
         return Ok(TimeSignature::default());
     };
     match translate_node(
@@ -1145,7 +1150,7 @@ fn signal_input(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node_id: &str,
@@ -1203,7 +1208,7 @@ fn build_epic_minor_progression(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node: &Node,
@@ -1232,7 +1237,7 @@ fn build_arpeggio_score(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node: &Node,
@@ -1281,7 +1286,7 @@ fn build_bass_line_score(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node: &Node,
@@ -1332,7 +1337,7 @@ fn build_drum_grid_score(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
     node: &Node,
@@ -1386,18 +1391,105 @@ fn read_string_input(node: &Node, port: &str, default: &str) -> Result<String, T
     }
 }
 
-fn wired_source(
-    edges_by_target: &BTreeMap<TargetKey, PortReference>,
+fn wired_sources(
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     node_id: &str,
     port_id: &str,
-) -> Result<PortReference, TranslateError> {
+) -> Vec<PortReference> {
     edges_by_target
         .get(&(node_id.into(), port_id.into()))
         .cloned()
-        .ok_or_else(|| TranslateError::UnwiredInput {
+        .unwrap_or_default()
+}
+
+fn wired_source(
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
+    node_id: &str,
+    port_id: &str,
+) -> Result<PortReference, TranslateError> {
+    let sources = wired_sources(edges_by_target, node_id, port_id);
+    match sources.as_slice() {
+        [] => Err(TranslateError::UnwiredInput {
             node: node_id.into(),
             port: port_id.into(),
-        })
+        }),
+        [source] => Ok(source.clone()),
+        _ => Err(TranslateError::DuplicateEdgeTarget {
+            node: node_id.into(),
+            port: port_id.into(),
+        }),
+    }
+}
+
+fn wired_source_optional(
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
+    node_id: &str,
+    port_id: &str,
+) -> Result<Option<PortReference>, TranslateError> {
+    let sources = wired_sources(edges_by_target, node_id, port_id);
+    match sources.as_slice() {
+        [] => Ok(None),
+        [source] => Ok(Some(source.clone())),
+        _ => Err(TranslateError::DuplicateEdgeTarget {
+            node: node_id.into(),
+            port: port_id.into(),
+        }),
+    }
+}
+
+fn signal_inputs_variadic(
+    graph: &Graph,
+    registry: &Registry,
+    sample_rate: SampleRate,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
+    visiting: &mut BTreeSet<NodeId>,
+    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    node_id: &str,
+    port: &str,
+) -> Result<Vec<Box<dyn Sampler>>, TranslateError> {
+    let sources = wired_sources(edges_by_target, node_id, port);
+    if sources.is_empty() {
+        return Err(TranslateError::UnwiredInput {
+            node: node_id.into(),
+            port: port.into(),
+        });
+    }
+    let mut inputs = Vec::with_capacity(sources.len());
+    for source in sources {
+        match translate_node(
+            graph,
+            registry,
+            sample_rate,
+            edges_by_target,
+            visiting,
+            score_bindings,
+            &source.node,
+            &source.port,
+        )? {
+            NodeValue::Signal(sampler) => inputs.push(sampler),
+            NodeValue::ScoreSignal(_) => {
+                return Err(TranslateError::InvalidScoreSource {
+                    node: source.node,
+                })
+            }
+            NodeValue::ProgressionSignal(_) => {
+                return Err(TranslateError::InvalidProgressionSource {
+                    node: source.node,
+                })
+            }
+            NodeValue::Tempo(_) => {
+                return Err(TranslateError::InvalidTempoSource {
+                    node: source.node,
+                })
+            }
+            NodeValue::TimeSignature(_) => {
+                return Err(TranslateError::InvalidTimeSignatureSource {
+                    node: source.node,
+                })
+            }
+        }
+    }
+    Ok(inputs)
 }
 
 fn primitive_to_f64(
@@ -1491,13 +1583,16 @@ impl Sampler for MultiplyControlSampler {
 }
 
 struct AddSampler {
-    a: Box<dyn Sampler>,
-    b: Box<dyn Sampler>,
+    inputs: Vec<Box<dyn Sampler>>,
 }
 
 impl Sampler for AddSampler {
     fn at(&self, t: f64) -> f32 {
-        add(self.a.at(t), self.b.at(t))
+        self.inputs
+            .iter()
+            .map(|input| input.at(t))
+            .reduce(add)
+            .unwrap_or(0.0)
     }
 }
 
@@ -1821,6 +1916,131 @@ mod tests {
         let registry = aura_registry().expect("registry");
         let sampler = translate_graph(&graph, &registry, SampleRate::RATE_44100).expect("translate");
         assert_eq!(sampler.at(0.25), sampler.at(0.25));
+    }
+
+    #[test]
+    fn translate_variadic_add_sums_constant_inputs() {
+        use aura_imp::{Edge, Graph, Node, PortReference, PrimitiveValue};
+
+        let graph = Graph {
+            nodes: BTreeMap::from([
+                (
+                    "a".into(),
+                    Node {
+                        id: "a".into(),
+                        node_type: "parameter".into(),
+                        type_args: vec![],
+                        inputs: BTreeMap::from([(
+                            "value".into(),
+                            PrimitiveValue::Number(0.25),
+                        )]),
+                    },
+                ),
+                (
+                    "b".into(),
+                    Node {
+                        id: "b".into(),
+                        node_type: "parameter".into(),
+                        type_args: vec![],
+                        inputs: BTreeMap::from([(
+                            "value".into(),
+                            PrimitiveValue::Number(0.50),
+                        )]),
+                    },
+                ),
+                (
+                    "c".into(),
+                    Node {
+                        id: "c".into(),
+                        node_type: "parameter".into(),
+                        type_args: vec![],
+                        inputs: BTreeMap::from([(
+                            "value".into(),
+                            PrimitiveValue::Number(0.25),
+                        )]),
+                    },
+                ),
+                (
+                    "mix".into(),
+                    Node {
+                        id: "mix".into(),
+                        node_type: "add".into(),
+                        type_args: vec![],
+                        inputs: BTreeMap::new(),
+                    },
+                ),
+                (
+                    "out".into(),
+                    Node {
+                        id: "out".into(),
+                        node_type: "output".into(),
+                        type_args: vec![],
+                        inputs: BTreeMap::new(),
+                    },
+                ),
+            ]),
+            edges: BTreeMap::from([
+                (
+                    "a_to_mix".into(),
+                    Edge {
+                        from: PortReference {
+                            node: "a".into(),
+                            port: "value".into(),
+                        },
+                        to: PortReference {
+                            node: "mix".into(),
+                            port: "inputs".into(),
+                        },
+                        order: Some(0),
+                    },
+                ),
+                (
+                    "b_to_mix".into(),
+                    Edge {
+                        from: PortReference {
+                            node: "b".into(),
+                            port: "value".into(),
+                        },
+                        to: PortReference {
+                            node: "mix".into(),
+                            port: "inputs".into(),
+                        },
+                        order: Some(1),
+                    },
+                ),
+                (
+                    "c_to_mix".into(),
+                    Edge {
+                        from: PortReference {
+                            node: "c".into(),
+                            port: "value".into(),
+                        },
+                        to: PortReference {
+                            node: "mix".into(),
+                            port: "inputs".into(),
+                        },
+                        order: Some(2),
+                    },
+                ),
+                (
+                    "mix_to_out".into(),
+                    Edge {
+                        from: PortReference {
+                            node: "mix".into(),
+                            port: "audio".into(),
+                        },
+                        to: PortReference {
+                            node: "out".into(),
+                            port: "value".into(),
+                        },
+                        order: None,
+                    },
+                ),
+            ]),
+        };
+        let registry = aura_registry().expect("registry");
+        let sampler = translate_graph(&graph, &registry, SampleRate::RATE_44100).expect("translate");
+        assert!((sampler.at(0.0) - 1.0).abs() < 1e-5);
     }
 
     #[test]

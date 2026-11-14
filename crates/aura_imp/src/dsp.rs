@@ -14,6 +14,15 @@ fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option
     }
 }
 
+fn variadic_port(id: &str, signal_type: imp_core_types::SignalType) -> Port {
+    Port {
+        id: id.into(),
+        signal_type,
+        default_value: None,
+        variadic: true,
+    }
+}
+
 /// Returns the Aura DSP node type library.
 pub fn dsp_node_library() -> NodeLibrary {
     let control = signal(CONTROL);
@@ -163,10 +172,10 @@ pub fn dsp_node_library() -> NodeLibrary {
             "add",
             Vec::new(),
             None,
-            BTreeMap::from([
-                ("a".into(), port("a", audio_mono.clone(), None)),
-                ("b".into(), port("b", audio_mono, None)),
-            ]),
+            BTreeMap::from([(
+                "inputs".into(),
+                variadic_port("inputs", audio_mono),
+            )]),
             BTreeMap::from([(
                 "audio".into(),
                 port("audio", signal(AUDIO_MONO), None),
@@ -195,7 +204,8 @@ mod tests {
         .expect("registry");
         assert!(get_node_type(&registry, "sine").is_some());
         assert!(get_node_type(&registry, "multiply").is_some());
-        assert!(get_node_type(&registry, "add").is_some());
+        let add = get_node_type(&registry, "add").expect("add");
+        assert!(add.inputs.get("inputs").is_some_and(|port| port.variadic));
         assert!(get_node_type(&registry, "exponential_sweep_sine").is_some());
         assert!(get_node_type(&registry, "deterministic_noise").is_some());
         assert!(get_node_type(&registry, "highpass_noise").is_some());

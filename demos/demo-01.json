@@ -75,13 +75,8 @@
       "type": "snare_drum",
       "inputs": {}
     },
-    "mix_arp_kick": {
-      "id": "mix_arp_kick",
-      "type": "add",
-      "inputs": {}
-    },
-    "mix_all": {
-      "id": "mix_all",
+    "mix": {
+      "id": "mix",
       "type": "add",
       "inputs": {}
     },
@@ -98,11 +93,6 @@
     "bass_voice": {
       "id": "bass_voice",
       "type": "bass_saw_voice",
-      "inputs": {}
-    },
-    "mix_final": {
-      "id": "mix_final",
-      "type": "add",
       "inputs": {}
     },
     "out": {
@@ -184,21 +174,20 @@
       "from": { "node": "time", "port": "time" },
       "to": { "node": "snare", "port": "time" }
     },
-    "arp_voice_to_mix_arp_kick_a": {
+    "arp_voice_to_mix": {
       "from": { "node": "arp_voice", "port": "audio" },
-      "to": { "node": "mix_arp_kick", "port": "a" }
+      "to": { "node": "mix", "port": "inputs" },
+      "order": 0
     },
-    "kick_to_mix_arp_kick_b": {
+    "kick_to_mix": {
       "from": { "node": "kick", "port": "audio" },
-      "to": { "node": "mix_arp_kick", "port": "b" }
+      "to": { "node": "mix", "port": "inputs" },
+      "order": 1
     },
-    "mix_arp_kick_to_mix_all_a": {
-      "from": { "node": "mix_arp_kick", "port": "audio" },
-      "to": { "node": "mix_all", "port": "a" }
-    },
-    "snare_to_mix_all_b": {
+    "snare_to_mix": {
       "from": { "node": "snare", "port": "audio" },
-      "to": { "node": "mix_all", "port": "b" }
+      "to": { "node": "mix", "port": "inputs" },
+      "order": 2
     },
     "tempo_to_bass": {
       "from": { "node": "tempo", "port": "tempo" },
@@ -224,16 +213,13 @@
       "from": { "node": "time", "port": "time" },
       "to": { "node": "bass_voice", "port": "time" }
     },
-    "mix_all_to_mix_final_a": {
-      "from": { "node": "mix_all", "port": "audio" },
-      "to": { "node": "mix_final", "port": "a" }
-    },
-    "bass_voice_to_mix_final_b": {
+    "bass_voice_to_mix": {
       "from": { "node": "bass_voice", "port": "audio" },
-      "to": { "node": "mix_final", "port": "b" }
+      "to": { "node": "mix", "port": "inputs" },
+      "order": 3
     },
-    "mix_final_to_out": {
-      "from": { "node": "mix_final", "port": "audio" },
+    "mix_to_out": {
+      "from": { "node": "mix", "port": "audio" },
       "to": { "node": "out", "port": "value" }
     }
   }
