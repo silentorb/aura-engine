@@ -4,11 +4,13 @@
 //! and pulls Imp graphs via `aura_imp` helpers.
 
 use aura_imp::{graph_from_json_str, Graph};
-use imp_mir::{KindFn, MiroError, MiroOpenOptions, MiroSession};
+use imp_mir::{KindFn, MiroError, MiroOpenOptions};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
+
+pub use imp_mir::{MiroSession, StoreRecord};
 
 /// Kind function: Aura JSON `type` when present, otherwise `"unknown"`.
 pub fn aura_json_kind_fn() -> KindFn {
@@ -27,10 +29,22 @@ pub fn aura_json_kind(content: &str) -> String {
     }
 }
 
+/// Host SQLite projection path for an Aura Miro content root.
+///
+/// `{content_root}/.aura/miro-projection.db`
+pub fn aura_miro_db_path(content_root: impl AsRef<Path>) -> PathBuf {
+    content_root
+        .as_ref()
+        .join(".aura")
+        .join("miro-projection.db")
+}
+
 #[derive(Debug, Error)]
 pub enum AuraMiroError {
     #[error("{0}")]
     Miro(#[from] MiroError),
+    #[error("failed to prepare Miro projection directory: {0}")]
+    Io(#[from] std::io::Error),
     #[error("pulled record `{id}` is not an Imp graph: {source}")]
     GraphParse {
         id: String,
@@ -52,6 +66,21 @@ pub fn open_aura_miro_session(
             .with_kind_fn(aura_json_kind_fn())
             .with_start_watch(start_watch),
     )?)
+}
+
+/// Open a Miro session using [`aura_miro_db_path`] under `content_root`.
+///
+/// Creates the `.aura` directory when needed.
+pub fn open_aura_miro_session_for_root(
+    content_root: impl Into<PathBuf>,
+    start_watch: bool,
+) -> Result<MiroSession, AuraMiroError> {
+    let content_root = content_root.into();
+    let sqlite_path = aura_miro_db_path(&content_root);
+    if let Some(parent) = sqlite_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    open_aura_miro_session(content_root, sqlite_path, start_watch)
 }
 
 /// Open an in-memory Miro projection for tests / ephemeral tools.
@@ -103,6 +132,15 @@ mod tests {
     }
 
     #[test]
+    fn aura_miro_db_path_is_under_dot_aura() {
+        let path = aura_miro_db_path("/content/root");
+        assert_eq!(
+            path,
+            PathBuf::from("/content/root/.aura/miro-projection.db")
+        );
+    }
+
+    #[test]
     fn miro_sync_pulls_demo_shaped_graph() {
         let dir = tempdir().expect("tempdir");
         let root = dir.path().join("content");
@@ -117,6 +155,23 @@ mod tests {
         let graph = miro_sync_content_root(&root, &db, Some("demo-01.json"))
             .expect("sync")
             .expect("pulled");
+        assert!(graph.nodes.contains_key("n"));
+    }
+
+    #[test]
+    fn open_for_root_creates_projection_and_pulls() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("content");
+        fs::create_dir_all(&root).expect("mkdir");
+        fs::write(
+            root.join("demo-01.json"),
+            r#"{"type":"imp-graph","nodes":{"n":{"id":"n","type":"time","inputs":{}}},"edges":{}}"#,
+        )
+        .expect("write");
+
+        let session = open_aura_miro_session_for_root(&root, false).expect("open");
+        assert!(aura_miro_db_path(&root).is_file());
+        let graph = pull_graph(&session, "demo-01.json").expect("pull");
         assert!(graph.nodes.contains_key("n"));
     }
 }

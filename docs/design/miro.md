@@ -8,15 +8,17 @@ Declarative requirements for Aura’s use of Mir/Miro. Motivation: multi-represe
 - Aura **must** treat on-disk Aura JSON (`imp-graph`, `notation`, `imp-graph-library`, …) as the Miro text source of truth for this product.
 - Aura **must** use SQLite as the Miro database projection (via `imp_mir`’s generic SQLite store).
 - Aura host helpers **may** map Aura JSON `type` into opaque Mir record `kind` and pull Imp `Graph` values through `aura_imp` JSON helpers.
-- Direct `load_graph` / filesystem open paths **must** keep working; Miro is an additive session path.
-- App memory pull into the editor `ModelGraph` is deferred; engine/CLI pull is sufficient for this slice.
+- Direct `load_graph` / filesystem open paths **must** keep working; Miro is an additive parallel session path.
+- The editor **must** expose a durable Miro pull workflow into app memory (`ModelGraph`): open a `MiroSession` for a content root, pull opaque records by id, and materialize them through the stacked document-type pipeline. Product File → Open may remain filesystem-only until a later slice attaches UI to that workflow.
+- Editor app memory for Imp graphs **must** treat `ModelGraph.graph.nodes` as the Imp **local** instance map for that tab. Pulled JSON **must** preserve edge topology even when endpoints lack a local node entry (missing cards / typecheck errors). Miro-backed resolution of those missing ids is later host policy, not a Mir observe sink.
 
 ## Non-goals / avoided approaches
 
 - An `aura_mir` fabric crate that duplicates `imp_mir`
 - Encoding Aura path layouts or SQL schemas as Mir-normative requirements
 - `mir.sync.gitWatch` (deferred)
-- Replacing editor document open/save with SQLite in this slice
+- Replacing editor document open/save with SQLite as the only path
+- Temporary File-menu / path-picker Miro open UX that would be removed when real discovery or node-ref UI lands
 
 ## See also
 
