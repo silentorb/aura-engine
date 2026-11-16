@@ -3,7 +3,7 @@
 //! Mir fabric lives in `imp_mir`. This module maps Aura JSON `type` into record kinds,
 //! indexes tip NodeIds onto opaque Mir record ids, and pulls Imp graphs via `aura_imp`.
 
-use aura_imp::{graph_from_json_str, Graph};
+use aura_imp::{graph_from_json_str, Graph, Node};
 use imp_mir::{KindFn, MiroError, MiroOpenOptions};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -80,6 +80,11 @@ impl MiroNodeIndex {
         self.by_node.get(node_id)
     }
 
+    /// Iterate NodeId → Mir ref entries in id order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &MiroNodeRef)> {
+        self.by_node.iter().map(|(id, node_ref)| (id.as_str(), node_ref))
+    }
+
     /// Number of indexed NodeIds.
     pub fn len(&self) -> usize {
         self.by_node.len()
@@ -101,6 +106,20 @@ impl MiroNodeIndex {
     }
 }
 
+/// Nullary proxy node type used when a notation tip is inserted into a local graph map.
+pub const EXTERNAL_SCORE_NODE_TYPE: &str = "external_score";
+
+/// A NodeId resolved from Miro into a fragment suitable for `Graph.nodes` insert.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MiroLocalNode {
+    /// Local instance map entry (same NodeId the edge already names).
+    pub node: Node,
+    /// Opaque Mir blob key for the tip that contained this node.
+    pub mir_record_id: String,
+    /// Tip kind (`imp-graph`, `notation`, …).
+    pub kind: String,
+}
+
 #[derive(Debug, Error)]
 pub enum AuraMiroError {
     #[error("{0}")]
@@ -117,6 +136,20 @@ pub enum AuraMiroError {
     MissingRecord { id: String },
     #[error("no Miro record indexed for node `{node_id}`")]
     MissingNode { node_id: String },
+    #[error("indexed tip `{mir_record_id}` kind `{kind}` cannot resolve a local graph node")]
+    UnsupportedResolveKind {
+        /// Opaque Mir blob key.
+        mir_record_id: String,
+        /// Tip kind from the index.
+        kind: String,
+    },
+    #[error("node `{node_id}` missing from pulled imp-graph tip `{mir_record_id}`")]
+    NodeAbsentInTip {
+        /// Product NodeId.
+        node_id: String,
+        /// Opaque Mir blob key.
+        mir_record_id: String,
+    },
 }
 
 /// Open a Miro session over an Aura content root (text SoT → SQLite).
@@ -196,6 +229,60 @@ pub fn pull_by_node_id(
         .ok_or_else(|| AuraMiroError::MissingRecord {
             id: node_ref.mir_record_id.clone(),
         })
+}
+
+/// Resolve a product NodeId into a local `Graph.nodes` fragment.
+///
+/// - `imp-graph`: copy the node record from the pulled tip.
+/// - `notation`: build a nullary [`EXTERNAL_SCORE_NODE_TYPE`] proxy with the tip id.
+pub fn resolve_local_node(
+    session: &MiroSession,
+    index: &MiroNodeIndex,
+    node_id: &str,
+) -> Result<MiroLocalNode, AuraMiroError> {
+    let node_ref = resolve_node(index, node_id)?;
+    let record = session
+        .pull_record(&node_ref.mir_record_id)?
+        .ok_or_else(|| AuraMiroError::MissingRecord {
+            id: node_ref.mir_record_id.clone(),
+        })?;
+    match node_ref.kind.as_str() {
+        "imp-graph" => {
+            let graph =
+                graph_from_json_str(&record.content).map_err(|source| AuraMiroError::GraphParse {
+                    id: record.id.clone(),
+                    source,
+                })?;
+            let node = graph
+                .nodes
+                .get(node_id)
+                .cloned()
+                .ok_or_else(|| AuraMiroError::NodeAbsentInTip {
+                    node_id: node_id.to_string(),
+                    mir_record_id: node_ref.mir_record_id.clone(),
+                })?;
+            Ok(MiroLocalNode {
+                node,
+                mir_record_id: node_ref.mir_record_id.clone(),
+                kind: node_ref.kind.clone(),
+            })
+        }
+        "notation" => Ok(MiroLocalNode {
+            node: Node {
+                id: node_id.to_string(),
+                title: None,
+                node_type: EXTERNAL_SCORE_NODE_TYPE.to_string(),
+                type_args: Vec::new(),
+                inputs: Default::default(),
+            },
+            mir_record_id: node_ref.mir_record_id.clone(),
+            kind: node_ref.kind.clone(),
+        }),
+        _ => Err(AuraMiroError::UnsupportedResolveKind {
+            mir_record_id: node_ref.mir_record_id.clone(),
+            kind: node_ref.kind.clone(),
+        }),
+    }
 }
 
 /// Pull a Mir blob by opaque Mir record id and parse it as an Imp `Graph`.
@@ -413,5 +500,53 @@ mod tests {
         assert_eq!(record.id, "g.json");
         assert_eq!(record.kind, "imp-graph");
         assert!(pull_by_node_id(&session, &index, "missing").is_err());
+    }
+
+    #[test]
+    fn index_iter_lists_node_ids() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("content");
+        fs::create_dir_all(&root).expect("mkdir");
+        fs::write(
+            root.join("g.json"),
+            r#"{"type":"imp-graph","nodes":{"NODEA":{"id":"NODEA","type":"time","inputs":{}},"NODEB":{"id":"NODEB","type":"output","inputs":{}}},"edges":{}}"#,
+        )
+        .expect("write");
+        let index = build_miro_node_index(&root).expect("index");
+        let ids: Vec<_> = index.iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, vec!["NODEA", "NODEB"]);
+    }
+
+    #[test]
+    fn resolve_local_node_extracts_graph_node_and_notation_proxy() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("content");
+        fs::create_dir_all(root.join("demos")).expect("mkdir");
+        fs::write(
+            root.join("g.json"),
+            r#"{"type":"imp-graph","nodes":{"NODEA":{"id":"NODEA","type":"time","title":"Clock","inputs":{}}},"edges":{}}"#,
+        )
+        .expect("write");
+        fs::write(
+            root.join("demos/score.json"),
+            r#"{"type":"notation","id":"TIPID00000000000000000001","version":1,"tempoBpm":120.0,"timeSignature":{"beatsPerBar":4,"beatUnit":4},"events":[]}"#,
+        )
+        .expect("write");
+
+        let session = open_aura_miro_session_in_memory(&root, false).expect("session");
+        let index = build_miro_node_index(&root).expect("index");
+
+        let graph_frag = resolve_local_node(&session, &index, "NODEA").expect("graph node");
+        assert_eq!(graph_frag.kind, "imp-graph");
+        assert_eq!(graph_frag.mir_record_id, "g.json");
+        assert_eq!(graph_frag.node.id, "NODEA");
+        assert_eq!(graph_frag.node.node_type, "time");
+        assert_eq!(graph_frag.node.title.as_deref(), Some("Clock"));
+
+        let score = resolve_local_node(&session, &index, "TIPID00000000000000000001").expect("score");
+        assert_eq!(score.kind, "notation");
+        assert_eq!(score.node.id, "TIPID00000000000000000001");
+        assert_eq!(score.node.node_type, EXTERNAL_SCORE_NODE_TYPE);
+        assert!(score.node.inputs.is_empty());
     }
 }
