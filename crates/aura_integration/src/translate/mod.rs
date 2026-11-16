@@ -33,6 +33,8 @@ pub enum TranslateError {
     MissingOutput,
     #[error("multiple output nodes are not supported")]
     MultipleOutputs,
+    #[error("unknown node `{node}`")]
+    UnknownNode { node: NodeId },
     #[error("unknown node type `{node_type}` on node `{node}`")]
     UnknownNodeType { node: NodeId, node_type: String },
     #[error("unwired required input `{port}` on node `{node}`")]
@@ -266,10 +268,9 @@ fn translate_node(
         });
     }
 
-    let node = graph
-        .nodes
-        .get(node_id)
-        .expect("node id must exist in graph");
+    let node = graph.nodes.get(node_id).ok_or_else(|| TranslateError::UnknownNode {
+        node: node_id.to_string(),
+    })?;
 
     let result = match node.node_type.as_str() {
         "output" => {
@@ -2309,6 +2310,53 @@ mod tests {
             Err(error) => error,
         };
         assert!(matches!(err, TranslateError::MissingGraphDir { .. }));
+    }
+
+    #[test]
+    fn translate_rejects_edge_to_missing_node() {
+        use aura_imp::{Edge, Graph, Node, PortReference};
+
+        let registry = aura_registry().expect("registry");
+        let graph = Graph {
+            nodes: BTreeMap::from([(
+                "out".into(),
+                Node {
+                    id: "out".into(),
+                    title: Some("out".into()),
+                    node_type: "output".into(),
+                    type_args: vec![],
+                    inputs: BTreeMap::new(),
+                },
+            )]),
+            edges: BTreeMap::from([(
+                "ghost_to_out".into(),
+                Edge {
+                    from: PortReference {
+                        node: "ghost".into(),
+                        port: "value".into(),
+                    },
+                    to: PortReference {
+                        node: "out".into(),
+                        port: "value".into(),
+                    },
+                    order: None,
+                },
+            )]),
+        };
+
+        let err = match translate_graph(&graph, &registry, SampleRate::RATE_44100) {
+            Ok(_) => panic!("expected typecheck failure for missing node"),
+            Err(error) => error,
+        };
+        match err {
+            TranslateError::TypeCheck { message } => {
+                assert!(
+                    message.contains("unknown node"),
+                    "unexpected typecheck message: {message}"
+                );
+            }
+            other => panic!("expected TypeCheck, got {other:?}"),
+        }
     }
 
     #[test]
