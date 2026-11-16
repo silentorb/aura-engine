@@ -15,6 +15,9 @@ use aura_dsp::{
     add, bandlimited_saw, deterministic_noise, exponential_sweep_sine, highpass_noise, multiply,
     sine,
 };
+use crate::miro::{
+    authoring_path_for_mir_record, build_miro_node_index, EXTERNAL_SCORE_NODE_TYPE,
+};
 use crate::notation_file::score_from_notation_path;
 use aura_imp::{flatten_graph, Graph, Node, NodeId, PortReference, PrimitiveValue, Registry};
 use aura_instrumentation::LinearAdsr;
@@ -22,7 +25,7 @@ use aura_render::Sampler;
 use aura_sample::SampleRate;
 use imp_typecheck::check_graph;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use thiserror::Error;
 
 type TargetKey = (NodeId, String);
@@ -65,9 +68,9 @@ pub enum TranslateError {
     Resolve { message: String },
     #[error("external_score node `{node}` has no bound ScoreSignal")]
     MissingScoreBinding { node: NodeId },
-    #[error("notation_score node `{node}` requires a graph directory to resolve path `{path}`")]
-    MissingGraphDir { node: NodeId, path: String },
-    #[error("notation_score node `{node}`: {message}")]
+    #[error("failed to build Miro node index for content root: {message}")]
+    ContentIndex { message: String },
+    #[error("notation tip `{node}`: {message}")]
     NotationFile { node: NodeId, message: String },
 }
 
@@ -76,7 +79,7 @@ pub enum TranslateError {
 pub struct TranslateOptions<'a> {
     /// Bound [`ScoreSignal`] values for `external_score` nodes.
     pub score_bindings: &'a BTreeMap<NodeId, ScoreSignal>,
-    /// Directory of the source graph file; required to resolve relative `notation_score` paths.
+    /// Content root used to index notation tip NodeIds and bind scores for headless translate.
     pub graph_dir: Option<&'a Path>,
 }
 
@@ -115,24 +118,26 @@ pub fn translate_graph_with_bindings(
     )
 }
 
-/// Translates an Imp graph with score bindings and an optional graph directory for `notation_score`.
+/// Translates an Imp graph with score bindings and an optional content root for tip NodeId resolve.
 pub fn translate_graph_with_options(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
     options: TranslateOptions<'_>,
 ) -> Result<Box<dyn Sampler>, TranslateError> {
-    let type_errors = check_graph(graph, registry);
+    let mut graph = graph.clone();
+    let mut score_bindings = options.score_bindings.clone();
+    resolve_external_score_bindings(&mut graph, options.graph_dir, &mut score_bindings)?;
+
+    let type_errors = check_graph(&graph, registry);
     if let Some(error) = type_errors.first() {
         return Err(TranslateError::TypeCheck {
             message: error.message.clone(),
         });
     }
 
-    let graph = flatten_graph(graph, registry).map_err(|message| TranslateError::Resolve { message })?;
-
-    let mut score_bindings = options.score_bindings.clone();
-    resolve_notation_score_bindings(&graph, options.graph_dir, &mut score_bindings)?;
+    let graph =
+        flatten_graph(&graph, registry).map_err(|message| TranslateError::Resolve { message })?;
 
     let output_node = find_output_node(&graph)?;
     let edges_by_target = index_edges_by_target(&graph);
@@ -206,48 +211,65 @@ fn index_edges_by_target(graph: &Graph) -> BTreeMap<TargetKey, Vec<PortReference
         .collect()
 }
 
-/// Loads sibling Aura notation files referenced by `notation_score` nodes into score bindings.
-fn resolve_notation_score_bindings(
-    graph: &Graph,
-    graph_dir: Option<&Path>,
+/// Resolve notation tip NodeIds via the content-root Miro index into `external_score` bindings.
+///
+/// Edge endpoints (and existing unbound `external_score` nodes) whose NodeId indexes as a
+/// `notation` tip are loaded from the text SoT; a nullary `external_score` proxy is inserted
+/// into the working graph when missing.
+fn resolve_external_score_bindings(
+    graph: &mut Graph,
+    content_root: Option<&Path>,
     score_bindings: &mut BTreeMap<NodeId, ScoreSignal>,
 ) -> Result<(), TranslateError> {
+    let Some(root) = content_root else {
+        return Ok(());
+    };
+
+    let index = build_miro_node_index(root).map_err(|err| TranslateError::ContentIndex {
+        message: err.to_string(),
+    })?;
+
+    let mut candidates = BTreeSet::new();
+    for edge in graph.edges.values() {
+        candidates.insert(edge.from.node.clone());
+        candidates.insert(edge.to.node.clone());
+    }
     for node in graph.nodes.values() {
-        if node.node_type != "notation_score" {
-            continue;
+        if node.node_type == EXTERNAL_SCORE_NODE_TYPE {
+            candidates.insert(node.id.clone());
         }
-        if score_bindings.contains_key(&node.id) {
-            continue;
-        }
+    }
 
-        let relative = read_string_input(node, "path", "")?;
-        if relative.is_empty() {
-            return Err(TranslateError::UnwiredInput {
-                node: node.id.clone(),
-                port: "path".into(),
-            });
-        }
-
-        let Some(dir) = graph_dir else {
-            return Err(TranslateError::MissingGraphDir {
-                node: node.id.clone(),
-                path: relative,
-            });
-        };
-
-        let full_path = if Path::new(&relative).is_absolute() {
-            PathBuf::from(&relative)
-        } else {
-            dir.join(&relative)
-        };
-
-        let score = score_from_notation_path(&full_path).map_err(|err| {
-            TranslateError::NotationFile {
-                node: node.id.clone(),
-                message: err.to_string(),
+    for node_id in candidates {
+        if let Some(existing) = graph.nodes.get(&node_id) {
+            if existing.node_type != EXTERNAL_SCORE_NODE_TYPE {
+                continue;
             }
-        })?;
-        score_bindings.insert(node.id.clone(), ScoreSignal::finite(score));
+        }
+
+        let Some(node_ref) = index.get(&node_id) else {
+            continue;
+        };
+        if node_ref.kind != "notation" {
+            continue;
+        }
+
+        if !score_bindings.contains_key(&node_id) {
+            let path = authoring_path_for_mir_record(root, &node_ref.mir_record_id);
+            let score = score_from_notation_path(&path).map_err(|err| TranslateError::NotationFile {
+                node: node_id.clone(),
+                message: err.to_string(),
+            })?;
+            score_bindings.insert(node_id.clone(), ScoreSignal::finite(score));
+        }
+
+        graph.nodes.entry(node_id.clone()).or_insert_with(|| Node {
+            id: node_id.clone(),
+            title: None,
+            node_type: EXTERNAL_SCORE_NODE_TYPE.to_string(),
+            type_args: Vec::new(),
+            inputs: Default::default(),
+        });
     }
     Ok(())
 }
@@ -734,7 +756,7 @@ fn translate_node(
                 adsr: LinearAdsr::default(),
             })))
         }
-        "external_score" | "notation_score" => {
+        "external_score" => {
             let _ = (output_port, registry, sample_rate, edges_by_target);
             match score_bindings.get(node_id) {
                 Some(signal) => Ok(NodeValue::ScoreSignal(signal.clone())),
@@ -2062,7 +2084,7 @@ mod tests {
     }
 
     #[test]
-    fn translate_static_arpeggio_demo_with_notation_score() {
+    fn translate_static_arpeggio_demo_by_notation_tip_id() {
         let json = include_str!("../../../../demos/demo-02.json");
         let graph = aura_imp::graph_from_json_str(json).expect("graph");
         let graph_path = workspace_demo_path("demo-02.json");
@@ -2081,43 +2103,33 @@ mod tests {
     }
 
     #[test]
-    fn notation_score_loads_sibling_file_with_graph_dir() {
-        use aura_imp::{Edge, Graph, Node, PortReference, PrimitiveValue};
+    fn external_score_tip_id_loads_via_content_root_index() {
+        use aura_imp::{Edge, Graph, Node, PortReference};
         use std::fs;
         use tempfile::tempdir;
 
         let dir = tempdir().expect("tempdir");
-        let notation_path = dir.path().join("arp.json");
+        let tip_id = "01MTESTNOTATIONTIP000000001";
         fs::write(
-            &notation_path,
-            r#"{
+            dir.path().join("arp.json"),
+            format!(
+                r#"{{
               "type": "notation",
+              "id": "{tip_id}",
               "version": 1,
               "tempoBpm": 120.0,
-              "timeSignature": { "beatsPerBar": 4, "beatUnit": 4 },
+              "timeSignature": {{ "beatsPerBar": 4, "beatUnit": 4 }},
               "events": [
-                { "semitone": 57, "startBeats": 0.0, "durationBeats": 1.0, "velocity": 1.0 }
+                {{ "semitone": 57, "startBeats": 0.0, "durationBeats": 1.0, "velocity": 1.0 }}
               ]
-            }"#,
+            }}"#
+            ),
         )
         .expect("write notation");
 
         let registry = aura_registry().expect("registry");
         let graph = Graph {
             nodes: BTreeMap::from([
-                (
-                    "score".into(),
-                    Node {
-                        id: "score".into(),
-                        title: None,
-                        node_type: "notation_score".into(),
-                        type_args: vec![],
-                        inputs: BTreeMap::from([(
-                            "path".into(),
-                            PrimitiveValue::String("arp.json".into()),
-                        )]),
-                    },
-                ),
                 (
                     "clock".into(),
                     Node {
@@ -2154,7 +2166,7 @@ mod tests {
                     "score_to_voice".into(),
                     Edge {
                         from: PortReference {
-                            node: "score".into(),
+                            node: tip_id.into(),
                             port: "score".into(),
                         },
                         to: PortReference {
@@ -2209,25 +2221,13 @@ mod tests {
     }
 
     #[test]
-    fn notation_score_without_graph_dir_errors() {
-        use aura_imp::{Edge, Graph, Node, PortReference, PrimitiveValue};
+    fn missing_notation_tip_without_content_root_typechecks_as_unknown() {
+        use aura_imp::{Edge, Graph, Node, PortReference};
 
         let registry = aura_registry().expect("registry");
+        let tip_id = "01MTESTNOTATIONTIP000000099";
         let graph = Graph {
             nodes: BTreeMap::from([
-                (
-                    "score".into(),
-                    Node {
-                        id: "score".into(),
-                        title: None,
-                        node_type: "notation_score".into(),
-                        type_args: vec![],
-                        inputs: BTreeMap::from([(
-                            "path".into(),
-                            PrimitiveValue::String("missing.json".into()),
-                        )]),
-                    },
-                ),
                 (
                     "clock".into(),
                     Node {
@@ -2264,7 +2264,7 @@ mod tests {
                     "score_to_voice".into(),
                     Edge {
                         from: PortReference {
-                            node: "score".into(),
+                            node: tip_id.into(),
                             port: "score".into(),
                         },
                         to: PortReference {
@@ -2306,10 +2306,10 @@ mod tests {
         };
 
         let err = match translate_graph(&graph, &registry, SampleRate::RATE_44100) {
-            Ok(_) => panic!("expected MissingGraphDir"),
+            Ok(_) => panic!("expected TypeCheck"),
             Err(error) => error,
         };
-        assert!(matches!(err, TranslateError::MissingGraphDir { .. }));
+        assert!(matches!(err, TranslateError::TypeCheck { .. }));
     }
 
     #[test]

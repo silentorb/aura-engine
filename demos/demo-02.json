@@ -31,14 +31,6 @@
       "inputs": {},
       "title": "loop_prog"
     },
-    "0033AFBG2W00WQM9SRCCZ0Y4X1": {
-      "id": "0033AFBG2W00WQM9SRCCZ0Y4X1",
-      "type": "notation_score",
-      "inputs": {
-        "path": "demo-02-arpeggio.json"
-      },
-      "title": "arp"
-    },
     "0033AFBG2X00X1GQNJ3JYNK3XP": {
       "id": "0033AFBG2X00X1GQNJ3JYNK3XP",
       "type": "loop",
@@ -145,7 +137,7 @@
     },
     "arp_to_loop_arp": {
       "from": {
-        "node": "0033AFBG2W00WQM9SRCCZ0Y4X1",
+        "node": "01M7HJ0CRN88N5QEQQQ1GBJT8H",
         "port": "score"
       },
       "to": {

@@ -55,7 +55,7 @@ pub enum IntegrationError {
 pub struct LoadedGraph {
     pub graph: Graph,
     pub registry: Registry,
-    /// Directory containing the graph file; used to resolve relative `notation_score` paths.
+    /// Content root (graph file parent); indexes notation tip NodeIds for score bindings.
     pub graph_dir: Option<PathBuf>,
 }
 
@@ -86,7 +86,7 @@ pub fn translate_graph_to_sampler(
     Ok(translate_graph(graph, registry, sample_rate)?)
 }
 
-/// Translates an Imp graph with optional score bindings and a graph directory for `notation_score`.
+/// Translates an Imp graph with optional score bindings and content-root tip NodeId resolve.
 pub fn translate_graph_to_sampler_with_options(
     graph: &Graph,
     registry: &aura_imp::Registry,

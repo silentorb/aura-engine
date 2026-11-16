@@ -9,7 +9,7 @@ Aura-specific Imp node libraries, registries, and JSON helpers. Graphs denote pu
 - Provide node libraries: `aura.time`, `aura.dsp`, `aura.envelope`, `aura.music`.
 - Depend on `imp_core_types` and `imp_registry` (and related Imp crates as needed for flatten/JSON); do not own the audio sampler runtime.
 - Music nodes prepare translate-time data for composition crates; they do not interpret per sample.
-- `notation_score` declares a string `path` input and a `score` output; path resolution and Aura notation file loading happen in `aura_integration` at translate time. This is how graphs **reference** notation storage on disk. Separately, the Aura editor may **open** a notation file as a nullary `external_score` node with embedded notation in the session model (same on-disk schema; different in-memory entry point).
+- `external_score` is a nullary `score` source bound at translate time (`ScoreSignal`). Graphs **reference** on-disk `notation` tips by tip NodeId; `aura_integration` resolves those ids through the Miro host index (content root) into an `external_score` proxy + binding. The Aura editor opens the same tip as a nullary `external_score` with embedded notation in the session model.
 
 ## Non-goals / avoided approaches
 
