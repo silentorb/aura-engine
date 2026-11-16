@@ -6,85 +6,239 @@
       "id": "sine_note_voice",
       "name": "Sine note voice",
       "inputs": {
-        "score": { "id": "score", "type": { "id": "score" } },
-        "time": { "id": "time", "type": { "id": "time" } }
+        "score": {
+          "id": "score",
+          "type": {
+            "id": "score"
+          }
+        },
+        "time": {
+          "id": "time",
+          "type": {
+            "id": "time"
+          }
+        }
       },
       "outputs": {
-        "audio": { "id": "audio", "type": { "id": "audio_mono" } }
+        "audio": {
+          "id": "audio",
+          "type": {
+            "id": "audio_mono"
+          }
+        }
       },
       "bindings": {
-        "inputs": { "score": "in_score", "time": "in_time" },
-        "outputs": { "audio": "out_audio" }
+        "inputs": {
+          "score": "0033AFBG4Y01H48X4T6R7M648B",
+          "time": "0033AFBG4Z01HE5B0KXY78V390"
+        },
+        "outputs": {
+          "audio": "0033AFBG5001HR1RWDN46XG29N"
+        }
       },
       "body": {
         "nodes": {
-          "in_score": { "id": "in_score", "type": "input", "inputs": {} },
-          "in_time": { "id": "in_time", "type": "input", "inputs": {} },
-          "out_audio": { "id": "out_audio", "type": "output", "inputs": {} },
-          "note": { "id": "note", "type": "note_at_time", "inputs": {} },
-          "semitone_hz": { "id": "semitone_hz", "type": "semitone_to_hz", "inputs": {} },
-          "start": { "id": "start", "type": "note_at_time", "inputs": {} },
-          "elapsed": { "id": "elapsed", "type": "time_elapsed", "inputs": {} },
-          "env": { "id": "env", "type": "note_envelope", "inputs": {} },
-          "osc": { "id": "osc", "type": "sine", "inputs": {} },
-          "voice": { "id": "voice", "type": "multiply", "inputs": {} }
+          "0033AFBG4Y01H48X4T6R7M648B": {
+            "id": "0033AFBG4Y01H48X4T6R7M648B",
+            "type": "input",
+            "inputs": {},
+            "title": "in_score"
+          },
+          "0033AFBG4Z01HE5B0KXY78V390": {
+            "id": "0033AFBG4Z01HE5B0KXY78V390",
+            "type": "input",
+            "inputs": {},
+            "title": "in_time"
+          },
+          "0033AFBG5001HR1RWDN46XG29N": {
+            "id": "0033AFBG5001HR1RWDN46XG29N",
+            "type": "output",
+            "inputs": {},
+            "title": "out_audio"
+          },
+          "0033AFBG5101J1Y6R7CA6J51AA": {
+            "id": "0033AFBG5101J1Y6R7CA6J51AA",
+            "type": "note_at_time",
+            "inputs": {},
+            "title": "note"
+          },
+          "0033AFBG5201JBTMM13G66T0AZ": {
+            "id": "0033AFBG5201JBTMM13G66T0AZ",
+            "type": "semitone_to_hz",
+            "inputs": {},
+            "title": "semitone_hz"
+          },
+          "0033AFBG5301JNQ2FTTP5VEZBM": {
+            "id": "0033AFBG5301JNQ2FTTP5VEZBM",
+            "type": "note_at_time",
+            "inputs": {},
+            "title": "start"
+          },
+          "0033AFBG5401JZKGBMHW5G3YC9": {
+            "id": "0033AFBG5401JZKGBMHW5G3YC9",
+            "type": "time_elapsed",
+            "inputs": {},
+            "title": "elapsed"
+          },
+          "0033AFBG5501K9FY7E9254RXCY": {
+            "id": "0033AFBG5501K9FY7E9254RXCY",
+            "type": "note_envelope",
+            "inputs": {},
+            "title": "env"
+          },
+          "0033AFBG5601KKCC38084SDWDK": {
+            "id": "0033AFBG5601KKCC38084SDWDK",
+            "type": "sine",
+            "inputs": {},
+            "title": "osc"
+          },
+          "0033AFBG5701KX8SZ1QE4E2VE8": {
+            "id": "0033AFBG5701KX8SZ1QE4E2VE8",
+            "type": "multiply",
+            "inputs": {},
+            "title": "voice"
+          }
         },
         "edges": {
           "in_score_to_note": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "note", "port": "score" }
+            "from": {
+              "node": "0033AFBG4Y01H48X4T6R7M648B",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG5101J1Y6R7CA6J51AA",
+              "port": "score"
+            }
           },
           "in_score_to_start": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "start", "port": "score" }
+            "from": {
+              "node": "0033AFBG4Y01H48X4T6R7M648B",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG5301JNQ2FTTP5VEZBM",
+              "port": "score"
+            }
           },
           "in_score_to_env": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "env", "port": "score" }
+            "from": {
+              "node": "0033AFBG4Y01H48X4T6R7M648B",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG5501K9FY7E9254RXCY",
+              "port": "score"
+            }
           },
           "in_time_to_note": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "note", "port": "time" }
+            "from": {
+              "node": "0033AFBG4Z01HE5B0KXY78V390",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG5101J1Y6R7CA6J51AA",
+              "port": "time"
+            }
           },
           "in_time_to_start": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "start", "port": "time" }
+            "from": {
+              "node": "0033AFBG4Z01HE5B0KXY78V390",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG5301JNQ2FTTP5VEZBM",
+              "port": "time"
+            }
           },
           "in_time_to_env": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "env", "port": "time" }
+            "from": {
+              "node": "0033AFBG4Z01HE5B0KXY78V390",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG5501K9FY7E9254RXCY",
+              "port": "time"
+            }
           },
           "in_time_to_elapsed": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "elapsed", "port": "time" }
+            "from": {
+              "node": "0033AFBG4Z01HE5B0KXY78V390",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG5401JZKGBMHW5G3YC9",
+              "port": "time"
+            }
           },
           "note_semitone_to_hz": {
-            "from": { "node": "note", "port": "semitone" },
-            "to": { "node": "semitone_hz", "port": "semitone" }
+            "from": {
+              "node": "0033AFBG5101J1Y6R7CA6J51AA",
+              "port": "semitone"
+            },
+            "to": {
+              "node": "0033AFBG5201JBTMM13G66T0AZ",
+              "port": "semitone"
+            }
           },
           "semitone_hz_to_osc": {
-            "from": { "node": "semitone_hz", "port": "frequency" },
-            "to": { "node": "osc", "port": "frequency" }
+            "from": {
+              "node": "0033AFBG5201JBTMM13G66T0AZ",
+              "port": "frequency"
+            },
+            "to": {
+              "node": "0033AFBG5601KKCC38084SDWDK",
+              "port": "frequency"
+            }
           },
           "start_to_elapsed": {
-            "from": { "node": "start", "port": "note_start" },
-            "to": { "node": "elapsed", "port": "start" }
+            "from": {
+              "node": "0033AFBG5301JNQ2FTTP5VEZBM",
+              "port": "note_start"
+            },
+            "to": {
+              "node": "0033AFBG5401JZKGBMHW5G3YC9",
+              "port": "start"
+            }
           },
           "elapsed_to_osc": {
-            "from": { "node": "elapsed", "port": "elapsed" },
-            "to": { "node": "osc", "port": "time" }
+            "from": {
+              "node": "0033AFBG5401JZKGBMHW5G3YC9",
+              "port": "elapsed"
+            },
+            "to": {
+              "node": "0033AFBG5601KKCC38084SDWDK",
+              "port": "time"
+            }
           },
           "osc_to_voice_a": {
-            "from": { "node": "osc", "port": "audio" },
-            "to": { "node": "voice", "port": "a" }
+            "from": {
+              "node": "0033AFBG5601KKCC38084SDWDK",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG5701KX8SZ1QE4E2VE8",
+              "port": "a"
+            }
           },
           "env_to_voice_b": {
-            "from": { "node": "env", "port": "value" },
-            "to": { "node": "voice", "port": "b" }
+            "from": {
+              "node": "0033AFBG5501K9FY7E9254RXCY",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG5701KX8SZ1QE4E2VE8",
+              "port": "b"
+            }
           },
           "voice_to_out": {
-            "from": { "node": "voice", "port": "audio" },
-            "to": { "node": "out_audio", "port": "value" }
+            "from": {
+              "node": "0033AFBG5701KX8SZ1QE4E2VE8",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG5001HR1RWDN46XG29N",
+              "port": "value"
+            }
           }
         }
       }
@@ -93,106 +247,255 @@
       "id": "kick_drum",
       "name": "Kick drum",
       "inputs": {
-        "score": { "id": "score", "type": { "id": "score" } },
-        "time": { "id": "time", "type": { "id": "time" } }
+        "score": {
+          "id": "score",
+          "type": {
+            "id": "score"
+          }
+        },
+        "time": {
+          "id": "time",
+          "type": {
+            "id": "time"
+          }
+        }
       },
       "outputs": {
-        "audio": { "id": "audio", "type": { "id": "audio_mono" } }
+        "audio": {
+          "id": "audio",
+          "type": {
+            "id": "audio_mono"
+          }
+        }
       },
       "bindings": {
-        "inputs": { "score": "in_score", "time": "in_time" },
-        "outputs": { "audio": "out_audio" }
+        "inputs": {
+          "score": "0033AFBG6401WW1C5BQVT52Z19",
+          "time": "0033AFBG6501X5XT15F1SSQY1Y"
+        },
+        "outputs": {
+          "audio": "0033AFBG6601XFT7WZ67SECX2K"
+        }
       },
       "body": {
         "nodes": {
-          "in_score": { "id": "in_score", "type": "input", "inputs": {} },
-          "in_time": { "id": "in_time", "type": "input", "inputs": {} },
-          "out_audio": { "id": "out_audio", "type": "output", "inputs": {} },
-          "kick_start": { "id": "kick_start", "type": "note_at_time", "inputs": {} },
-          "kick_dur": { "id": "kick_dur", "type": "note_at_time", "inputs": {} },
-          "kick_elapsed": { "id": "kick_elapsed", "type": "time_elapsed", "inputs": {} },
-          "kick_env": {
-            "id": "kick_env",
+          "0033AFBG6401WW1C5BQVT52Z19": {
+            "id": "0033AFBG6401WW1C5BQVT52Z19",
+            "type": "input",
+            "inputs": {},
+            "title": "in_score"
+          },
+          "0033AFBG6501X5XT15F1SSQY1Y": {
+            "id": "0033AFBG6501X5XT15F1SSQY1Y",
+            "type": "input",
+            "inputs": {},
+            "title": "in_time"
+          },
+          "0033AFBG6601XFT7WZ67SECX2K": {
+            "id": "0033AFBG6601XFT7WZ67SECX2K",
+            "type": "output",
+            "inputs": {},
+            "title": "out_audio"
+          },
+          "0033AFBG6701XSPNRRXDS31W38": {
+            "id": "0033AFBG6701XSPNRRXDS31W38",
+            "type": "note_at_time",
+            "inputs": {},
+            "title": "kick_start"
+          },
+          "0033AFBG6801Y3K3MJMKRQPV3X": {
+            "id": "0033AFBG6801Y3K3MJMKRQPV3X",
+            "type": "note_at_time",
+            "inputs": {},
+            "title": "kick_dur"
+          },
+          "0033AFBG6901YDFHGCBSRCBT4J": {
+            "id": "0033AFBG6901YDFHGCBSRCBT4J",
+            "type": "time_elapsed",
+            "inputs": {},
+            "title": "kick_elapsed"
+          },
+          "0033AFBG6A01YQBZC62ZR10S57": {
+            "id": "0033AFBG6A01YQBZC62ZR10S57",
             "type": "linear_adsr",
             "inputs": {
               "attack": 0.001,
               "decay": 0.08,
               "sustain": 0.0,
               "release": 0.01
-            }
+            },
+            "title": "kick_env"
           },
-          "kick_osc": {
-            "id": "kick_osc",
+          "0033AFBG6B01Z18D7ZT5QNNR5W": {
+            "id": "0033AFBG6B01Z18D7ZT5QNNR5W",
             "type": "exponential_sweep_sine",
             "inputs": {
               "start_hz": 150.0,
               "decay_rate": 12.0
-            }
+            },
+            "title": "kick_osc"
           },
-          "kick_voice": { "id": "kick_voice", "type": "multiply", "inputs": {} },
-          "kick_gain": {
-            "id": "kick_gain",
+          "0033AFBG6C01ZB4V3SHBQAAQ6H": {
+            "id": "0033AFBG6C01ZB4V3SHBQAAQ6H",
+            "type": "multiply",
+            "inputs": {},
+            "title": "kick_voice"
+          },
+          "0033AFBG6D01ZN18ZK8HPYZP76": {
+            "id": "0033AFBG6D01ZN18ZK8HPYZP76",
             "type": "parameter",
-            "inputs": { "value": 0.9 }
+            "inputs": {
+              "value": 0.9
+            },
+            "title": "kick_gain"
           },
-          "kick_out": { "id": "kick_out", "type": "multiply", "inputs": {} }
+          "0033AFBG6E01ZYXPVCZQPKMN7V": {
+            "id": "0033AFBG6E01ZYXPVCZQPKMN7V",
+            "type": "multiply",
+            "inputs": {},
+            "title": "kick_out"
+          }
         },
         "edges": {
           "in_score_to_kick_start": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "kick_start", "port": "score" }
+            "from": {
+              "node": "0033AFBG6401WW1C5BQVT52Z19",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG6701XSPNRRXDS31W38",
+              "port": "score"
+            }
           },
           "in_score_to_kick_dur": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "kick_dur", "port": "score" }
+            "from": {
+              "node": "0033AFBG6401WW1C5BQVT52Z19",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG6801Y3K3MJMKRQPV3X",
+              "port": "score"
+            }
           },
           "in_time_to_kick_start": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "kick_start", "port": "time" }
+            "from": {
+              "node": "0033AFBG6501X5XT15F1SSQY1Y",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG6701XSPNRRXDS31W38",
+              "port": "time"
+            }
           },
           "in_time_to_kick_dur": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "kick_dur", "port": "time" }
+            "from": {
+              "node": "0033AFBG6501X5XT15F1SSQY1Y",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG6801Y3K3MJMKRQPV3X",
+              "port": "time"
+            }
           },
           "kick_start_to_kick_elapsed": {
-            "from": { "node": "kick_start", "port": "note_start" },
-            "to": { "node": "kick_elapsed", "port": "start" }
+            "from": {
+              "node": "0033AFBG6701XSPNRRXDS31W38",
+              "port": "note_start"
+            },
+            "to": {
+              "node": "0033AFBG6901YDFHGCBSRCBT4J",
+              "port": "start"
+            }
           },
           "in_time_to_kick_elapsed": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "kick_elapsed", "port": "time" }
+            "from": {
+              "node": "0033AFBG6501X5XT15F1SSQY1Y",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG6901YDFHGCBSRCBT4J",
+              "port": "time"
+            }
           },
           "kick_elapsed_to_kick_osc": {
-            "from": { "node": "kick_elapsed", "port": "elapsed" },
-            "to": { "node": "kick_osc", "port": "elapsed" }
+            "from": {
+              "node": "0033AFBG6901YDFHGCBSRCBT4J",
+              "port": "elapsed"
+            },
+            "to": {
+              "node": "0033AFBG6B01Z18D7ZT5QNNR5W",
+              "port": "elapsed"
+            }
           },
           "kick_elapsed_to_kick_env": {
-            "from": { "node": "kick_elapsed", "port": "elapsed" },
-            "to": { "node": "kick_env", "port": "elapsed" }
+            "from": {
+              "node": "0033AFBG6901YDFHGCBSRCBT4J",
+              "port": "elapsed"
+            },
+            "to": {
+              "node": "0033AFBG6A01YQBZC62ZR10S57",
+              "port": "elapsed"
+            }
           },
           "kick_dur_to_kick_env": {
-            "from": { "node": "kick_dur", "port": "note_duration" },
-            "to": { "node": "kick_env", "port": "note_duration" }
+            "from": {
+              "node": "0033AFBG6801Y3K3MJMKRQPV3X",
+              "port": "note_duration"
+            },
+            "to": {
+              "node": "0033AFBG6A01YQBZC62ZR10S57",
+              "port": "note_duration"
+            }
           },
           "kick_osc_to_kick_voice_a": {
-            "from": { "node": "kick_osc", "port": "audio" },
-            "to": { "node": "kick_voice", "port": "a" }
+            "from": {
+              "node": "0033AFBG6B01Z18D7ZT5QNNR5W",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG6C01ZB4V3SHBQAAQ6H",
+              "port": "a"
+            }
           },
           "kick_env_to_kick_voice_b": {
-            "from": { "node": "kick_env", "port": "value" },
-            "to": { "node": "kick_voice", "port": "b" }
+            "from": {
+              "node": "0033AFBG6A01YQBZC62ZR10S57",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG6C01ZB4V3SHBQAAQ6H",
+              "port": "b"
+            }
           },
           "kick_voice_to_kick_out_a": {
-            "from": { "node": "kick_voice", "port": "audio" },
-            "to": { "node": "kick_out", "port": "a" }
+            "from": {
+              "node": "0033AFBG6C01ZB4V3SHBQAAQ6H",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG6E01ZYXPVCZQPKMN7V",
+              "port": "a"
+            }
           },
           "kick_gain_to_kick_out_b": {
-            "from": { "node": "kick_gain", "port": "value" },
-            "to": { "node": "kick_out", "port": "b" }
+            "from": {
+              "node": "0033AFBG6D01ZN18ZK8HPYZP76",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG6E01ZYXPVCZQPKMN7V",
+              "port": "b"
+            }
           },
           "kick_out_to_out": {
-            "from": { "node": "kick_out", "port": "audio" },
-            "to": { "node": "out_audio", "port": "value" }
+            "from": {
+              "node": "0033AFBG6E01ZYXPVCZQPKMN7V",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG6601XFT7WZ67SECX2K",
+              "port": "value"
+            }
           }
         }
       }
@@ -201,107 +504,264 @@
       "id": "snare_drum",
       "name": "Snare drum",
       "inputs": {
-        "score": { "id": "score", "type": { "id": "score" } },
-        "time": { "id": "time", "type": { "id": "time" } }
+        "score": {
+          "id": "score",
+          "type": {
+            "id": "score"
+          }
+        },
+        "time": {
+          "id": "time",
+          "type": {
+            "id": "time"
+          }
+        }
       },
       "outputs": {
-        "audio": { "id": "audio", "type": { "id": "audio_mono" } }
+        "audio": {
+          "id": "audio",
+          "type": {
+            "id": "audio_mono"
+          }
+        }
       },
       "bindings": {
-        "inputs": { "score": "in_score", "time": "in_time" },
-        "outputs": { "audio": "out_audio" }
+        "inputs": {
+          "score": "0033AFBG7B028XP91Q05CAMRTW",
+          "time": "0033AFBG7C0297JPXGQBBZ9QVH"
+        },
+        "outputs": {
+          "audio": "0033AFBG7D029HF4SAEHBKYPW6"
+        }
       },
       "body": {
         "nodes": {
-          "in_score": { "id": "in_score", "type": "input", "inputs": {} },
-          "in_time": { "id": "in_time", "type": "input", "inputs": {} },
-          "out_audio": { "id": "out_audio", "type": "output", "inputs": {} },
-          "snare_start": { "id": "snare_start", "type": "note_at_time", "inputs": {} },
-          "snare_dur": { "id": "snare_dur", "type": "note_at_time", "inputs": {} },
-          "snare_elapsed": { "id": "snare_elapsed", "type": "time_elapsed", "inputs": {} },
-          "snare_env": {
-            "id": "snare_env",
+          "0033AFBG7B028XP91Q05CAMRTW": {
+            "id": "0033AFBG7B028XP91Q05CAMRTW",
+            "type": "input",
+            "inputs": {},
+            "title": "in_score"
+          },
+          "0033AFBG7C0297JPXGQBBZ9QVH": {
+            "id": "0033AFBG7C0297JPXGQBBZ9QVH",
+            "type": "input",
+            "inputs": {},
+            "title": "in_time"
+          },
+          "0033AFBG7D029HF4SAEHBKYPW6": {
+            "id": "0033AFBG7D029HF4SAEHBKYPW6",
+            "type": "output",
+            "inputs": {},
+            "title": "out_audio"
+          },
+          "0033AFBG7E029VBJN45QB8KNWV": {
+            "id": "0033AFBG7E029VBJN45QB8KNWV",
+            "type": "note_at_time",
+            "inputs": {},
+            "title": "snare_start"
+          },
+          "0033AFBG7F02A580GXWXAX8MXG": {
+            "id": "0033AFBG7F02A580GXWXAX8MXG",
+            "type": "note_at_time",
+            "inputs": {},
+            "title": "snare_dur"
+          },
+          "0033AFBG7G02AF4ECQM3AHXKY5": {
+            "id": "0033AFBG7G02AF4ECQM3AHXKY5",
+            "type": "time_elapsed",
+            "inputs": {},
+            "title": "snare_elapsed"
+          },
+          "0033AFBG7H02AS0W8HB9A6JJYT": {
+            "id": "0033AFBG7H02AS0W8HB9A6JJYT",
             "type": "linear_adsr",
             "inputs": {
               "attack": 0.001,
               "decay": 0.12,
               "sustain": 0.0,
               "release": 0.01
-            }
+            },
+            "title": "snare_env"
           },
-          "snare_noise": {
-            "id": "snare_noise",
+          "0033AFBG7J02B2XA4B2F9V7HZF": {
+            "id": "0033AFBG7J02B2XA4B2F9V7HZF",
             "type": "highpass_noise",
-            "inputs": { "dt": 0.0001 }
+            "inputs": {
+              "dt": 0.0001
+            },
+            "title": "snare_noise"
           },
-          "snare_voice": { "id": "snare_voice", "type": "multiply", "inputs": {} },
-          "snare_gain": {
-            "id": "snare_gain",
+          "0033AFBG7K02BCSR04SN9FWH04": {
+            "id": "0033AFBG7K02BCSR04SN9FWH04",
+            "type": "multiply",
+            "inputs": {},
+            "title": "snare_voice"
+          },
+          "0033AFBG7M02BPP5VYGV94HG0S": {
+            "id": "0033AFBG7M02BPP5VYGV94HG0S",
             "type": "parameter",
-            "inputs": { "value": 0.6 }
+            "inputs": {
+              "value": 0.6
+            },
+            "title": "snare_gain"
           },
-          "snare_out": { "id": "snare_out", "type": "multiply", "inputs": {} }
+          "0033AFBG7N02C0JKQR818S6F1E": {
+            "id": "0033AFBG7N02C0JKQR818S6F1E",
+            "type": "multiply",
+            "inputs": {},
+            "title": "snare_out"
+          }
         },
         "edges": {
           "in_score_to_snare_start": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "snare_start", "port": "score" }
+            "from": {
+              "node": "0033AFBG7B028XP91Q05CAMRTW",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG7E029VBJN45QB8KNWV",
+              "port": "score"
+            }
           },
           "in_score_to_snare_dur": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "snare_dur", "port": "score" }
+            "from": {
+              "node": "0033AFBG7B028XP91Q05CAMRTW",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG7F02A580GXWXAX8MXG",
+              "port": "score"
+            }
           },
           "in_time_to_snare_start": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "snare_start", "port": "time" }
+            "from": {
+              "node": "0033AFBG7C0297JPXGQBBZ9QVH",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG7E029VBJN45QB8KNWV",
+              "port": "time"
+            }
           },
           "in_time_to_snare_dur": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "snare_dur", "port": "time" }
+            "from": {
+              "node": "0033AFBG7C0297JPXGQBBZ9QVH",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG7F02A580GXWXAX8MXG",
+              "port": "time"
+            }
           },
           "snare_start_to_snare_elapsed": {
-            "from": { "node": "snare_start", "port": "note_start" },
-            "to": { "node": "snare_elapsed", "port": "start" }
+            "from": {
+              "node": "0033AFBG7E029VBJN45QB8KNWV",
+              "port": "note_start"
+            },
+            "to": {
+              "node": "0033AFBG7G02AF4ECQM3AHXKY5",
+              "port": "start"
+            }
           },
           "in_time_to_snare_elapsed": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "snare_elapsed", "port": "time" }
+            "from": {
+              "node": "0033AFBG7C0297JPXGQBBZ9QVH",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG7G02AF4ECQM3AHXKY5",
+              "port": "time"
+            }
           },
           "snare_start_to_snare_noise_seed": {
-            "from": { "node": "snare_start", "port": "note_start" },
-            "to": { "node": "snare_noise", "port": "seed" }
+            "from": {
+              "node": "0033AFBG7E029VBJN45QB8KNWV",
+              "port": "note_start"
+            },
+            "to": {
+              "node": "0033AFBG7J02B2XA4B2F9V7HZF",
+              "port": "seed"
+            }
           },
           "in_time_to_snare_noise": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "snare_noise", "port": "time" }
+            "from": {
+              "node": "0033AFBG7C0297JPXGQBBZ9QVH",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG7J02B2XA4B2F9V7HZF",
+              "port": "time"
+            }
           },
           "snare_elapsed_to_snare_env": {
-            "from": { "node": "snare_elapsed", "port": "elapsed" },
-            "to": { "node": "snare_env", "port": "elapsed" }
+            "from": {
+              "node": "0033AFBG7G02AF4ECQM3AHXKY5",
+              "port": "elapsed"
+            },
+            "to": {
+              "node": "0033AFBG7H02AS0W8HB9A6JJYT",
+              "port": "elapsed"
+            }
           },
           "snare_dur_to_snare_env": {
-            "from": { "node": "snare_dur", "port": "note_duration" },
-            "to": { "node": "snare_env", "port": "note_duration" }
+            "from": {
+              "node": "0033AFBG7F02A580GXWXAX8MXG",
+              "port": "note_duration"
+            },
+            "to": {
+              "node": "0033AFBG7H02AS0W8HB9A6JJYT",
+              "port": "note_duration"
+            }
           },
           "snare_noise_to_snare_voice_a": {
-            "from": { "node": "snare_noise", "port": "audio" },
-            "to": { "node": "snare_voice", "port": "a" }
+            "from": {
+              "node": "0033AFBG7J02B2XA4B2F9V7HZF",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG7K02BCSR04SN9FWH04",
+              "port": "a"
+            }
           },
           "snare_env_to_snare_voice_b": {
-            "from": { "node": "snare_env", "port": "value" },
-            "to": { "node": "snare_voice", "port": "b" }
+            "from": {
+              "node": "0033AFBG7H02AS0W8HB9A6JJYT",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG7K02BCSR04SN9FWH04",
+              "port": "b"
+            }
           },
           "snare_voice_to_snare_out_a": {
-            "from": { "node": "snare_voice", "port": "audio" },
-            "to": { "node": "snare_out", "port": "a" }
+            "from": {
+              "node": "0033AFBG7K02BCSR04SN9FWH04",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG7N02C0JKQR818S6F1E",
+              "port": "a"
+            }
           },
           "snare_gain_to_snare_out_b": {
-            "from": { "node": "snare_gain", "port": "value" },
-            "to": { "node": "snare_out", "port": "b" }
+            "from": {
+              "node": "0033AFBG7M02BPP5VYGV94HG0S",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG7N02C0JKQR818S6F1E",
+              "port": "b"
+            }
           },
           "snare_out_to_out": {
-            "from": { "node": "snare_out", "port": "audio" },
-            "to": { "node": "out_audio", "port": "value" }
+            "from": {
+              "node": "0033AFBG7N02C0JKQR818S6F1E",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG7D029HF4SAEHBKYPW6",
+              "port": "value"
+            }
           }
         }
       }
@@ -310,175 +770,433 @@
       "id": "bass_saw_voice",
       "name": "Bass saw voice",
       "inputs": {
-        "score": { "id": "score", "type": { "id": "score" } },
-        "time": { "id": "time", "type": { "id": "time" } }
+        "score": {
+          "id": "score",
+          "type": {
+            "id": "score"
+          }
+        },
+        "time": {
+          "id": "time",
+          "type": {
+            "id": "time"
+          }
+        }
       },
       "outputs": {
-        "audio": { "id": "audio", "type": { "id": "audio_mono" } }
+        "audio": {
+          "id": "audio",
+          "type": {
+            "id": "audio_mono"
+          }
+        }
       },
       "bindings": {
-        "inputs": { "score": "in_score", "time": "in_time" },
-        "outputs": { "audio": "out_audio" }
+        "inputs": {
+          "score": "0033AFBG8M02NK41NNPTXSGGNS",
+          "time": "0033AFBG8N02NX0FHFE0XE5FPE"
+        },
+        "outputs": {
+          "audio": "0033AFBG8P02P6WXD956X2TEQ3"
+        }
       },
       "body": {
         "nodes": {
-          "in_score": { "id": "in_score", "type": "input", "inputs": {} },
-          "in_time": { "id": "in_time", "type": "input", "inputs": {} },
-          "out_audio": { "id": "out_audio", "type": "output", "inputs": {} },
-          "bass_note": { "id": "bass_note", "type": "note_at_time", "inputs": {} },
-          "bass_start": { "id": "bass_start", "type": "note_at_time", "inputs": {} },
-          "bass_dur": { "id": "bass_dur", "type": "note_at_time", "inputs": {} },
-          "bass_elapsed": { "id": "bass_elapsed", "type": "time_elapsed", "inputs": {} },
-          "bass_hz": { "id": "bass_hz", "type": "semitone_to_hz", "inputs": {} },
-          "bass_cutoff_base": {
-            "id": "bass_cutoff_base",
+          "0033AFBG8M02NK41NNPTXSGGNS": {
+            "id": "0033AFBG8M02NK41NNPTXSGGNS",
+            "type": "input",
+            "inputs": {},
+            "title": "in_score"
+          },
+          "0033AFBG8N02NX0FHFE0XE5FPE": {
+            "id": "0033AFBG8N02NX0FHFE0XE5FPE",
+            "type": "input",
+            "inputs": {},
+            "title": "in_time"
+          },
+          "0033AFBG8P02P6WXD956X2TEQ3": {
+            "id": "0033AFBG8P02P6WXD956X2TEQ3",
+            "type": "output",
+            "inputs": {},
+            "title": "out_audio"
+          },
+          "0033AFBG8Q02PGSB92WCWQFDQR": {
+            "id": "0033AFBG8Q02PGSB92WCWQFDQR",
+            "type": "note_at_time",
+            "inputs": {},
+            "title": "bass_note"
+          },
+          "0033AFBG8R02PTNS4WKJWC4CRD": {
+            "id": "0033AFBG8R02PTNS4WKJWC4CRD",
+            "type": "note_at_time",
+            "inputs": {},
+            "title": "bass_start"
+          },
+          "0033AFBG8S02Q4J70PARW0SBS2": {
+            "id": "0033AFBG8S02Q4J70PARW0SBS2",
+            "type": "note_at_time",
+            "inputs": {},
+            "title": "bass_dur"
+          },
+          "0033AFBG8T02QEEMWG1YVNEASQ": {
+            "id": "0033AFBG8T02QEEMWG1YVNEASQ",
+            "type": "time_elapsed",
+            "inputs": {},
+            "title": "bass_elapsed"
+          },
+          "0033AFBG8V02QRB2R9S4VA39TC": {
+            "id": "0033AFBG8V02QRB2R9S4VA39TC",
+            "type": "semitone_to_hz",
+            "inputs": {},
+            "title": "bass_hz"
+          },
+          "0033AFBG8W02R27GM3GATYR8V1": {
+            "id": "0033AFBG8W02R27GM3GATYR8V1",
             "type": "parameter",
-            "inputs": { "value": 800.0 }
+            "inputs": {
+              "value": 800.0
+            },
+            "title": "bass_cutoff_base"
           },
-          "bass_cutoff_mult": {
-            "id": "bass_cutoff_mult",
+          "0033AFBG8X02RC3YFX7GTKD7VP": {
+            "id": "0033AFBG8X02RC3YFX7GTKD7VP",
             "type": "note_param_at_time",
-            "inputs": { "param": "cutoff_mult" }
+            "inputs": {
+              "param": "cutoff_mult"
+            },
+            "title": "bass_cutoff_mult"
           },
-          "bass_cutoff_env": {
-            "id": "bass_cutoff_env",
+          "0033AFBG8Y02RP0CBPYPT826WB": {
+            "id": "0033AFBG8Y02RP0CBPYPT826WB",
             "type": "linear_adsr",
             "inputs": {
               "attack": 0.002,
               "decay": 0.08,
               "sustain": 0.3,
               "release": 0.02
-            }
+            },
+            "title": "bass_cutoff_env"
           },
-          "bass_cutoff_mul1": { "id": "bass_cutoff_mul1", "type": "multiply_control", "inputs": {} },
-          "bass_cutoff": { "id": "bass_cutoff", "type": "multiply_control", "inputs": {} },
-          "bass_amp_env": {
-            "id": "bass_amp_env",
+          "0033AFBG8Z02RZWT7GNWSWQ5X0": {
+            "id": "0033AFBG8Z02RZWT7GNWSWQ5X0",
+            "type": "multiply_control",
+            "inputs": {},
+            "title": "bass_cutoff_mul1"
+          },
+          "0033AFBG9002S9S83AD2SHC4XN": {
+            "id": "0033AFBG9002S9S83AD2SHC4XN",
+            "type": "multiply_control",
+            "inputs": {},
+            "title": "bass_cutoff"
+          },
+          "0033AFBG9102SKNNZ448S613YA": {
+            "id": "0033AFBG9102SKNNZ448S613YA",
             "type": "linear_adsr",
             "inputs": {
               "attack": 0.005,
               "decay": 0.06,
               "sustain": 0.15,
               "release": 0.03
-            }
+            },
+            "title": "bass_amp_env"
           },
-          "bass_osc": { "id": "bass_osc", "type": "bandlimited_saw", "inputs": {} },
-          "bass_voice": { "id": "bass_voice", "type": "multiply", "inputs": {} },
-          "bass_gain": {
-            "id": "bass_gain",
+          "0033AFBG9202SXJ3TXVERTP2YZ": {
+            "id": "0033AFBG9202SXJ3TXVERTP2YZ",
+            "type": "bandlimited_saw",
+            "inputs": {},
+            "title": "bass_osc"
+          },
+          "0033AFBG9302T7EHPQJMRFB1ZM": {
+            "id": "0033AFBG9302T7EHPQJMRFB1ZM",
+            "type": "multiply",
+            "inputs": {},
+            "title": "bass_voice"
+          },
+          "0033AFBG9402THAZJH9TR40109": {
+            "id": "0033AFBG9402THAZJH9TR40109",
             "type": "parameter",
-            "inputs": { "value": 0.55 }
+            "inputs": {
+              "value": 0.55
+            },
+            "title": "bass_gain"
           },
-          "bass_out": { "id": "bass_out", "type": "multiply", "inputs": {} }
+          "0033AFBG9502TV7DEB10QRN00Y": {
+            "id": "0033AFBG9502TV7DEB10QRN00Y",
+            "type": "multiply",
+            "inputs": {},
+            "title": "bass_out"
+          }
         },
         "edges": {
           "in_score_to_bass_note": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "bass_note", "port": "score" }
+            "from": {
+              "node": "0033AFBG8M02NK41NNPTXSGGNS",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8Q02PGSB92WCWQFDQR",
+              "port": "score"
+            }
           },
           "in_score_to_bass_start": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "bass_start", "port": "score" }
+            "from": {
+              "node": "0033AFBG8M02NK41NNPTXSGGNS",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8R02PTNS4WKJWC4CRD",
+              "port": "score"
+            }
           },
           "in_score_to_bass_dur": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "bass_dur", "port": "score" }
+            "from": {
+              "node": "0033AFBG8M02NK41NNPTXSGGNS",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8S02Q4J70PARW0SBS2",
+              "port": "score"
+            }
           },
           "in_score_to_bass_cutoff_mult": {
-            "from": { "node": "in_score", "port": "value" },
-            "to": { "node": "bass_cutoff_mult", "port": "score" }
+            "from": {
+              "node": "0033AFBG8M02NK41NNPTXSGGNS",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8X02RC3YFX7GTKD7VP",
+              "port": "score"
+            }
           },
           "in_time_to_bass_note": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "bass_note", "port": "time" }
+            "from": {
+              "node": "0033AFBG8N02NX0FHFE0XE5FPE",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8Q02PGSB92WCWQFDQR",
+              "port": "time"
+            }
           },
           "in_time_to_bass_start": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "bass_start", "port": "time" }
+            "from": {
+              "node": "0033AFBG8N02NX0FHFE0XE5FPE",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8R02PTNS4WKJWC4CRD",
+              "port": "time"
+            }
           },
           "in_time_to_bass_dur": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "bass_dur", "port": "time" }
+            "from": {
+              "node": "0033AFBG8N02NX0FHFE0XE5FPE",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8S02Q4J70PARW0SBS2",
+              "port": "time"
+            }
           },
           "in_time_to_bass_cutoff_mult": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "bass_cutoff_mult", "port": "time" }
+            "from": {
+              "node": "0033AFBG8N02NX0FHFE0XE5FPE",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8X02RC3YFX7GTKD7VP",
+              "port": "time"
+            }
           },
           "bass_note_to_bass_hz": {
-            "from": { "node": "bass_note", "port": "semitone" },
-            "to": { "node": "bass_hz", "port": "semitone" }
+            "from": {
+              "node": "0033AFBG8Q02PGSB92WCWQFDQR",
+              "port": "semitone"
+            },
+            "to": {
+              "node": "0033AFBG8V02QRB2R9S4VA39TC",
+              "port": "semitone"
+            }
           },
           "bass_hz_to_bass_osc_freq": {
-            "from": { "node": "bass_hz", "port": "frequency" },
-            "to": { "node": "bass_osc", "port": "frequency" }
+            "from": {
+              "node": "0033AFBG8V02QRB2R9S4VA39TC",
+              "port": "frequency"
+            },
+            "to": {
+              "node": "0033AFBG9202SXJ3TXVERTP2YZ",
+              "port": "frequency"
+            }
           },
           "bass_start_to_bass_elapsed": {
-            "from": { "node": "bass_start", "port": "note_start" },
-            "to": { "node": "bass_elapsed", "port": "start" }
+            "from": {
+              "node": "0033AFBG8R02PTNS4WKJWC4CRD",
+              "port": "note_start"
+            },
+            "to": {
+              "node": "0033AFBG8T02QEEMWG1YVNEASQ",
+              "port": "start"
+            }
           },
           "in_time_to_bass_elapsed": {
-            "from": { "node": "in_time", "port": "value" },
-            "to": { "node": "bass_elapsed", "port": "time" }
+            "from": {
+              "node": "0033AFBG8N02NX0FHFE0XE5FPE",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8T02QEEMWG1YVNEASQ",
+              "port": "time"
+            }
           },
           "bass_elapsed_to_bass_osc": {
-            "from": { "node": "bass_elapsed", "port": "elapsed" },
-            "to": { "node": "bass_osc", "port": "elapsed" }
+            "from": {
+              "node": "0033AFBG8T02QEEMWG1YVNEASQ",
+              "port": "elapsed"
+            },
+            "to": {
+              "node": "0033AFBG9202SXJ3TXVERTP2YZ",
+              "port": "elapsed"
+            }
           },
           "bass_elapsed_to_bass_amp_env": {
-            "from": { "node": "bass_elapsed", "port": "elapsed" },
-            "to": { "node": "bass_amp_env", "port": "elapsed" }
+            "from": {
+              "node": "0033AFBG8T02QEEMWG1YVNEASQ",
+              "port": "elapsed"
+            },
+            "to": {
+              "node": "0033AFBG9102SKNNZ448S613YA",
+              "port": "elapsed"
+            }
           },
           "bass_elapsed_to_bass_cutoff_env": {
-            "from": { "node": "bass_elapsed", "port": "elapsed" },
-            "to": { "node": "bass_cutoff_env", "port": "elapsed" }
+            "from": {
+              "node": "0033AFBG8T02QEEMWG1YVNEASQ",
+              "port": "elapsed"
+            },
+            "to": {
+              "node": "0033AFBG8Y02RP0CBPYPT826WB",
+              "port": "elapsed"
+            }
           },
           "bass_dur_to_bass_amp_env": {
-            "from": { "node": "bass_dur", "port": "note_duration" },
-            "to": { "node": "bass_amp_env", "port": "note_duration" }
+            "from": {
+              "node": "0033AFBG8S02Q4J70PARW0SBS2",
+              "port": "note_duration"
+            },
+            "to": {
+              "node": "0033AFBG9102SKNNZ448S613YA",
+              "port": "note_duration"
+            }
           },
           "bass_dur_to_bass_cutoff_env": {
-            "from": { "node": "bass_dur", "port": "note_duration" },
-            "to": { "node": "bass_cutoff_env", "port": "note_duration" }
+            "from": {
+              "node": "0033AFBG8S02Q4J70PARW0SBS2",
+              "port": "note_duration"
+            },
+            "to": {
+              "node": "0033AFBG8Y02RP0CBPYPT826WB",
+              "port": "note_duration"
+            }
           },
           "bass_cutoff_base_to_mul1_a": {
-            "from": { "node": "bass_cutoff_base", "port": "value" },
-            "to": { "node": "bass_cutoff_mul1", "port": "a" }
+            "from": {
+              "node": "0033AFBG8W02R27GM3GATYR8V1",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8Z02RZWT7GNWSWQ5X0",
+              "port": "a"
+            }
           },
           "bass_cutoff_mult_to_mul1_b": {
-            "from": { "node": "bass_cutoff_mult", "port": "value" },
-            "to": { "node": "bass_cutoff_mul1", "port": "b" }
+            "from": {
+              "node": "0033AFBG8X02RC3YFX7GTKD7VP",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG8Z02RZWT7GNWSWQ5X0",
+              "port": "b"
+            }
           },
           "bass_cutoff_mul1_to_cutoff_a": {
-            "from": { "node": "bass_cutoff_mul1", "port": "value" },
-            "to": { "node": "bass_cutoff", "port": "a" }
+            "from": {
+              "node": "0033AFBG8Z02RZWT7GNWSWQ5X0",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG9002S9S83AD2SHC4XN",
+              "port": "a"
+            }
           },
           "bass_cutoff_env_to_cutoff_b": {
-            "from": { "node": "bass_cutoff_env", "port": "value" },
-            "to": { "node": "bass_cutoff", "port": "b" }
+            "from": {
+              "node": "0033AFBG8Y02RP0CBPYPT826WB",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG9002S9S83AD2SHC4XN",
+              "port": "b"
+            }
           },
           "bass_cutoff_to_bass_osc": {
-            "from": { "node": "bass_cutoff", "port": "value" },
-            "to": { "node": "bass_osc", "port": "cutoff" }
+            "from": {
+              "node": "0033AFBG9002S9S83AD2SHC4XN",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG9202SXJ3TXVERTP2YZ",
+              "port": "cutoff"
+            }
           },
           "bass_osc_to_bass_voice_a": {
-            "from": { "node": "bass_osc", "port": "audio" },
-            "to": { "node": "bass_voice", "port": "a" }
+            "from": {
+              "node": "0033AFBG9202SXJ3TXVERTP2YZ",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG9302T7EHPQJMRFB1ZM",
+              "port": "a"
+            }
           },
           "bass_amp_env_to_bass_voice_b": {
-            "from": { "node": "bass_amp_env", "port": "value" },
-            "to": { "node": "bass_voice", "port": "b" }
+            "from": {
+              "node": "0033AFBG9102SKNNZ448S613YA",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG9302T7EHPQJMRFB1ZM",
+              "port": "b"
+            }
           },
           "bass_voice_to_bass_out_a": {
-            "from": { "node": "bass_voice", "port": "audio" },
-            "to": { "node": "bass_out", "port": "a" }
+            "from": {
+              "node": "0033AFBG9302T7EHPQJMRFB1ZM",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG9502TV7DEB10QRN00Y",
+              "port": "a"
+            }
           },
           "bass_gain_to_bass_out_b": {
-            "from": { "node": "bass_gain", "port": "value" },
-            "to": { "node": "bass_out", "port": "b" }
+            "from": {
+              "node": "0033AFBG9402THAZJH9TR40109",
+              "port": "value"
+            },
+            "to": {
+              "node": "0033AFBG9502TV7DEB10QRN00Y",
+              "port": "b"
+            }
           },
           "bass_out_to_out": {
-            "from": { "node": "bass_out", "port": "audio" },
-            "to": { "node": "out_audio", "port": "value" }
+            "from": {
+              "node": "0033AFBG9502TV7DEB10QRN00Y",
+              "port": "audio"
+            },
+            "to": {
+              "node": "0033AFBG8P02P6WXD956X2TEQ3",
+              "port": "value"
+            }
           }
         }
       }

@@ -1,226 +1,419 @@
 {
   "type": "imp-graph",
   "nodes": {
-    "time": {
-      "id": "time",
+    "0033AFBG0A003CRRHTZ1W36N77": {
+      "id": "0033AFBG0A003CRRHTZ1W36N77",
       "type": "time",
-      "inputs": {}
+      "inputs": {},
+      "title": "time"
     },
-    "tempo": {
-      "id": "tempo",
+    "0033AFBG0B003PN6DMP7VQVM7W": {
+      "id": "0033AFBG0B003PN6DMP7VQVM7W",
       "type": "constant_tempo",
-      "inputs": {}
+      "inputs": {},
+      "title": "tempo"
     },
-    "meter": {
-      "id": "meter",
+    "0033AFBG0C0040HM9EDDVCGK8H": {
+      "id": "0033AFBG0C0040HM9EDDVCGK8H",
       "type": "constant_time_signature",
-      "inputs": {}
+      "inputs": {},
+      "title": "meter"
     },
-    "prog": {
-      "id": "prog",
+    "0033AFBG0D004AE2584KV15J96": {
+      "id": "0033AFBG0D004AE2584KV15J96",
       "type": "epic_minor_progression",
-      "inputs": {}
+      "inputs": {},
+      "title": "prog"
     },
-    "loop_prog": {
-      "id": "loop_prog",
+    "0033AFBG0E004MAG11VSTNTH9V": {
+      "id": "0033AFBG0E004MAG11VSTNTH9V",
       "type": "loop",
-      "inputs": {}
+      "inputs": {},
+      "title": "loop_prog"
     },
-    "arp": {
-      "id": "arp",
+    "0033AFBG0F004Y6XWVJZTAFGAG": {
+      "id": "0033AFBG0F004Y6XWVJZTAFGAG",
       "type": "arpeggio",
-      "inputs": {}
+      "inputs": {},
+      "title": "arp"
     },
-    "loop_arp": {
-      "id": "loop_arp",
+    "0033AFBG0G00583BRNA5SZ4FB5": {
+      "id": "0033AFBG0G00583BRNA5SZ4FB5",
       "type": "loop",
-      "inputs": {}
+      "inputs": {},
+      "title": "loop_arp"
     },
-    "arp_voice": {
-      "id": "arp_voice",
+    "0033AFBG0H005HZSMF1BSKSEBT": {
+      "id": "0033AFBG0H005HZSMF1BSKSEBT",
       "type": "sine_note_voice",
-      "inputs": {}
+      "inputs": {},
+      "title": "arp_voice"
     },
-    "kick_grid": {
-      "id": "kick_grid",
+    "0033AFBG0J005VW7G8RHS8EDCF": {
+      "id": "0033AFBG0J005VW7G8RHS8EDCF",
       "type": "drum_grid",
       "inputs": {
         "lane": 0.0
-      }
+      },
+      "title": "kick_grid"
     },
-    "loop_kick": {
-      "id": "loop_kick",
+    "0033AFBG0K0065RNC2FQRX3CD4": {
+      "id": "0033AFBG0K0065RNC2FQRX3CD4",
       "type": "loop",
-      "inputs": {}
+      "inputs": {},
+      "title": "loop_kick"
     },
-    "kick": {
-      "id": "kick",
+    "0033AFBG0M006FN37W6XRHRBDS": {
+      "id": "0033AFBG0M006FN37W6XRHRBDS",
       "type": "kick_drum",
-      "inputs": {}
+      "inputs": {},
+      "title": "kick"
     },
-    "snare_grid": {
-      "id": "snare_grid",
+    "0033AFBG0N006SHH3NY3R6DAEE": {
+      "id": "0033AFBG0N006SHH3NY3R6DAEE",
       "type": "drum_grid",
       "inputs": {
         "lane": 1.0
-      }
+      },
+      "title": "snare_grid"
     },
-    "loop_snare": {
-      "id": "loop_snare",
+    "0033AFBG0P0073DYZFN9QV29F3": {
+      "id": "0033AFBG0P0073DYZFN9QV29F3",
       "type": "loop",
-      "inputs": {}
+      "inputs": {},
+      "title": "loop_snare"
     },
-    "snare": {
-      "id": "snare",
+    "0033AFBG0Q007DACV9CFQFQ8FR": {
+      "id": "0033AFBG0Q007DACV9CFQFQ8FR",
       "type": "snare_drum",
-      "inputs": {}
+      "inputs": {},
+      "title": "snare"
     },
-    "mix": {
-      "id": "mix",
+    "0033AFBG0R007Q6TQ33NQ4C7GD": {
+      "id": "0033AFBG0R007Q6TQ33NQ4C7GD",
       "type": "add",
-      "inputs": {}
+      "inputs": {},
+      "title": "mix"
     },
-    "bass": {
-      "id": "bass",
+    "0033AFBG0S008138JWTVPS16H2": {
+      "id": "0033AFBG0S008138JWTVPS16H2",
       "type": "bass_line",
-      "inputs": {}
+      "inputs": {},
+      "title": "bass"
     },
-    "loop_bass": {
-      "id": "loop_bass",
+    "0033AFBG0T008AZPEPJ1PDP5HQ": {
+      "id": "0033AFBG0T008AZPEPJ1PDP5HQ",
       "type": "loop",
-      "inputs": {}
+      "inputs": {},
+      "title": "loop_bass"
     },
-    "bass_voice": {
-      "id": "bass_voice",
+    "0033AFBG0V008MW4AG97P2B4JC": {
+      "id": "0033AFBG0V008MW4AG97P2B4JC",
       "type": "bass_saw_voice",
-      "inputs": {}
+      "inputs": {},
+      "title": "bass_voice"
     },
-    "out": {
-      "id": "out",
+    "0033AFBG0W008YRJ6A0DNQ03K1": {
+      "id": "0033AFBG0W008YRJ6A0DNQ03K1",
       "type": "output",
-      "inputs": {}
+      "inputs": {},
+      "title": "out"
     }
   },
   "edges": {
     "meter_to_prog": {
-      "from": { "node": "meter", "port": "time_signature" },
-      "to": { "node": "prog", "port": "time_signature" }
+      "from": {
+        "node": "0033AFBG0C0040HM9EDDVCGK8H",
+        "port": "time_signature"
+      },
+      "to": {
+        "node": "0033AFBG0D004AE2584KV15J96",
+        "port": "time_signature"
+      }
     },
     "tempo_to_arp": {
-      "from": { "node": "tempo", "port": "tempo" },
-      "to": { "node": "arp", "port": "tempo" }
+      "from": {
+        "node": "0033AFBG0B003PN6DMP7VQVM7W",
+        "port": "tempo"
+      },
+      "to": {
+        "node": "0033AFBG0F004Y6XWVJZTAFGAG",
+        "port": "tempo"
+      }
     },
     "meter_to_arp": {
-      "from": { "node": "meter", "port": "time_signature" },
-      "to": { "node": "arp", "port": "time_signature" }
+      "from": {
+        "node": "0033AFBG0C0040HM9EDDVCGK8H",
+        "port": "time_signature"
+      },
+      "to": {
+        "node": "0033AFBG0F004Y6XWVJZTAFGAG",
+        "port": "time_signature"
+      }
     },
     "prog_to_loop_prog": {
-      "from": { "node": "prog", "port": "progression" },
-      "to": { "node": "loop_prog", "port": "value" }
+      "from": {
+        "node": "0033AFBG0D004AE2584KV15J96",
+        "port": "progression"
+      },
+      "to": {
+        "node": "0033AFBG0E004MAG11VSTNTH9V",
+        "port": "value"
+      }
     },
     "loop_prog_to_arp": {
-      "from": { "node": "loop_prog", "port": "value" },
-      "to": { "node": "arp", "port": "progression" }
+      "from": {
+        "node": "0033AFBG0E004MAG11VSTNTH9V",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0F004Y6XWVJZTAFGAG",
+        "port": "progression"
+      }
     },
     "arp_to_loop_arp": {
-      "from": { "node": "arp", "port": "score" },
-      "to": { "node": "loop_arp", "port": "value" }
+      "from": {
+        "node": "0033AFBG0F004Y6XWVJZTAFGAG",
+        "port": "score"
+      },
+      "to": {
+        "node": "0033AFBG0G00583BRNA5SZ4FB5",
+        "port": "value"
+      }
     },
     "loop_arp_to_arp_voice_score": {
-      "from": { "node": "loop_arp", "port": "value" },
-      "to": { "node": "arp_voice", "port": "score" }
+      "from": {
+        "node": "0033AFBG0G00583BRNA5SZ4FB5",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0H005HZSMF1BSKSEBT",
+        "port": "score"
+      }
     },
     "time_to_arp_voice": {
-      "from": { "node": "time", "port": "time" },
-      "to": { "node": "arp_voice", "port": "time" }
+      "from": {
+        "node": "0033AFBG0A003CRRHTZ1W36N77",
+        "port": "time"
+      },
+      "to": {
+        "node": "0033AFBG0H005HZSMF1BSKSEBT",
+        "port": "time"
+      }
     },
     "tempo_to_kick_grid": {
-      "from": { "node": "tempo", "port": "tempo" },
-      "to": { "node": "kick_grid", "port": "tempo" }
+      "from": {
+        "node": "0033AFBG0B003PN6DMP7VQVM7W",
+        "port": "tempo"
+      },
+      "to": {
+        "node": "0033AFBG0J005VW7G8RHS8EDCF",
+        "port": "tempo"
+      }
     },
     "meter_to_kick_grid": {
-      "from": { "node": "meter", "port": "time_signature" },
-      "to": { "node": "kick_grid", "port": "time_signature" }
+      "from": {
+        "node": "0033AFBG0C0040HM9EDDVCGK8H",
+        "port": "time_signature"
+      },
+      "to": {
+        "node": "0033AFBG0J005VW7G8RHS8EDCF",
+        "port": "time_signature"
+      }
     },
     "kick_grid_to_loop_kick": {
-      "from": { "node": "kick_grid", "port": "score" },
-      "to": { "node": "loop_kick", "port": "value" }
+      "from": {
+        "node": "0033AFBG0J005VW7G8RHS8EDCF",
+        "port": "score"
+      },
+      "to": {
+        "node": "0033AFBG0K0065RNC2FQRX3CD4",
+        "port": "value"
+      }
     },
     "loop_kick_to_kick_score": {
-      "from": { "node": "loop_kick", "port": "value" },
-      "to": { "node": "kick", "port": "score" }
+      "from": {
+        "node": "0033AFBG0K0065RNC2FQRX3CD4",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0M006FN37W6XRHRBDS",
+        "port": "score"
+      }
     },
     "time_to_kick": {
-      "from": { "node": "time", "port": "time" },
-      "to": { "node": "kick", "port": "time" }
+      "from": {
+        "node": "0033AFBG0A003CRRHTZ1W36N77",
+        "port": "time"
+      },
+      "to": {
+        "node": "0033AFBG0M006FN37W6XRHRBDS",
+        "port": "time"
+      }
     },
     "tempo_to_snare_grid": {
-      "from": { "node": "tempo", "port": "tempo" },
-      "to": { "node": "snare_grid", "port": "tempo" }
+      "from": {
+        "node": "0033AFBG0B003PN6DMP7VQVM7W",
+        "port": "tempo"
+      },
+      "to": {
+        "node": "0033AFBG0N006SHH3NY3R6DAEE",
+        "port": "tempo"
+      }
     },
     "meter_to_snare_grid": {
-      "from": { "node": "meter", "port": "time_signature" },
-      "to": { "node": "snare_grid", "port": "time_signature" }
+      "from": {
+        "node": "0033AFBG0C0040HM9EDDVCGK8H",
+        "port": "time_signature"
+      },
+      "to": {
+        "node": "0033AFBG0N006SHH3NY3R6DAEE",
+        "port": "time_signature"
+      }
     },
     "snare_grid_to_loop_snare": {
-      "from": { "node": "snare_grid", "port": "score" },
-      "to": { "node": "loop_snare", "port": "value" }
+      "from": {
+        "node": "0033AFBG0N006SHH3NY3R6DAEE",
+        "port": "score"
+      },
+      "to": {
+        "node": "0033AFBG0P0073DYZFN9QV29F3",
+        "port": "value"
+      }
     },
     "loop_snare_to_snare_score": {
-      "from": { "node": "loop_snare", "port": "value" },
-      "to": { "node": "snare", "port": "score" }
+      "from": {
+        "node": "0033AFBG0P0073DYZFN9QV29F3",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0Q007DACV9CFQFQ8FR",
+        "port": "score"
+      }
     },
     "time_to_snare": {
-      "from": { "node": "time", "port": "time" },
-      "to": { "node": "snare", "port": "time" }
+      "from": {
+        "node": "0033AFBG0A003CRRHTZ1W36N77",
+        "port": "time"
+      },
+      "to": {
+        "node": "0033AFBG0Q007DACV9CFQFQ8FR",
+        "port": "time"
+      }
     },
     "arp_voice_to_mix": {
-      "from": { "node": "arp_voice", "port": "audio" },
-      "to": { "node": "mix", "port": "inputs" },
+      "from": {
+        "node": "0033AFBG0H005HZSMF1BSKSEBT",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG0R007Q6TQ33NQ4C7GD",
+        "port": "inputs"
+      },
       "order": 0
     },
     "kick_to_mix": {
-      "from": { "node": "kick", "port": "audio" },
-      "to": { "node": "mix", "port": "inputs" },
+      "from": {
+        "node": "0033AFBG0M006FN37W6XRHRBDS",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG0R007Q6TQ33NQ4C7GD",
+        "port": "inputs"
+      },
       "order": 1
     },
     "snare_to_mix": {
-      "from": { "node": "snare", "port": "audio" },
-      "to": { "node": "mix", "port": "inputs" },
+      "from": {
+        "node": "0033AFBG0Q007DACV9CFQFQ8FR",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG0R007Q6TQ33NQ4C7GD",
+        "port": "inputs"
+      },
       "order": 2
     },
     "tempo_to_bass": {
-      "from": { "node": "tempo", "port": "tempo" },
-      "to": { "node": "bass", "port": "tempo" }
+      "from": {
+        "node": "0033AFBG0B003PN6DMP7VQVM7W",
+        "port": "tempo"
+      },
+      "to": {
+        "node": "0033AFBG0S008138JWTVPS16H2",
+        "port": "tempo"
+      }
     },
     "meter_to_bass": {
-      "from": { "node": "meter", "port": "time_signature" },
-      "to": { "node": "bass", "port": "time_signature" }
+      "from": {
+        "node": "0033AFBG0C0040HM9EDDVCGK8H",
+        "port": "time_signature"
+      },
+      "to": {
+        "node": "0033AFBG0S008138JWTVPS16H2",
+        "port": "time_signature"
+      }
     },
     "loop_prog_to_bass": {
-      "from": { "node": "loop_prog", "port": "value" },
-      "to": { "node": "bass", "port": "progression" }
+      "from": {
+        "node": "0033AFBG0E004MAG11VSTNTH9V",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0S008138JWTVPS16H2",
+        "port": "progression"
+      }
     },
     "bass_to_loop_bass": {
-      "from": { "node": "bass", "port": "score" },
-      "to": { "node": "loop_bass", "port": "value" }
+      "from": {
+        "node": "0033AFBG0S008138JWTVPS16H2",
+        "port": "score"
+      },
+      "to": {
+        "node": "0033AFBG0T008AZPEPJ1PDP5HQ",
+        "port": "value"
+      }
     },
     "loop_bass_to_bass_voice_score": {
-      "from": { "node": "loop_bass", "port": "value" },
-      "to": { "node": "bass_voice", "port": "score" }
+      "from": {
+        "node": "0033AFBG0T008AZPEPJ1PDP5HQ",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0V008MW4AG97P2B4JC",
+        "port": "score"
+      }
     },
     "time_to_bass_voice": {
-      "from": { "node": "time", "port": "time" },
-      "to": { "node": "bass_voice", "port": "time" }
+      "from": {
+        "node": "0033AFBG0A003CRRHTZ1W36N77",
+        "port": "time"
+      },
+      "to": {
+        "node": "0033AFBG0V008MW4AG97P2B4JC",
+        "port": "time"
+      }
     },
     "bass_voice_to_mix": {
-      "from": { "node": "bass_voice", "port": "audio" },
-      "to": { "node": "mix", "port": "inputs" },
+      "from": {
+        "node": "0033AFBG0V008MW4AG97P2B4JC",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG0R007Q6TQ33NQ4C7GD",
+        "port": "inputs"
+      },
       "order": 3
     },
     "mix_to_out": {
-      "from": { "node": "mix", "port": "audio" },
-      "to": { "node": "out", "port": "value" }
+      "from": {
+        "node": "0033AFBG0R007Q6TQ33NQ4C7GD",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG0W008YRJ6A0DNQ03K1",
+        "port": "value"
+      }
     }
   }
 }

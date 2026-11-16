@@ -1,41 +1,63 @@
 {
   "type": "imp-graph",
   "nodes": {
-    "time": {
-      "id": "time",
+    "0033AFBG000009WDVSQ5ZMMZ0N": {
+      "id": "0033AFBG000009WDVSQ5ZMMZ0N",
       "type": "time",
-      "inputs": {}
+      "inputs": {},
+      "title": "time"
     },
-    "freq": {
-      "id": "freq",
+    "0033AFBG01000KRVQKEBZ99Y1A": {
+      "id": "0033AFBG01000KRVQKEBZ99Y1A",
       "type": "parameter",
       "inputs": {
         "value": 440.0
-      }
+      },
+      "title": "freq"
     },
-    "osc": {
-      "id": "osc",
+    "0033AFBG02000XN9KD5HYXYX1Z": {
+      "id": "0033AFBG02000XN9KD5HYXYX1Z",
       "type": "sine",
-      "inputs": {}
+      "inputs": {},
+      "title": "osc"
     },
-    "out": {
-      "id": "out",
+    "0033AFBG030017HQF6WQYJKW2M": {
+      "id": "0033AFBG030017HQF6WQYJKW2M",
       "type": "output",
-      "inputs": {}
+      "inputs": {},
+      "title": "out"
     }
   },
   "edges": {
     "freq_to_osc": {
-      "from": { "node": "freq", "port": "value" },
-      "to": { "node": "osc", "port": "frequency" }
+      "from": {
+        "node": "0033AFBG01000KRVQKEBZ99Y1A",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG02000XN9KD5HYXYX1Z",
+        "port": "frequency"
+      }
     },
     "time_to_osc": {
-      "from": { "node": "time", "port": "time" },
-      "to": { "node": "osc", "port": "time" }
+      "from": {
+        "node": "0033AFBG000009WDVSQ5ZMMZ0N",
+        "port": "time"
+      },
+      "to": {
+        "node": "0033AFBG02000XN9KD5HYXYX1Z",
+        "port": "time"
+      }
     },
     "osc_to_out": {
-      "from": { "node": "osc", "port": "audio" },
-      "to": { "node": "out", "port": "value" }
+      "from": {
+        "node": "0033AFBG02000XN9KD5HYXYX1Z",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG030017HQF6WQYJKW2M",
+        "port": "value"
+      }
     }
   }
 }

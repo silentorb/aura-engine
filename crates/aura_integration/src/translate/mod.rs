@@ -159,23 +159,25 @@ pub fn translate_graph_with_options(
     }
 }
 
-/// Resolves the graph's audio sink: prefer node id `out` among `output` nodes,
+/// Resolves the graph's audio sink: prefer title `out` among `output` nodes,
 /// else require exactly one `output` node.
 pub fn find_output_node(graph: &Graph) -> Result<NodeId, TranslateError> {
     let outputs: Vec<_> = graph
         .nodes
         .values()
         .filter(|node| node.node_type == "output")
-        .map(|node| node.id.clone())
         .collect();
 
-    if outputs.iter().any(|id| id == "out") {
-        return Ok("out".into());
+    if let Some(preferred) = outputs
+        .iter()
+        .find(|node| node.title.as_deref() == Some("out"))
+    {
+        return Ok(preferred.id.clone());
     }
 
     match outputs.as_slice() {
         [] => Err(TranslateError::MissingOutput),
-        [id] => Ok(id.clone()),
+        [node] => Ok(node.id.clone()),
         _ => Err(TranslateError::MultipleOutputs),
     }
 }
@@ -1928,6 +1930,7 @@ mod tests {
                     "a".into(),
                     Node {
                         id: "a".into(),
+                        title: None,
                         node_type: "parameter".into(),
                         type_args: vec![],
                         inputs: BTreeMap::from([(
@@ -1940,6 +1943,7 @@ mod tests {
                     "b".into(),
                     Node {
                         id: "b".into(),
+                        title: None,
                         node_type: "parameter".into(),
                         type_args: vec![],
                         inputs: BTreeMap::from([(
@@ -1952,6 +1956,7 @@ mod tests {
                     "c".into(),
                     Node {
                         id: "c".into(),
+                        title: None,
                         node_type: "parameter".into(),
                         type_args: vec![],
                         inputs: BTreeMap::from([(
@@ -1964,6 +1969,7 @@ mod tests {
                     "mix".into(),
                     Node {
                         id: "mix".into(),
+                        title: None,
                         node_type: "add".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -1973,6 +1979,7 @@ mod tests {
                     "out".into(),
                     Node {
                         id: "out".into(),
+                        title: None,
                         node_type: "output".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2101,6 +2108,7 @@ mod tests {
                     "score".into(),
                     Node {
                         id: "score".into(),
+                        title: None,
                         node_type: "notation_score".into(),
                         type_args: vec![],
                         inputs: BTreeMap::from([(
@@ -2113,6 +2121,7 @@ mod tests {
                     "clock".into(),
                     Node {
                         id: "clock".into(),
+                        title: None,
                         node_type: "time".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2122,6 +2131,7 @@ mod tests {
                     "voice".into(),
                     Node {
                         id: "voice".into(),
+                        title: None,
                         node_type: "poly_sine_score".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2131,6 +2141,7 @@ mod tests {
                     "out".into(),
                     Node {
                         id: "out".into(),
+                        title: None,
                         node_type: "output".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2207,6 +2218,7 @@ mod tests {
                     "score".into(),
                     Node {
                         id: "score".into(),
+                        title: None,
                         node_type: "notation_score".into(),
                         type_args: vec![],
                         inputs: BTreeMap::from([(
@@ -2219,6 +2231,7 @@ mod tests {
                     "clock".into(),
                     Node {
                         id: "clock".into(),
+                        title: None,
                         node_type: "time".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2228,6 +2241,7 @@ mod tests {
                     "voice".into(),
                     Node {
                         id: "voice".into(),
+                        title: None,
                         node_type: "poly_sine_score".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2237,6 +2251,7 @@ mod tests {
                     "out".into(),
                     Node {
                         id: "out".into(),
+                        title: None,
                         node_type: "output".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2327,6 +2342,7 @@ mod tests {
                     "score".into(),
                     Node {
                         id: "score".into(),
+                        title: None,
                         node_type: "external_score".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2336,6 +2352,7 @@ mod tests {
                     "clock".into(),
                     Node {
                         id: "clock".into(),
+                        title: None,
                         node_type: "time".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2345,6 +2362,7 @@ mod tests {
                     "voice".into(),
                     Node {
                         id: "voice".into(),
+                        title: None,
                         node_type: "poly_sine_score".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2354,6 +2372,7 @@ mod tests {
                     "out".into(),
                     Node {
                         id: "out".into(),
+                        title: None,
                         node_type: "output".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2447,6 +2466,7 @@ mod tests {
                     "tempo".into(),
                     Node {
                         id: "tempo".into(),
+                        title: None,
                         node_type: "constant_tempo".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
@@ -2456,6 +2476,7 @@ mod tests {
                     "bad_loop".into(),
                     Node {
                         id: "bad_loop".into(),
+                        title: None,
                         node_type: "loop".into(),
                         type_args: vec![],
                         inputs: BTreeMap::new(),
