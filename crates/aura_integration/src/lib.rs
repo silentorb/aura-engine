@@ -19,9 +19,10 @@ use thiserror::Error;
 
 pub use duration::{DurationParseError, DurationSpec, SampleSpec};
 pub use miro::{
-    aura_json_kind, aura_json_kind_fn, aura_miro_db_path, miro_sync_content_root,
-    open_aura_miro_session, open_aura_miro_session_for_root, open_aura_miro_session_in_memory,
-    pull_graph, AuraMiroError, MiroSession, StoreRecord,
+    aura_json_kind, aura_json_kind_fn, aura_miro_db_path, authoring_path_for_mir_record,
+    build_miro_node_index, miro_sync_content_root, open_aura_miro_session,
+    open_aura_miro_session_for_root, open_aura_miro_session_in_memory, pull_by_node_id,
+    pull_graph, resolve_node, AuraMiroError, MiroNodeIndex, MiroNodeRef, MiroSession, StoreRecord,
 };
 pub use notation_file::{score_from_notation_path, score_from_notation_str, NotationFileError};
 pub use translate::{

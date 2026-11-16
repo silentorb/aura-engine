@@ -23,6 +23,10 @@ pub enum NotationFileError {
 struct NotationDocument {
     #[serde(rename = "type")]
     type_id: String,
+    /// Stable tip NodeId for Miro host indexing (optional for legacy files).
+    #[serde(default)]
+    #[allow(dead_code)] // accepted on disk; Score mapping does not need it
+    id: Option<String>,
     version: u32,
     tempo_bpm: f64,
     time_signature: NotationTimeSignatureDoc,
@@ -107,6 +111,7 @@ mod tests {
     fn score_from_notation_str_maps_events() {
         let json = r#"{
             "type": "notation",
+            "id": "TIPID00000000000000000001",
             "version": 1,
             "tempoBpm": 120.0,
             "timeSignature": { "beatsPerBar": 4, "beatUnit": 4 },
