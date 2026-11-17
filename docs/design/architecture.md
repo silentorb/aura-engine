@@ -35,7 +35,7 @@ Organize Rust source as a Cargo workspace of small crates under `crates/`. New f
 | [`aura_io_wav`](../../crates/aura_io_wav) | 32-bit float WAV write/read verification | aura_render, aura_sample |
 | [`aura_io_cpal`](../../crates/aura_io_cpal) | Real-time playback (`PlaybackEngine` over CPAL) | CPAL, DASP, aura_render |
 | [`aura_integration`](../../crates/aura_integration) | Imp graph translation, render glue, thin Miro host helpers | aura_imp, composition stack, render, io-wav, `imp_mir` |
-| [`aura_cli`](../../crates/aura_cli) | Thin graph-driven CLI (+ `miro-sync`) | aura_integration |
+| [`aura_cli`](../../crates/aura_cli) | Thin graph-driven CLI (+ `sync`) | aura_integration |
 
 Mir sync fabric is **`imp_mir`** (imp-rs), not an Aura crate. See [`miro.md`](miro.md).
 

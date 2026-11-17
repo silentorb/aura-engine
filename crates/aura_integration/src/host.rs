@@ -1,4 +1,4 @@
-//! Thin Aura host for Miro sessions backed by `imp_mir`.
+//! Thin Aura host for Miro-profile sessions backed by `imp_mir`.
 //!
 //! Mir fabric lives in `imp_mir`. This module maps Aura JSON `type` into record kinds,
 //! indexes tip NodeIds onto opaque Mir record ids, and pulls Imp graphs via `aura_imp`.
@@ -8,7 +8,7 @@ use aura_imp::{
     Port, Registry,
 };
 use aura_imp::signals::SCORE;
-use imp_mir::{KindFn, MiroError, MiroOpenOptions};
+use imp_mir::{KindFn, SessionError, OpenOptions};
 use imp_typecheck::{NodeResolver, ResolvedEndpoint};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 
-pub use imp_mir::{MiroSession, StoreRecord};
+pub use imp_mir::{Session, StoreRecord};
 
 /// Kind function: Aura JSON `type` when present, otherwise `"unknown"`.
 pub fn aura_json_kind_fn() -> KindFn {
@@ -36,14 +36,14 @@ pub fn aura_json_kind(content: &str) -> String {
     }
 }
 
-/// Host SQLite projection path for an Aura Miro content root.
+/// Host SQLite projection path for an Aura content root (Miro profile).
 ///
-/// `{content_root}/.aura/miro-projection.db`
-pub fn aura_miro_db_path(content_root: impl AsRef<Path>) -> PathBuf {
+/// `{content_root}/.aura/projection.db`
+pub fn aura_projection_db_path(content_root: impl AsRef<Path>) -> PathBuf {
     content_root
         .as_ref()
         .join(".aura")
-        .join("miro-projection.db")
+        .join("projection.db")
 }
 
 /// Joins an opaque Mir record id onto a content root.
@@ -61,7 +61,7 @@ pub fn authoring_path_for_mir_record(content_root: &Path, mir_record_id: &str) -
 
 /// Resolved Mir blob for a product NodeId.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MiroNodeRef {
+pub struct HostNodeRef {
     /// Opaque Mir record id (host text-store key).
     pub mir_record_id: String,
     /// Aura JSON tip kind (`imp-graph`, `notation`, …).
@@ -70,23 +70,23 @@ pub struct MiroNodeRef {
 
 /// Host index: Imp NodeId → Mir record (path-shaped blob key stays internal).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct MiroNodeIndex {
-    by_node: BTreeMap<String, MiroNodeRef>,
+pub struct HostNodeIndex {
+    by_node: BTreeMap<String, HostNodeRef>,
 }
 
-impl MiroNodeIndex {
+impl HostNodeIndex {
     /// Empty index.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Lookup a NodeId.
-    pub fn get(&self, node_id: &str) -> Option<&MiroNodeRef> {
+    pub fn get(&self, node_id: &str) -> Option<&HostNodeRef> {
         self.by_node.get(node_id)
     }
 
     /// Iterate NodeId → Mir ref entries in id order.
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &MiroNodeRef)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &HostNodeRef)> {
         self.by_node.iter().map(|(id, node_ref)| (id.as_str(), node_ref))
     }
 
@@ -103,7 +103,7 @@ impl MiroNodeIndex {
     fn insert(&mut self, node_id: impl Into<String>, mir_record_id: &str, kind: &str) {
         self.by_node.insert(
             node_id.into(),
-            MiroNodeRef {
+            HostNodeRef {
                 mir_record_id: mir_record_id.to_string(),
                 kind: kind.to_string(),
             },
@@ -112,7 +112,7 @@ impl MiroNodeIndex {
 }
 
 /// Synthetic catalog id for host-resolved notation tips (not an Imp product type).
-pub const NOTATION_TIP_NODE_TYPE: &str = "#miro/notation";
+pub const NOTATION_TIP_NODE_TYPE: &str = "#aura/notation";
 
 /// Port templates for a notation tip NodeId (single `score` output).
 pub fn notation_tip_definition() -> NodeDefinition {
@@ -150,12 +150,12 @@ pub fn notation_tip_endpoint(node_id: &str) -> ResolvedEndpoint {
     }
 }
 
-/// A NodeId resolved from Miro into a fragment suitable for `Graph.nodes` insert.
+/// A NodeId resolved from the host index into a fragment suitable for `Graph.nodes` insert.
 ///
 /// Only `imp-graph` tips produce a local node copy. Notation tips are host-resolved
-/// remotes (see [`MiroContentResolver`]), not Imp stubs.
+/// remotes (see [`HostResolver`]), not Imp stubs.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MiroLocalNode {
+pub struct HostLocalNode {
     /// Local instance map entry (same NodeId the edge already names).
     pub node: Node,
     /// Opaque Mir blob key for the tip that contained this node.
@@ -164,17 +164,17 @@ pub struct MiroLocalNode {
     pub kind: String,
 }
 
-/// Content-root Miro index as an Imp [`NodeResolver`] for typecheck / translate.
-pub struct MiroContentResolver<'a> {
+/// Content-root host index as an Imp [`NodeResolver`] for typecheck / translate.
+pub struct HostResolver<'a> {
     /// Authoring content root.
     pub content_root: &'a Path,
     /// NodeId → Mir record index.
-    pub index: &'a MiroNodeIndex,
+    pub index: &'a HostNodeIndex,
     /// Registry for looking up remote `imp-graph` node definitions.
     pub registry: &'a Registry,
 }
 
-impl NodeResolver for MiroContentResolver<'_> {
+impl NodeResolver for HostResolver<'_> {
     fn resolve_endpoint(&self, node_id: &NodeId) -> Option<ResolvedEndpoint> {
         let node_ref = self.index.get(node_id)?;
         match node_ref.kind.as_str() {
@@ -195,10 +195,10 @@ impl NodeResolver for MiroContentResolver<'_> {
 }
 
 #[derive(Debug, Error)]
-pub enum AuraMiroError {
+pub enum HostError {
     #[error("{0}")]
-    Miro(#[from] MiroError),
-    #[error("failed to prepare Miro projection directory: {0}")]
+    Session(#[from] SessionError),
+    #[error("failed to prepare projection directory: {0}")]
     Io(#[from] std::io::Error),
     #[error("pulled record `{id}` is not an Imp graph: {source}")]
     GraphParse {
@@ -206,9 +206,9 @@ pub enum AuraMiroError {
         #[source]
         source: serde_json::Error,
     },
-    #[error("no Mir record `{id}` in Miro projection")]
+    #[error("no Mir record `{id}` in projection")]
     MissingRecord { id: String },
-    #[error("no Miro record indexed for node `{node_id}`")]
+    #[error("no host record indexed for node `{node_id}`")]
     MissingNode { node_id: String },
     #[error("indexed tip `{mir_record_id}` kind `{kind}` cannot resolve a local graph node")]
     UnsupportedResolveKind {
@@ -226,40 +226,40 @@ pub enum AuraMiroError {
     },
 }
 
-/// Open a Miro session over an Aura content root (text SoT → SQLite).
-pub fn open_aura_miro_session(
+/// Open a Miro-profile session over an Aura content root (text SoT → SQLite).
+pub fn open_aura_session(
     content_root: impl Into<PathBuf>,
     sqlite_path: impl Into<PathBuf>,
     start_watch: bool,
-) -> Result<MiroSession, AuraMiroError> {
-    Ok(MiroSession::open(
-        MiroOpenOptions::new(content_root, sqlite_path)
+) -> Result<Session, HostError> {
+    Ok(Session::open(
+        OpenOptions::new(content_root, sqlite_path)
             .with_kind_fn(aura_json_kind_fn())
             .with_start_watch(start_watch),
     )?)
 }
 
-/// Open a Miro session using [`aura_miro_db_path`] under `content_root`.
+/// Open a session using [`aura_projection_db_path`] under `content_root`.
 ///
 /// Creates the `.aura` directory when needed.
-pub fn open_aura_miro_session_for_root(
+pub fn open_aura_session_for_root(
     content_root: impl Into<PathBuf>,
     start_watch: bool,
-) -> Result<MiroSession, AuraMiroError> {
+) -> Result<Session, HostError> {
     let content_root = content_root.into();
-    let sqlite_path = aura_miro_db_path(&content_root);
+    let sqlite_path = aura_projection_db_path(&content_root);
     if let Some(parent) = sqlite_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    open_aura_miro_session(content_root, sqlite_path, start_watch)
+    open_aura_session(content_root, sqlite_path, start_watch)
 }
 
-/// Open an in-memory Miro projection for tests / ephemeral tools.
-pub fn open_aura_miro_session_in_memory(
+/// Open an in-memory projection for tests / ephemeral tools.
+pub fn open_aura_session_in_memory(
     content_root: impl Into<PathBuf>,
     start_watch: bool,
-) -> Result<MiroSession, AuraMiroError> {
-    Ok(MiroSession::open_in_memory(
+) -> Result<Session, HostError> {
+    Ok(Session::open_in_memory(
         content_root,
         aura_json_kind_fn(),
         start_watch,
@@ -272,35 +272,35 @@ pub fn open_aura_miro_session_in_memory(
 /// - `notation` tips contribute their tip-level `id` when present.
 ///
 /// Dot-directories (including `.aura`) are skipped, matching the text-store walk.
-pub fn build_miro_node_index(content_root: impl AsRef<Path>) -> Result<MiroNodeIndex, AuraMiroError> {
+pub fn build_host_node_index(content_root: impl AsRef<Path>) -> Result<HostNodeIndex, HostError> {
     let root = content_root.as_ref();
-    let mut index = MiroNodeIndex::new();
+    let mut index = HostNodeIndex::new();
     walk_index(root, root, &mut index)?;
     Ok(index)
 }
 
 /// Resolve a product NodeId through a host index.
 pub fn resolve_node<'a>(
-    index: &'a MiroNodeIndex,
+    index: &'a HostNodeIndex,
     node_id: &str,
-) -> Result<&'a MiroNodeRef, AuraMiroError> {
+) -> Result<&'a HostNodeRef, HostError> {
     index
         .get(node_id)
-        .ok_or_else(|| AuraMiroError::MissingNode {
+        .ok_or_else(|| HostError::MissingNode {
             node_id: node_id.to_string(),
         })
 }
 
 /// Pull a Mir blob by product NodeId (index → opaque Mir `pull_record`).
 pub fn pull_by_node_id(
-    session: &MiroSession,
-    index: &MiroNodeIndex,
+    session: &Session,
+    index: &HostNodeIndex,
     node_id: &str,
-) -> Result<StoreRecord, AuraMiroError> {
+) -> Result<StoreRecord, HostError> {
     let node_ref = resolve_node(index, node_id)?;
     session
         .pull_record(&node_ref.mir_record_id)?
-        .ok_or_else(|| AuraMiroError::MissingRecord {
+        .ok_or_else(|| HostError::MissingRecord {
             id: node_ref.mir_record_id.clone(),
         })
 }
@@ -310,20 +310,20 @@ pub fn pull_by_node_id(
 /// Only `imp-graph` tips copy a real Imp node. Notation tips are not Imp nodes —
 /// open the tip document / host-resolve them instead of inserting a proxy.
 pub fn resolve_local_node(
-    session: &MiroSession,
-    index: &MiroNodeIndex,
+    session: &Session,
+    index: &HostNodeIndex,
     node_id: &str,
-) -> Result<MiroLocalNode, AuraMiroError> {
+) -> Result<HostLocalNode, HostError> {
     let node_ref = resolve_node(index, node_id)?;
     let record = session
         .pull_record(&node_ref.mir_record_id)?
-        .ok_or_else(|| AuraMiroError::MissingRecord {
+        .ok_or_else(|| HostError::MissingRecord {
             id: node_ref.mir_record_id.clone(),
         })?;
     match node_ref.kind.as_str() {
         "imp-graph" => {
             let graph =
-                graph_from_json_str(&record.content).map_err(|source| AuraMiroError::GraphParse {
+                graph_from_json_str(&record.content).map_err(|source| HostError::GraphParse {
                     id: record.id.clone(),
                     source,
                 })?;
@@ -331,17 +331,17 @@ pub fn resolve_local_node(
                 .nodes
                 .get(node_id)
                 .cloned()
-                .ok_or_else(|| AuraMiroError::NodeAbsentInTip {
+                .ok_or_else(|| HostError::NodeAbsentInTip {
                     node_id: node_id.to_string(),
                     mir_record_id: node_ref.mir_record_id.clone(),
                 })?;
-            Ok(MiroLocalNode {
+            Ok(HostLocalNode {
                 node,
                 mir_record_id: node_ref.mir_record_id.clone(),
                 kind: node_ref.kind.clone(),
             })
         }
-        other => Err(AuraMiroError::UnsupportedResolveKind {
+        other => Err(HostError::UnsupportedResolveKind {
             mir_record_id: node_ref.mir_record_id.clone(),
             kind: other.to_string(),
         }),
@@ -352,32 +352,32 @@ pub fn resolve_local_node(
 ///
 /// `mir_record_id` is a Mir store key (Aura text store currently uses a
 /// root-relative path). Prefer [`pull_by_node_id`] for product NodeId lookups.
-pub fn pull_graph(session: &MiroSession, mir_record_id: &str) -> Result<Graph, AuraMiroError> {
+pub fn pull_graph(session: &Session, mir_record_id: &str) -> Result<Graph, HostError> {
     let record = session
         .pull_record(mir_record_id)?
-        .ok_or_else(|| AuraMiroError::MissingRecord {
+        .ok_or_else(|| HostError::MissingRecord {
             id: mir_record_id.to_string(),
         })?;
-    graph_from_json_str(&record.content).map_err(|source| AuraMiroError::GraphParse {
+    graph_from_json_str(&record.content).map_err(|source| HostError::GraphParse {
         id: record.id,
         source,
     })
 }
 
 /// Sync a content root into `sqlite_path` and optionally pull one graph by Mir record id.
-pub fn miro_sync_content_root(
+pub fn sync_content_root(
     content_root: &Path,
     sqlite_path: &Path,
     pull_mir_record_id: Option<&str>,
-) -> Result<Option<Graph>, AuraMiroError> {
-    let session = open_aura_miro_session(content_root, sqlite_path, false)?;
+) -> Result<Option<Graph>, HostError> {
+    let session = open_aura_session(content_root, sqlite_path, false)?;
     match pull_mir_record_id {
         Some(id) => Ok(Some(pull_graph(&session, id)?)),
         None => Ok(None),
     }
 }
 
-fn walk_index(root: &Path, dir: &Path, index: &mut MiroNodeIndex) -> Result<(), AuraMiroError> {
+fn walk_index(root: &Path, dir: &Path, index: &mut HostNodeIndex) -> Result<(), HostError> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -395,7 +395,7 @@ fn walk_index(root: &Path, dir: &Path, index: &mut MiroNodeIndex) -> Result<(), 
     Ok(())
 }
 
-fn index_file(root: &Path, path: &Path, index: &mut MiroNodeIndex) -> Result<(), AuraMiroError> {
+fn index_file(root: &Path, path: &Path, index: &mut HostNodeIndex) -> Result<(), HostError> {
     let content = fs::read_to_string(path)?;
     let Ok(value) = serde_json::from_str::<Value>(&content) else {
         return Ok(());
@@ -407,7 +407,7 @@ fn index_file(root: &Path, path: &Path, index: &mut MiroNodeIndex) -> Result<(),
     Ok(())
 }
 
-fn index_tip_value(mir_record_id: &str, value: &Value, index: &mut MiroNodeIndex) {
+fn index_tip_value(mir_record_id: &str, value: &Value, index: &mut HostNodeIndex) {
     let Some(tip_type) = value.get("type").and_then(|v| v.as_str()) else {
         return;
     };
@@ -449,11 +449,11 @@ mod tests {
     }
 
     #[test]
-    fn aura_miro_db_path_is_under_dot_aura() {
-        let path = aura_miro_db_path("/content/root");
+    fn aura_projection_db_path_is_under_dot_aura() {
+        let path = aura_projection_db_path("/content/root");
         assert_eq!(
             path,
-            PathBuf::from("/content/root/.aura/miro-projection.db")
+            PathBuf::from("/content/root/.aura/projection.db")
         );
     }
 
@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn miro_sync_pulls_demo_shaped_graph_by_mir_record_id() {
+    fn sync_pulls_demo_shaped_graph_by_mir_record_id() {
         let dir = tempdir().expect("tempdir");
         let root = dir.path().join("content");
         fs::create_dir_all(&root).expect("mkdir");
@@ -478,7 +478,7 @@ mod tests {
         let db = dir.path().join("proj.db");
 
         // "demo-01.json" is the Mir blob key (text-store encoding), not a NodeId.
-        let graph = miro_sync_content_root(&root, &db, Some("demo-01.json"))
+        let graph = sync_content_root(&root, &db, Some("demo-01.json"))
             .expect("sync")
             .expect("pulled");
         assert!(graph.nodes.contains_key("n"));
@@ -495,8 +495,8 @@ mod tests {
         )
         .expect("write");
 
-        let session = open_aura_miro_session_for_root(&root, false).expect("open");
-        assert!(aura_miro_db_path(&root).is_file());
+        let session = open_aura_session_for_root(&root, false).expect("open");
+        assert!(aura_projection_db_path(&root).is_file());
         let graph = pull_graph(&session, "demo-01.json").expect("pull");
         assert!(graph.nodes.contains_key("n"));
     }
@@ -524,10 +524,10 @@ mod tests {
         )
         .expect("write hidden");
 
-        let index = build_miro_node_index(&root).expect("index");
+        let index = build_host_node_index(&root).expect("index");
         assert_eq!(
             index.get("NODEA"),
-            Some(&MiroNodeRef {
+            Some(&HostNodeRef {
                 mir_record_id: "g.json".into(),
                 kind: "imp-graph".into(),
             })
@@ -538,7 +538,7 @@ mod tests {
         );
         assert_eq!(
             index.get("TIPID00000000000000000001"),
-            Some(&MiroNodeRef {
+            Some(&HostNodeRef {
                 mir_record_id: "demos/score.json".into(),
                 kind: "notation".into(),
             })
@@ -557,8 +557,8 @@ mod tests {
         )
         .expect("write");
 
-        let session = open_aura_miro_session_in_memory(&root, false).expect("session");
-        let index = build_miro_node_index(&root).expect("index");
+        let session = open_aura_session_in_memory(&root, false).expect("session");
+        let index = build_host_node_index(&root).expect("index");
         let record = pull_by_node_id(&session, &index, "NODEA").expect("pull");
         assert_eq!(record.id, "g.json");
         assert_eq!(record.kind, "imp-graph");
@@ -575,7 +575,7 @@ mod tests {
             r#"{"type":"imp-graph","nodes":{"NODEA":{"id":"NODEA","type":"time","inputs":{}},"NODEB":{"id":"NODEB","type":"output","inputs":{}}},"edges":{}}"#,
         )
         .expect("write");
-        let index = build_miro_node_index(&root).expect("index");
+        let index = build_host_node_index(&root).expect("index");
         let ids: Vec<_> = index.iter().map(|(id, _)| id).collect();
         assert_eq!(ids, vec!["NODEA", "NODEB"]);
     }
@@ -596,8 +596,8 @@ mod tests {
         )
         .expect("write");
 
-        let session = open_aura_miro_session_in_memory(&root, false).expect("session");
-        let index = build_miro_node_index(&root).expect("index");
+        let session = open_aura_session_in_memory(&root, false).expect("session");
+        let index = build_host_node_index(&root).expect("index");
 
         let graph_frag = resolve_local_node(&session, &index, "NODEA").expect("graph node");
         assert_eq!(graph_frag.kind, "imp-graph");
@@ -610,7 +610,7 @@ mod tests {
             .expect_err("notation is not a local Imp node");
         assert!(matches!(
             err,
-            AuraMiroError::UnsupportedResolveKind { kind, .. } if kind == "notation"
+            HostError::UnsupportedResolveKind { kind, .. } if kind == "notation"
         ));
     }
 }

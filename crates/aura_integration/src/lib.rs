@@ -1,7 +1,7 @@
 //! Surface integration: Imp graph translation and sampling for Aura.
 
 mod duration;
-mod miro;
+mod host;
 mod notation_file;
 mod translate;
 
@@ -18,12 +18,12 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 pub use duration::{DurationParseError, DurationSpec, SampleSpec};
-pub use miro::{
-    aura_json_kind, aura_json_kind_fn, aura_miro_db_path, authoring_path_for_mir_record,
-    build_miro_node_index, miro_sync_content_root, notation_tip_definition, notation_tip_endpoint,
-    open_aura_miro_session, open_aura_miro_session_for_root, open_aura_miro_session_in_memory,
-    pull_by_node_id, pull_graph, resolve_local_node, resolve_node, AuraMiroError,
-    MiroContentResolver, MiroLocalNode, MiroNodeIndex, MiroNodeRef, MiroSession,
+pub use host::{
+    aura_json_kind, aura_json_kind_fn, aura_projection_db_path, authoring_path_for_mir_record,
+    build_host_node_index, sync_content_root, notation_tip_definition, notation_tip_endpoint,
+    open_aura_session, open_aura_session_for_root, open_aura_session_in_memory,
+    pull_by_node_id, pull_graph, resolve_local_node, resolve_node, HostError,
+    HostLocalNode, HostNodeIndex, HostNodeRef, HostResolver, Session,
     NOTATION_TIP_NODE_TYPE, StoreRecord,
 };
 pub use notation_file::{score_from_notation_path, score_from_notation_str, NotationFileError};

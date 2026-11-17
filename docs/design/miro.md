@@ -12,7 +12,7 @@ Declarative requirements for Aura’s use of Mir/Miro. Motivation: multi-represe
 - Product open / resolve keys **must** be Imp **NodeId**s. Aura **must** maintain a host index `NodeId → { mir_record_id, kind }` over the content root (`imp-graph` local node ids; `notation` tip `id`). Mir `pull_record` takes the opaque Mir record id from that index — never treat a NodeId as a filesystem path.
 - Headless translate with a content root **must** use that same index as an Imp host NodeId resolver: materialize missing `imp-graph` endpoints into the working local map, and bind notation tip NodeIds to `ScoreSignal` without inserting an Imp proxy type.
 - Opaque Mir record ids **may** be encoded by the text store as root-relative paths; that encoding is host/store policy, not a Mir-normative or product API.
-- The editor **must** expose a durable Miro pull workflow into app memory (`ModelGraph`): open a `MiroSession` for a content root, resolve a NodeId through the host index, pull the Mir blob, and materialize it through the stacked document-type pipeline. Product open **must** be Miro-first (workspace + open-by-NodeId); filesystem open remains as a secondary escape hatch. Direct `load_graph` for CLI/demos **must** keep working.
+- The editor **must** expose a durable Miro pull workflow into app memory (`ModelGraph`): open a `Session` for a content root, resolve a NodeId through the host index, pull the Mir blob, and materialize it through the stacked document-type pipeline. Product open **must** be Miro-first (workspace + open-by-NodeId); filesystem open remains as a secondary escape hatch. Direct `load_graph` for CLI/demos **must** keep working.
 - Editor app memory for Imp graphs **must** treat `ModelGraph.graph.nodes` as the Imp **local** instance map for that tab. Pulled JSON **must** preserve edge topology even when endpoints lack a local node entry. Hosts **must** treat indexed missing NodeIds as host-resolved remotes (typecheck/translate via Miro index); OpenNode **may** copy an `imp-graph` node into the local map, and **may** open a notation tip tab without inserting a fake Imp node — not as a Mir observe sink.
 - Notation tips used with Miro **must** carry a stable tip-level `id` (NodeId) so they can be indexed without colliding on a fixed placeholder.
 
@@ -30,4 +30,4 @@ Declarative requirements for Aura’s use of Mir/Miro. Motivation: multi-represe
 - [Mir specs](https://github.com/silentorb/mir) (`docs/features/miro.md`, `imp-sync-wiring.md`)
 - `imp_mir` crate README in imp-rs
 - [`architecture.md`](architecture.md)
-- Code: [`../../crates/aura_integration/src/miro.rs`](../../crates/aura_integration/src/miro.rs)
+- Code: [`../../crates/aura_integration/src/host.rs`](../../crates/aura_integration/src/host.rs)

@@ -96,7 +96,7 @@ impl PlaybackEngine {
             .default_output_config()
             .map_err(PlaybackError::DefaultConfig)?;
 
-        let mut config: cpal::StreamConfig = default_config.clone().into();
+        let mut config: cpal::StreamConfig = default_config.into();
         config.sample_rate = sample_rate.get();
 
         let rate = f64::from(sample_rate.get());

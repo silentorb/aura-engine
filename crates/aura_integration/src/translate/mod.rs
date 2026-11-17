@@ -15,9 +15,9 @@ use aura_dsp::{
     add, bandlimited_saw, deterministic_noise, exponential_sweep_sine, highpass_noise, multiply,
     sine,
 };
-use crate::miro::{
-    authoring_path_for_mir_record, build_miro_node_index, notation_tip_endpoint, MiroContentResolver,
-    MiroNodeIndex,
+use crate::host::{
+    authoring_path_for_mir_record, build_host_node_index, notation_tip_endpoint, HostResolver,
+    HostNodeIndex,
 };
 use crate::notation_file::score_from_notation_path;
 use aura_imp::{flatten_graph, Graph, Node, NodeId, PortReference, PrimitiveValue, Registry};
@@ -29,10 +29,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use thiserror::Error;
 
-/// Typecheck resolver: explicit score bindings, then Miro content-root index.
+/// Typecheck resolver: explicit score bindings, then host content-root index.
 struct TranslateNodeResolver<'a> {
     score_bindings: &'a BTreeMap<NodeId, ScoreSignal>,
-    miro: Option<MiroContentResolver<'a>>,
+    host: Option<HostResolver<'a>>,
 }
 
 impl NodeResolver for TranslateNodeResolver<'_> {
@@ -40,9 +40,9 @@ impl NodeResolver for TranslateNodeResolver<'_> {
         if self.score_bindings.contains_key(node_id) {
             return Some(notation_tip_endpoint(node_id));
         }
-        self.miro
+        self.host
             .as_ref()
-            .and_then(|miro| miro.resolve_endpoint(node_id))
+            .and_then(|host| host.resolve_endpoint(node_id))
     }
 }
 
@@ -86,7 +86,7 @@ pub enum TranslateError {
     Resolve { message: String },
     #[error("remote score NodeId `{node}` has no bound ScoreSignal and no content-root tip")]
     MissingScoreBinding { node: NodeId },
-    #[error("failed to build Miro node index for content root: {message}")]
+    #[error("failed to build host node index for content root: {message}")]
     ContentIndex { message: String },
     #[error("notation tip `{node}`: {message}")]
     NotationFile { node: NodeId, message: String },
@@ -163,14 +163,14 @@ pub fn translate_graph_with_options(
         &mut score_bindings,
     )?;
 
-    let miro = options.graph_dir.map(|root| MiroContentResolver {
+    let host = options.graph_dir.map(|root| HostResolver {
         content_root: root,
         index: &index,
         registry,
     });
     let resolver = TranslateNodeResolver {
         score_bindings: &score_bindings,
-        miro,
+        host,
     };
     let type_errors = check_graph_with_resolver(&graph, registry, Some(&resolver));
     if let Some(error) = type_errors.first() {
@@ -262,12 +262,12 @@ fn prepare_remote_resolve(
     content_root: Option<&Path>,
     _registry: &Registry,
     score_bindings: &mut BTreeMap<NodeId, ScoreSignal>,
-) -> Result<MiroNodeIndex, TranslateError> {
+) -> Result<HostNodeIndex, TranslateError> {
     let Some(root) = content_root else {
-        return Ok(MiroNodeIndex::new());
+        return Ok(HostNodeIndex::new());
     };
 
-    let index = build_miro_node_index(root).map_err(|err| TranslateError::ContentIndex {
+    let index = build_host_node_index(root).map_err(|err| TranslateError::ContentIndex {
         message: err.to_string(),
     })?;
 

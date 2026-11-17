@@ -1,8 +1,8 @@
-//! Aura command-line interface — graph-driven audio rendering and Miro sync helpers.
+//! Aura command-line interface — graph-driven audio rendering and Miro-profile sync helpers.
 
 use aura_integration::{
-    miro_sync_content_root, parse_duration_spec, render_graph_file_to_pcm, write_pcm_to_wav,
-    AuraMiroError, DurationSpec, IntegrationError, SampleSpec,
+    sync_content_root, parse_duration_spec, render_graph_file_to_pcm, write_pcm_to_wav,
+    DurationSpec, HostError, IntegrationError, SampleSpec,
 };
 use aura_sample::{SampleRate, SampleRateError};
 use std::env;
@@ -21,15 +21,15 @@ pub enum CliError {
     #[error("{0}")]
     Integration(#[from] IntegrationError),
     #[error("{0}")]
-    Miro(#[from] AuraMiroError),
+    Host(#[from] HostError),
     #[error("missing required --graph path")]
     MissingGraph,
     #[error("missing required --output path")]
     MissingOutput,
-    #[error("missing required --miro-root path")]
-    MissingMiroRoot,
-    #[error("missing required --miro-db path")]
-    MissingMiroDb,
+    #[error("missing required --sync-root path")]
+    MissingSyncRoot,
+    #[error("missing required --sync-db path")]
+    MissingSyncDb,
     #[error("invalid --{flag} value `{value}`: {reason}")]
     InvalidArg {
         flag: &'static str,
@@ -47,7 +47,7 @@ pub struct RenderGraphConfig {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct MiroSyncConfig {
+pub struct SyncConfig {
     pub root: PathBuf,
     pub db: PathBuf,
     pub pull: Option<String>,
@@ -56,7 +56,7 @@ pub struct MiroSyncConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CliCommand {
     Render(RenderGraphConfig),
-    MiroSync(MiroSyncConfig),
+    Sync(SyncConfig),
 }
 
 fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliCommand, CliError> {
@@ -65,10 +65,10 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
     let mut duration = DEFAULT_DURATION.to_string();
     let mut tempo = DEFAULT_TEMPO;
     let mut sample_rate = SampleRate::default();
-    let mut miro_root = None;
-    let mut miro_db = None;
-    let mut miro_pull = None;
-    let mut miro_mode = false;
+    let mut sync_root = None;
+    let mut sync_db = None;
+    let mut sync_pull = None;
+    let mut sync_mode = false;
 
     let mut iter = args.into_iter().peekable();
     while let Some(arg) = iter.next() {
@@ -77,20 +77,20 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
                 print_help();
                 std::process::exit(0);
             }
-            "miro-sync" => {
-                miro_mode = true;
+            "sync" => {
+                sync_mode = true;
             }
-            "--miro-root" => {
-                miro_mode = true;
-                miro_root = Some(next_value(&mut iter, "miro-root")?);
+            "--sync-root" => {
+                sync_mode = true;
+                sync_root = Some(next_value(&mut iter, "sync-root")?);
             }
-            "--miro-db" => {
-                miro_mode = true;
-                miro_db = Some(next_value(&mut iter, "miro-db")?);
+            "--sync-db" => {
+                sync_mode = true;
+                sync_db = Some(next_value(&mut iter, "sync-db")?);
             }
-            "--miro-pull" => {
-                miro_mode = true;
-                miro_pull = Some(next_value(&mut iter, "miro-pull")?);
+            "--sync-pull" => {
+                sync_mode = true;
+                sync_pull = Some(next_value(&mut iter, "sync-pull")?);
             }
             "--graph" | "-g" => {
                 graph = Some(next_value(&mut iter, "graph")?);
@@ -128,13 +128,13 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
         }
     }
 
-    if miro_mode {
-        let root = miro_root.ok_or(CliError::MissingMiroRoot)?;
-        let db = miro_db.ok_or(CliError::MissingMiroDb)?;
-        return Ok(CliCommand::MiroSync(MiroSyncConfig {
+    if sync_mode {
+        let root = sync_root.ok_or(CliError::MissingSyncRoot)?;
+        let db = sync_db.ok_or(CliError::MissingSyncDb)?;
+        return Ok(CliCommand::Sync(SyncConfig {
             root: PathBuf::from(root),
             db: PathBuf::from(db),
-            pull: miro_pull,
+            pull: sync_pull,
         }));
     }
 
@@ -165,20 +165,20 @@ fn next_value(
 
 fn print_help() {
     eprintln!(
-        "aura — render an Imp graph to WAV, or Miro-sync a content root\n\n\
+        "aura — render an Imp graph to WAV, or sync a content root (Miro profile)\n\n\
          Usage:\n  \
          aura --graph PATH --output PATH [OPTIONS]\n  \
-         aura miro-sync --miro-root PATH --miro-db PATH [--miro-pull REL]\n\n\
+         aura sync --sync-root PATH --sync-db PATH [--sync-pull REL]\n\n\
          Render options:\n  \
          -g, --graph PATH         Imp graph JSON file\n  \
          -o, --output PATH        Output WAV path\n  \
          -d, --duration SPEC      Duration: seconds (10, 10s) or measures (2m)\n  \
          --tempo BPM              Tempo for measure durations (default: 120)\n  \
          -r, --sample-rate HZ     Sample rate (default: 44100)\n\n\
-         Miro options (Mir fabric via imp_mir):\n  \
-         --miro-root PATH         Text content root (Aura JSON files)\n  \
-         --miro-db PATH           SQLite projection path\n  \
-         --miro-pull REL          Optional relative path to pull/verify after sync\n  \
+         Sync options (Mir fabric via imp_mir):\n  \
+         --sync-root PATH         Text content root (Aura JSON files)\n  \
+         --sync-db PATH           SQLite projection path\n  \
+         --sync-pull REL          Optional relative path to pull/verify after sync\n  \
          -h, --help               Show this help"
     );
 }
@@ -193,10 +193,10 @@ pub fn render_graph(config: &RenderGraphConfig) -> Result<(), CliError> {
     Ok(())
 }
 
-fn run_miro_sync(config: &MiroSyncConfig) -> Result<(), CliError> {
-    let graph = miro_sync_content_root(&config.root, &config.db, config.pull.as_deref())?;
+fn run_sync(config: &SyncConfig) -> Result<(), CliError> {
+    let graph = sync_content_root(&config.root, &config.db, config.pull.as_deref())?;
     eprintln!(
-        "Miro sync: {} → {}",
+        "Sync: {} → {}",
         config.root.display(),
         config.db.display()
     );
@@ -233,8 +233,8 @@ fn main() {
                 config.graph.display()
             );
         }
-        CliCommand::MiroSync(config) => {
-            if let Err(error) = run_miro_sync(&config) {
+        CliCommand::Sync(config) => {
+            if let Err(error) = run_sync(&config) {
                 eprintln!("error: {error}");
                 std::process::exit(1);
             }
@@ -271,28 +271,28 @@ mod tests {
                 assert_eq!(config.duration, DurationSpec::Seconds(1.0));
                 assert_eq!(config.sample_rate, SampleRate::RATE_44100);
             }
-            CliCommand::MiroSync(_) => panic!("expected render"),
+            CliCommand::Sync(_) => panic!("expected render"),
         }
     }
 
     #[test]
-    fn parse_miro_sync_args() {
+    fn parse_sync_args() {
         let command = parse_args([
-            "miro-sync",
-            "--miro-root",
+            "sync",
+            "--sync-root",
             "demos",
-            "--miro-db",
-            "/tmp/aura.miro.db",
-            "--miro-pull",
+            "--sync-db",
+            "/tmp/aura.projection.db",
+            "--sync-pull",
             "demo-01.json",
         ])
         .expect("parse");
         match command {
-            CliCommand::MiroSync(cfg) => {
+            CliCommand::Sync(cfg) => {
                 assert_eq!(cfg.root, PathBuf::from("demos"));
                 assert_eq!(cfg.pull.as_deref(), Some("demo-01.json"));
             }
-            CliCommand::Render(_) => panic!("expected miro-sync"),
+            CliCommand::Render(_) => panic!("expected sync"),
         }
     }
 }
