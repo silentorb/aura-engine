@@ -21,12 +21,14 @@ pub use duration::{DurationParseError, DurationSpec, SampleSpec};
 pub use host::{
     aura_json_kind, aura_json_kind_fn, aura_projection_db_path, authoring_path_for_mir_record,
     build_host_node_index, sync_content_root, notation_tip_definition, notation_tip_endpoint,
-    open_aura_session, open_aura_session_for_root, open_aura_session_in_memory,
-    pull_by_node_id, pull_graph, resolve_local_node, resolve_node, HostError,
-    HostLocalNode, HostNodeIndex, HostNodeRef, HostResolver, Session,
-    NOTATION_TIP_NODE_TYPE, StoreRecord,
+    notation_tip_endpoint_with_title, open_aura_session, open_aura_session_for_root,
+    open_aura_session_in_memory, pull_by_node_id, pull_graph, resolve_local_node, resolve_node,
+    HostError, HostLocalNode, HostNodeIndex, HostNodeRef, HostResolver, Session,
+    NOTATION_NODE_TYPE, NOTATION_TIP_NODE_TYPE, StoreRecord,
 };
-pub use notation_file::{score_from_notation_path, score_from_notation_str, NotationFileError};
+pub use notation_file::{
+    notation_identity_from_str, score_from_notation_path, score_from_notation_str, NotationFileError,
+};
 pub use translate::{
     find_output_node, sampler_from_score, translate_graph_with_bindings,
     translate_graph_with_options, TranslateError, TranslateOptions,

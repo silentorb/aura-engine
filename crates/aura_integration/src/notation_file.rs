@@ -23,15 +23,30 @@ pub enum NotationFileError {
 struct NotationDocument {
     #[serde(rename = "type")]
     type_id: String,
-    /// Stable tip NodeId for Miro host indexing (optional for legacy files).
+    /// Stable NodeId for Miro host indexing (optional for legacy files).
     #[serde(default)]
-    #[allow(dead_code)] // accepted on disk; Score mapping does not need it
     id: Option<String>,
+    /// Optional display title (same role as Imp `Node.title`).
+    #[serde(default)]
+    title: Option<String>,
     version: u32,
     tempo_bpm: f64,
     time_signature: NotationTimeSignatureDoc,
     #[serde(default)]
     events: Vec<NotationEventDoc>,
+}
+
+/// Optional id and title from a notation document JSON string.
+pub fn notation_identity_from_str(json: &str) -> Result<(Option<String>, Option<String>), String> {
+    let doc: NotationDocument =
+        serde_json::from_str(json).map_err(|err| format!("JSON parse error: {err}"))?;
+    if doc.type_id != "notation" {
+        return Err(format!(
+            "expected type \"notation\", got \"{}\"",
+            doc.type_id
+        ));
+    }
+    Ok((doc.id, doc.title))
 }
 
 #[derive(Debug, Deserialize)]

@@ -111,10 +111,13 @@ impl HostNodeIndex {
     }
 }
 
-/// Synthetic catalog id for host-resolved notation tips (not an Imp product type).
+/// Internal definition id for notation host resolve (not an Imp product catalog type).
 pub const NOTATION_TIP_NODE_TYPE: &str = "#aura/notation";
 
-/// Port templates for a notation tip NodeId (single `score` output).
+/// Display / document type for notation remotes (plain Aura JSON `type`).
+pub const NOTATION_NODE_TYPE: &str = "notation";
+
+/// Port templates for a notation NodeId (single `score` output).
 pub fn notation_tip_definition() -> NodeDefinition {
     NodeDefinition {
         id: NOTATION_TIP_NODE_TYPE.into(),
@@ -136,13 +139,24 @@ pub fn notation_tip_definition() -> NodeDefinition {
     }
 }
 
-/// Synthetic Imp view of a notation tip for typecheck host resolve.
+/// Host-resolved notation endpoint for typecheck / display.
+///
+/// Display `node_type` is [`NOTATION_NODE_TYPE`]; the definition id stays
+/// [`NOTATION_TIP_NODE_TYPE`] so it is not confused with an Imp catalog type.
 pub fn notation_tip_endpoint(node_id: &str) -> ResolvedEndpoint {
+    notation_tip_endpoint_with_title(node_id, None)
+}
+
+/// Like [`notation_tip_endpoint`], with an optional document title.
+pub fn notation_tip_endpoint_with_title(
+    node_id: &str,
+    title: Option<String>,
+) -> ResolvedEndpoint {
     ResolvedEndpoint {
         node: Node {
             id: node_id.to_string(),
-            title: None,
-            node_type: NOTATION_TIP_NODE_TYPE.to_string(),
+            title,
+            node_type: NOTATION_NODE_TYPE.to_string(),
             type_args: Vec::new(),
             inputs: Default::default(),
         },
@@ -178,7 +192,13 @@ impl NodeResolver for HostResolver<'_> {
     fn resolve_endpoint(&self, node_id: &NodeId) -> Option<ResolvedEndpoint> {
         let node_ref = self.index.get(node_id)?;
         match node_ref.kind.as_str() {
-            "notation" => Some(notation_tip_endpoint(node_id)),
+            "notation" => {
+                let path =
+                    authoring_path_for_mir_record(self.content_root, &node_ref.mir_record_id);
+                let content = fs::read_to_string(path).ok()?;
+                let (_id, title) = crate::notation_file::notation_identity_from_str(&content).ok()?;
+                Some(notation_tip_endpoint_with_title(node_id, title))
+            }
             "imp-graph" => {
                 let path = authoring_path_for_mir_record(self.content_root, &node_ref.mir_record_id);
                 let content = fs::read_to_string(path).ok()?;
@@ -612,5 +632,31 @@ mod tests {
             err,
             HostError::UnsupportedResolveKind { kind, .. } if kind == "notation"
         ));
+    }
+
+    #[test]
+    fn host_resolver_notation_uses_document_title_and_plain_type() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path().join("content");
+        fs::create_dir_all(root.join("demos")).expect("mkdir");
+        fs::write(
+            root.join("demos/score.json"),
+            r#"{"type":"notation","id":"TIPID00000000000000000001","title":"arp","version":1,"tempoBpm":120.0,"timeSignature":{"beatsPerBar":4,"beatUnit":4},"events":[]}"#,
+        )
+        .expect("write");
+
+        let index = build_host_node_index(&root).expect("index");
+        let registry = aura_imp::aura_registry().expect("registry");
+        let resolver = HostResolver {
+            content_root: &root,
+            index: &index,
+            registry: &registry,
+        };
+        let endpoint = resolver
+            .resolve_endpoint(&"TIPID00000000000000000001".to_string())
+            .expect("resolve notation");
+        assert_eq!(endpoint.node.title.as_deref(), Some("arp"));
+        assert_eq!(endpoint.node.node_type, NOTATION_NODE_TYPE);
+        assert!(endpoint.definition.outputs.contains_key("score"));
     }
 }
