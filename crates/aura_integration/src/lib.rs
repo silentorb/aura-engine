@@ -20,16 +20,18 @@ use thiserror::Error;
 pub use duration::{DurationParseError, DurationSpec, SampleSpec};
 pub use miro::{
     aura_json_kind, aura_json_kind_fn, aura_miro_db_path, authoring_path_for_mir_record,
-    build_miro_node_index, miro_sync_content_root, open_aura_miro_session,
-    open_aura_miro_session_for_root, open_aura_miro_session_in_memory, pull_by_node_id,
-    pull_graph, resolve_local_node, resolve_node, AuraMiroError, EXTERNAL_SCORE_NODE_TYPE,
-    MiroLocalNode, MiroNodeIndex, MiroNodeRef, MiroSession, StoreRecord,
+    build_miro_node_index, miro_sync_content_root, notation_tip_definition, notation_tip_endpoint,
+    open_aura_miro_session, open_aura_miro_session_for_root, open_aura_miro_session_in_memory,
+    pull_by_node_id, pull_graph, resolve_local_node, resolve_node, AuraMiroError,
+    MiroContentResolver, MiroLocalNode, MiroNodeIndex, MiroNodeRef, MiroSession,
+    NOTATION_TIP_NODE_TYPE, StoreRecord,
 };
 pub use notation_file::{score_from_notation_path, score_from_notation_str, NotationFileError};
 pub use translate::{
-    find_output_node, translate_graph_with_bindings, translate_graph_with_options, TranslateError,
-    TranslateOptions,
+    find_output_node, sampler_from_score, translate_graph_with_bindings,
+    translate_graph_with_options, TranslateError, TranslateOptions,
 };
+pub use imp_typecheck::{NodeResolver, ResolvedEndpoint};
 
 #[derive(Debug, Error)]
 pub enum IntegrationError {
@@ -101,7 +103,7 @@ pub fn translate_graph_to_sampler_with_options(
     )?)
 }
 
-/// Translates an Imp graph with bound [`aura_sequencing::ScoreSignal`] values for `external_score` nodes.
+/// Translates an Imp graph with host [`aura_sequencing::ScoreSignal`] bindings for remote NodeIds.
 pub fn translate_graph_to_sampler_with_bindings(
     graph: &Graph,
     registry: &aura_imp::Registry,

@@ -16,17 +16,35 @@ use aura_dsp::{
     sine,
 };
 use crate::miro::{
-    authoring_path_for_mir_record, build_miro_node_index, EXTERNAL_SCORE_NODE_TYPE,
+    authoring_path_for_mir_record, build_miro_node_index, notation_tip_endpoint, MiroContentResolver,
+    MiroNodeIndex,
 };
 use crate::notation_file::score_from_notation_path;
 use aura_imp::{flatten_graph, Graph, Node, NodeId, PortReference, PrimitiveValue, Registry};
 use aura_instrumentation::LinearAdsr;
 use aura_render::Sampler;
 use aura_sample::SampleRate;
-use imp_typecheck::check_graph;
+use imp_typecheck::{check_graph_with_resolver, NodeResolver, ResolvedEndpoint};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use thiserror::Error;
+
+/// Typecheck resolver: explicit score bindings, then Miro content-root index.
+struct TranslateNodeResolver<'a> {
+    score_bindings: &'a BTreeMap<NodeId, ScoreSignal>,
+    miro: Option<MiroContentResolver<'a>>,
+}
+
+impl NodeResolver for TranslateNodeResolver<'_> {
+    fn resolve_endpoint(&self, node_id: &NodeId) -> Option<ResolvedEndpoint> {
+        if self.score_bindings.contains_key(node_id) {
+            return Some(notation_tip_endpoint(node_id));
+        }
+        self.miro
+            .as_ref()
+            .and_then(|miro| miro.resolve_endpoint(node_id))
+    }
+}
 
 type TargetKey = (NodeId, String);
 
@@ -66,20 +84,22 @@ pub enum TranslateError {
     TypeCheck { message: String },
     #[error("graph resolve failed: {message}")]
     Resolve { message: String },
-    #[error("external_score node `{node}` has no bound ScoreSignal")]
+    #[error("remote score NodeId `{node}` has no bound ScoreSignal and no content-root tip")]
     MissingScoreBinding { node: NodeId },
     #[error("failed to build Miro node index for content root: {message}")]
     ContentIndex { message: String },
     #[error("notation tip `{node}`: {message}")]
     NotationFile { node: NodeId, message: String },
+    #[error("remote imp-graph node `{node}`: {message}")]
+    RemoteGraphNode { node: NodeId, message: String },
 }
 
 /// Options for Imp graph translation.
 #[derive(Debug, Clone, Copy)]
 pub struct TranslateOptions<'a> {
-    /// Bound [`ScoreSignal`] values for `external_score` nodes.
+    /// Host overrides for remote notation tip NodeIds (`ScoreSignal` by NodeId).
     pub score_bindings: &'a BTreeMap<NodeId, ScoreSignal>,
-    /// Content root used to index notation tip NodeIds and bind scores for headless translate.
+    /// Content root used to index remote NodeIds (notation tips + imp-graph nodes).
     pub graph_dir: Option<&'a Path>,
 }
 
@@ -91,6 +111,15 @@ enum NodeValue {
     TimeSignature(TimeSignature),
 }
 
+/// Polyphonic sine audition for a concrete [`Score`] (no Imp graph / proxy type).
+pub fn sampler_from_score(score: Score, sample_rate: SampleRate) -> Box<dyn Sampler> {
+    let schedule = NoteSchedule::from_score_signal(&ScoreSignal::finite(score), sample_rate);
+    Box::new(PolySineScoreSampler {
+        schedule,
+        adsr: LinearAdsr::default(),
+    })
+}
+
 /// Translates an Imp graph into a pure Time → Sample function.
 pub fn translate_graph(
     graph: &Graph,
@@ -100,7 +129,7 @@ pub fn translate_graph(
     translate_graph_with_bindings(graph, registry, sample_rate, &BTreeMap::new())
 }
 
-/// Translates an Imp graph, injecting bound [`ScoreSignal`] values for `external_score` nodes.
+/// Translates an Imp graph with host score bindings for remote notation NodeIds.
 pub fn translate_graph_with_bindings(
     graph: &Graph,
     registry: &Registry,
@@ -118,7 +147,7 @@ pub fn translate_graph_with_bindings(
     )
 }
 
-/// Translates an Imp graph with score bindings and an optional content root for tip NodeId resolve.
+/// Translates an Imp graph with score bindings and an optional content root for remote NodeIds.
 pub fn translate_graph_with_options(
     graph: &Graph,
     registry: &Registry,
@@ -127,9 +156,23 @@ pub fn translate_graph_with_options(
 ) -> Result<Box<dyn Sampler>, TranslateError> {
     let mut graph = graph.clone();
     let mut score_bindings = options.score_bindings.clone();
-    resolve_external_score_bindings(&mut graph, options.graph_dir, &mut score_bindings)?;
+    let index = prepare_remote_resolve(
+        &mut graph,
+        options.graph_dir,
+        registry,
+        &mut score_bindings,
+    )?;
 
-    let type_errors = check_graph(&graph, registry);
+    let miro = options.graph_dir.map(|root| MiroContentResolver {
+        content_root: root,
+        index: &index,
+        registry,
+    });
+    let resolver = TranslateNodeResolver {
+        score_bindings: &score_bindings,
+        miro,
+    };
+    let type_errors = check_graph_with_resolver(&graph, registry, Some(&resolver));
     if let Some(error) = type_errors.first() {
         return Err(TranslateError::TypeCheck {
             message: error.message.clone(),
@@ -211,18 +254,17 @@ fn index_edges_by_target(graph: &Graph) -> BTreeMap<TargetKey, Vec<PortReference
         .collect()
 }
 
-/// Resolve notation tip NodeIds via the content-root Miro index into `external_score` bindings.
+/// Materialize remote `imp-graph` nodes into the working graph and bind notation tip scores.
 ///
-/// Edge endpoints (and existing unbound `external_score` nodes) whose NodeId indexes as a
-/// `notation` tip are loaded from the text SoT; a nullary `external_score` proxy is inserted
-/// into the working graph when missing.
-fn resolve_external_score_bindings(
+/// Notation tips stay absent from `Graph.nodes` and are typechecked/evaluated via host resolve.
+fn prepare_remote_resolve(
     graph: &mut Graph,
     content_root: Option<&Path>,
+    _registry: &Registry,
     score_bindings: &mut BTreeMap<NodeId, ScoreSignal>,
-) -> Result<(), TranslateError> {
+) -> Result<MiroNodeIndex, TranslateError> {
     let Some(root) = content_root else {
-        return Ok(());
+        return Ok(MiroNodeIndex::new());
     };
 
     let index = build_miro_node_index(root).map_err(|err| TranslateError::ContentIndex {
@@ -234,44 +276,56 @@ fn resolve_external_score_bindings(
         candidates.insert(edge.from.node.clone());
         candidates.insert(edge.to.node.clone());
     }
-    for node in graph.nodes.values() {
-        if node.node_type == EXTERNAL_SCORE_NODE_TYPE {
-            candidates.insert(node.id.clone());
-        }
-    }
 
     for node_id in candidates {
-        if let Some(existing) = graph.nodes.get(&node_id) {
-            if existing.node_type != EXTERNAL_SCORE_NODE_TYPE {
-                continue;
-            }
+        if graph.nodes.contains_key(&node_id) {
+            continue;
         }
-
         let Some(node_ref) = index.get(&node_id) else {
             continue;
         };
-        if node_ref.kind != "notation" {
-            continue;
+        match node_ref.kind.as_str() {
+            "imp-graph" => {
+                let path = authoring_path_for_mir_record(root, &node_ref.mir_record_id);
+                let content = std::fs::read_to_string(&path).map_err(|err| {
+                    TranslateError::RemoteGraphNode {
+                        node: node_id.clone(),
+                        message: err.to_string(),
+                    }
+                })?;
+                let tip = aura_imp::graph_from_json_str(&content).map_err(|err| {
+                    TranslateError::RemoteGraphNode {
+                        node: node_id.clone(),
+                        message: err.to_string(),
+                    }
+                })?;
+                let node = tip.nodes.get(&node_id).cloned().ok_or_else(|| {
+                    TranslateError::RemoteGraphNode {
+                        node: node_id.clone(),
+                        message: format!(
+                            "node missing from tip `{}`",
+                            node_ref.mir_record_id
+                        ),
+                    }
+                })?;
+                graph.nodes.insert(node_id, node);
+            }
+            "notation" => {
+                if score_bindings.contains_key(&node_id) {
+                    continue;
+                }
+                let path = authoring_path_for_mir_record(root, &node_ref.mir_record_id);
+                let score =
+                    score_from_notation_path(&path).map_err(|err| TranslateError::NotationFile {
+                        node: node_id.clone(),
+                        message: err.to_string(),
+                    })?;
+                score_bindings.insert(node_id, ScoreSignal::finite(score));
+            }
+            _ => {}
         }
-
-        if !score_bindings.contains_key(&node_id) {
-            let path = authoring_path_for_mir_record(root, &node_ref.mir_record_id);
-            let score = score_from_notation_path(&path).map_err(|err| TranslateError::NotationFile {
-                node: node_id.clone(),
-                message: err.to_string(),
-            })?;
-            score_bindings.insert(node_id.clone(), ScoreSignal::finite(score));
-        }
-
-        graph.nodes.entry(node_id.clone()).or_insert_with(|| Node {
-            id: node_id.clone(),
-            title: None,
-            node_type: EXTERNAL_SCORE_NODE_TYPE.to_string(),
-            type_args: Vec::new(),
-            inputs: Default::default(),
-        });
     }
-    Ok(())
+    Ok(index)
 }
 
 fn translate_node(
@@ -290,9 +344,22 @@ fn translate_node(
         });
     }
 
-    let node = graph.nodes.get(node_id).ok_or_else(|| TranslateError::UnknownNode {
-        node: node_id.to_string(),
-    })?;
+    let Some(node) = graph.nodes.get(node_id) else {
+        // Host-resolved remote (typically a notation tip NodeId).
+        let _ = (registry, sample_rate, edges_by_target, output_port);
+        let result = match score_bindings.get(node_id) {
+            Some(signal) if output_port == "score" => Ok(NodeValue::ScoreSignal(signal.clone())),
+            Some(_) => Err(TranslateError::MissingOutputPort {
+                node: node_id.into(),
+                port: output_port.into(),
+            }),
+            None => Err(TranslateError::MissingScoreBinding {
+                node: node_id.into(),
+            }),
+        };
+        visiting.remove(node_id);
+        return result;
+    };
 
     let result = match node.node_type.as_str() {
         "output" => {
@@ -755,15 +822,6 @@ fn translate_node(
                 schedule,
                 adsr: LinearAdsr::default(),
             })))
-        }
-        "external_score" => {
-            let _ = (output_port, registry, sample_rate, edges_by_target);
-            match score_bindings.get(node_id) {
-                Some(signal) => Ok(NodeValue::ScoreSignal(signal.clone())),
-                None => Err(TranslateError::MissingScoreBinding {
-                    node: node_id.into(),
-                }),
-            }
         }
         "poly_sine_score" => {
             let _ = output_port;
@@ -2103,7 +2161,7 @@ mod tests {
     }
 
     #[test]
-    fn external_score_tip_id_loads_via_content_root_index() {
+    fn remote_notation_tip_id_loads_via_content_root_index() {
         use aura_imp::{Edge, Graph, Node, PortReference};
         use std::fs;
         use tempfile::tempdir;
@@ -2379,23 +2437,14 @@ mod tests {
     }
 
     #[test]
-    fn external_score_binding_feeds_poly_sine_and_mixes_chords() {
+    fn remote_score_binding_feeds_poly_sine_and_mixes_chords() {
         use aura_imp::{Edge, Graph, Node, PortReference};
         use aura_sequencing::{NoteEvent, Score, Semitone, Tempo, TimeSignature};
 
         let registry = aura_registry().expect("registry");
+        let remote_id = "remote_score_tip";
         let graph = Graph {
             nodes: BTreeMap::from([
-                (
-                    "score".into(),
-                    Node {
-                        id: "score".into(),
-                        title: None,
-                        node_type: "external_score".into(),
-                        type_args: vec![],
-                        inputs: BTreeMap::new(),
-                    },
-                ),
                 (
                     "clock".into(),
                     Node {
@@ -2432,7 +2481,7 @@ mod tests {
                     "score_to_voice".into(),
                     Edge {
                         from: PortReference {
-                            node: "score".into(),
+                            node: remote_id.into(),
                             port: "score".into(),
                         },
                         to: PortReference {
@@ -2483,7 +2532,7 @@ mod tests {
             ],
         );
         let bindings = BTreeMap::from([(
-            "score".into(),
+            remote_id.into(),
             ScoreSignal::finite(score),
         )]);
         let sampler = translate_graph_with_bindings(
@@ -2547,7 +2596,7 @@ mod tests {
             )]),
         };
 
-        let errors = check_graph(&graph, &registry);
+        let errors = check_graph_with_resolver(&graph, &registry, None);
         assert!(
             errors.iter().any(|e| e.message.contains("Loopable")
                 || e.message.contains("does not satisfy bound")

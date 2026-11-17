@@ -3,8 +3,13 @@
 //! Mir fabric lives in `imp_mir`. This module maps Aura JSON `type` into record kinds,
 //! indexes tip NodeIds onto opaque Mir record ids, and pulls Imp graphs via `aura_imp`.
 
-use aura_imp::{graph_from_json_str, Graph, Node};
+use aura_imp::{
+    concrete_type, get_node_definitions, graph_from_json_str, Graph, Node, NodeDefinition, NodeId,
+    Port, Registry,
+};
+use aura_imp::signals::SCORE;
 use imp_mir::{KindFn, MiroError, MiroOpenOptions};
+use imp_typecheck::{NodeResolver, ResolvedEndpoint};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
@@ -106,18 +111,87 @@ impl MiroNodeIndex {
     }
 }
 
-/// Nullary proxy node type used when a notation tip is inserted into a local graph map.
-pub const EXTERNAL_SCORE_NODE_TYPE: &str = "external_score";
+/// Synthetic catalog id for host-resolved notation tips (not an Imp product type).
+pub const NOTATION_TIP_NODE_TYPE: &str = "#miro/notation";
+
+/// Port templates for a notation tip NodeId (single `score` output).
+pub fn notation_tip_definition() -> NodeDefinition {
+    NodeDefinition {
+        id: NOTATION_TIP_NODE_TYPE.into(),
+        name: None,
+        type_params: Vec::new(),
+        implementation: None,
+        inputs: Default::default(),
+        outputs: BTreeMap::from([(
+            "score".into(),
+            Port {
+                id: "score".into(),
+                signal_type: concrete_type(SCORE, vec![]),
+                default_value: None,
+                variadic: false,
+            },
+        )]),
+        body: None,
+        bindings: None,
+    }
+}
+
+/// Synthetic Imp view of a notation tip for typecheck host resolve.
+pub fn notation_tip_endpoint(node_id: &str) -> ResolvedEndpoint {
+    ResolvedEndpoint {
+        node: Node {
+            id: node_id.to_string(),
+            title: None,
+            node_type: NOTATION_TIP_NODE_TYPE.to_string(),
+            type_args: Vec::new(),
+            inputs: Default::default(),
+        },
+        definition: notation_tip_definition(),
+    }
+}
 
 /// A NodeId resolved from Miro into a fragment suitable for `Graph.nodes` insert.
+///
+/// Only `imp-graph` tips produce a local node copy. Notation tips are host-resolved
+/// remotes (see [`MiroContentResolver`]), not Imp stubs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MiroLocalNode {
     /// Local instance map entry (same NodeId the edge already names).
     pub node: Node,
     /// Opaque Mir blob key for the tip that contained this node.
     pub mir_record_id: String,
-    /// Tip kind (`imp-graph`, `notation`, …).
+    /// Tip kind (`imp-graph`, …).
     pub kind: String,
+}
+
+/// Content-root Miro index as an Imp [`NodeResolver`] for typecheck / translate.
+pub struct MiroContentResolver<'a> {
+    /// Authoring content root.
+    pub content_root: &'a Path,
+    /// NodeId → Mir record index.
+    pub index: &'a MiroNodeIndex,
+    /// Registry for looking up remote `imp-graph` node definitions.
+    pub registry: &'a Registry,
+}
+
+impl NodeResolver for MiroContentResolver<'_> {
+    fn resolve_endpoint(&self, node_id: &NodeId) -> Option<ResolvedEndpoint> {
+        let node_ref = self.index.get(node_id)?;
+        match node_ref.kind.as_str() {
+            "notation" => Some(notation_tip_endpoint(node_id)),
+            "imp-graph" => {
+                let path = authoring_path_for_mir_record(self.content_root, &node_ref.mir_record_id);
+                let content = fs::read_to_string(path).ok()?;
+                let graph = graph_from_json_str(&content).ok()?;
+                let node = graph.nodes.get(node_id)?.clone();
+                let definition = get_node_definitions(self.registry, &node.node_type)
+                    .first()
+                    .cloned()?;
+                Some(ResolvedEndpoint { node, definition })
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -233,8 +307,8 @@ pub fn pull_by_node_id(
 
 /// Resolve a product NodeId into a local `Graph.nodes` fragment.
 ///
-/// - `imp-graph`: copy the node record from the pulled tip.
-/// - `notation`: build a nullary [`EXTERNAL_SCORE_NODE_TYPE`] proxy with the tip id.
+/// Only `imp-graph` tips copy a real Imp node. Notation tips are not Imp nodes —
+/// open the tip document / host-resolve them instead of inserting a proxy.
 pub fn resolve_local_node(
     session: &MiroSession,
     index: &MiroNodeIndex,
@@ -267,20 +341,9 @@ pub fn resolve_local_node(
                 kind: node_ref.kind.clone(),
             })
         }
-        "notation" => Ok(MiroLocalNode {
-            node: Node {
-                id: node_id.to_string(),
-                title: None,
-                node_type: EXTERNAL_SCORE_NODE_TYPE.to_string(),
-                type_args: Vec::new(),
-                inputs: Default::default(),
-            },
+        other => Err(AuraMiroError::UnsupportedResolveKind {
             mir_record_id: node_ref.mir_record_id.clone(),
-            kind: node_ref.kind.clone(),
-        }),
-        _ => Err(AuraMiroError::UnsupportedResolveKind {
-            mir_record_id: node_ref.mir_record_id.clone(),
-            kind: node_ref.kind.clone(),
+            kind: other.to_string(),
         }),
     }
 }
@@ -518,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_local_node_extracts_graph_node_and_notation_proxy() {
+    fn resolve_local_node_copies_imp_graph_node_not_notation() {
         let dir = tempdir().expect("tempdir");
         let root = dir.path().join("content");
         fs::create_dir_all(root.join("demos")).expect("mkdir");
@@ -543,10 +606,11 @@ mod tests {
         assert_eq!(graph_frag.node.node_type, "time");
         assert_eq!(graph_frag.node.title.as_deref(), Some("Clock"));
 
-        let score = resolve_local_node(&session, &index, "TIPID00000000000000000001").expect("score");
-        assert_eq!(score.kind, "notation");
-        assert_eq!(score.node.id, "TIPID00000000000000000001");
-        assert_eq!(score.node.node_type, EXTERNAL_SCORE_NODE_TYPE);
-        assert!(score.node.inputs.is_empty());
+        let err = resolve_local_node(&session, &index, "TIPID00000000000000000001")
+            .expect_err("notation is not a local Imp node");
+        assert!(matches!(
+            err,
+            AuraMiroError::UnsupportedResolveKind { kind, .. } if kind == "notation"
+        ));
     }
 }

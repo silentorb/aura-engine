@@ -346,16 +346,6 @@ pub fn music_node_library() -> NodeLibrary {
             )]),
         ),
         primitive_node(
-            "external_score",
-            Vec::new(),
-            None,
-            BTreeMap::new(),
-            BTreeMap::from([(
-                "score".into(),
-                port("score", score.clone(), None),
-            )]),
-        ),
-        primitive_node(
             "poly_sine_score",
             Vec::new(),
             None,
