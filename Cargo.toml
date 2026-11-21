@@ -7,6 +7,7 @@ members = [
     "crates/aura_scheduler",
     "crates/aura_instrumentation",
     "crates/aura_imp",
+    "crates/aura_imp_lab_catalogs",
     "crates/aura_dsp",
     "crates/aura_render",
     "crates/aura_io_wav",

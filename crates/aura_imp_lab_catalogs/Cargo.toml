@@ -1,0 +1,18 @@
+[package]
+name = "aura_imp_lab_catalogs"
+description = "Imp Lab extension cdylib that registers Aura Imp node catalogs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+aura_imp = { path = "../aura_imp" }
+imp_core_types = { workspace = true }
+imp_lab_extensions = { path = "../../../imp-lab/crates/imp_lab_extensions" }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

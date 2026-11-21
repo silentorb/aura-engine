@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "extensions": [
+    {
+      "id": "aura-imp-catalogs",
+      "enabled": true,
+      "libraryPath": "extensions/aura_imp_lab_catalogs",
+      "clientModule": null,
+      "params": {}
+    }
+  ],
+  "components": [
+    {
+      "id": "aura-imp-catalogs",
+      "extensionId": "aura-imp-catalogs",
+      "kind": "imp-catalog",
+      "implementationId": "aura-imp-catalogs",
+      "enabled": true,
+      "params": {}
+    }
+  ]
+}

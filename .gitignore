@@ -1,3 +1,7 @@
 /target/
 /output/
 /.mnt/
+# Built Lab extension binaries (copy after `cargo build -p aura_imp_lab_catalogs`)
+/lab-pack/extensions/*.so
+/lab-pack/extensions/*.dll
+/lab-pack/extensions/*.dylib
