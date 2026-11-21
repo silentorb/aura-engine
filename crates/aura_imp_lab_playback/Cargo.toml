@@ -1,0 +1,22 @@
+[package]
+name = "aura_imp_lab_playback"
+description = "Imp Lab extension cdylib that registers Aura Imp graph playback (CPAL)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+aura_imp = { path = "../aura_imp" }
+aura_integration = { path = "../aura_integration" }
+aura_io_cpal = { path = "../aura_io_cpal" }
+aura_render = { path = "../aura_render" }
+aura_sample = { path = "../aura_sample" }
+imp_lab_extensions = { path = "../../../imp-lab/crates/imp_lab_extensions" }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

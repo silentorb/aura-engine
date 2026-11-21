@@ -1,32 +1,35 @@
-# Imp Lab pack (Aura audio catalogs)
+# Imp Lab pack (Aura audio catalogs + playback)
 
-Optional sidecar pack for [Imp Lab Tauri](https://github.com/silentorb/imp-lab): Tome-shaped `extensions.json` plus the `aura_imp_lab_catalogs` cdylib.
+Optional sidecar pack for [Imp Lab Tauri](https://github.com/silentorb/imp-lab): Tome-shaped `extensions.json` plus Aura catalog and playback cdylibs.
 
 ## Layout
 
 ```
 lab-pack/
   extensions.json
-  extensions/          # platform cdylib (libaura_imp_lab_catalogs.so / aura_imp_lab_catalogs.dll)
+  extensions/          # platform cdylibs:
+                       #   libaura_imp_lab_catalogs.so / aura_imp_lab_catalogs.dll
+                       #   libaura_imp_lab_playback.so / aura_imp_lab_playback.dll
   catalogs/
     instruments.json   # optional demo graph library
 ```
 
-Place this directory’s contents next to `imp-lab-tauri` (or set `IMP_LAB_EXTENSIONS` to the `extensions.json` path). Lab runs without the pack (Imp core only).
+Place this directory’s contents next to `imp-lab-tauri` (or set `IMP_LAB_EXTENSIONS` to the `extensions.json` path). Lab runs without the pack (Imp core only). With the pack loaded, Lab gains Aura node catalogs and a **Play** menu (Start / Stop) that drives Imp graph CPAL playback.
 
-## Build the extension library
+## Build the extension libraries
 
 From the aura-engine workspace:
 
 ```bash
-cargo build -p aura_imp_lab_catalogs
+cargo build -p aura_imp_lab_catalogs -p aura_imp_lab_playback
 # Linux: target/debug/libaura_imp_lab_catalogs.so
-# Windows (MSVC): aura_imp_lab_catalogs.dll
+#         target/debug/libaura_imp_lab_playback.so
+# Windows (MSVC): aura_imp_lab_catalogs.dll / aura_imp_lab_playback.dll
 ```
 
-Copy the artifact into `lab-pack/extensions/`. The host resolves bare `libraryPath` stems across `.so` / `.dll` / `.dylib` names.
+Copy the artifacts into `lab-pack/extensions/`. The host resolves bare `libraryPath` stems across `.so` / `.dll` / `.dylib` names.
 
 ## See also
 
 - Imp Lab extensions: `imp-lab/docs/features/extensions.md`
-- Crate: `crates/aura_imp_lab_catalogs`
+- Crates: `crates/aura_imp_lab_catalogs`, `crates/aura_imp_lab_playback`

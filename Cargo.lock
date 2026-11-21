@@ -83,6 +83,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "aura_imp_lab_playback"
+version = "0.1.0"
+dependencies = [
+ "aura_imp",
+ "aura_integration",
+ "aura_io_cpal",
+ "aura_render",
+ "aura_sample",
+ "imp_lab_extensions",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "aura_instrumentation"
 version = "0.1.0"
 dependencies = [

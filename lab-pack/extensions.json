@@ -7,6 +7,13 @@
       "libraryPath": "extensions/aura_imp_lab_catalogs",
       "clientModule": null,
       "params": {}
+    },
+    {
+      "id": "aura-playback",
+      "enabled": true,
+      "libraryPath": "extensions/aura_imp_lab_playback",
+      "clientModule": null,
+      "params": {}
     }
   ],
   "components": [
@@ -17,6 +24,71 @@
       "implementationId": "aura-imp-catalogs",
       "enabled": true,
       "params": {}
+    },
+    {
+      "id": "aura-playback",
+      "extensionId": "aura-playback",
+      "kind": "service",
+      "implementationId": "playback",
+      "enabled": true,
+      "params": {}
+    },
+    {
+      "id": "play.start",
+      "extensionId": "aura-playback",
+      "kind": "command",
+      "implementationId": "play.start",
+      "enabled": true,
+      "params": {
+        "serviceId": "aura-playback",
+        "action": "start"
+      }
+    },
+    {
+      "id": "play.stop",
+      "extensionId": "aura-playback",
+      "kind": "command",
+      "implementationId": "play.stop",
+      "enabled": true,
+      "params": {
+        "serviceId": "aura-playback",
+        "action": "stop"
+      }
+    },
+    {
+      "id": "play.toggle",
+      "extensionId": "aura-playback",
+      "kind": "command",
+      "implementationId": "play.toggle",
+      "enabled": true,
+      "params": {
+        "serviceId": "aura-playback",
+        "action": "toggle"
+      }
+    },
+    {
+      "id": "menu.play.start",
+      "extensionId": "aura-playback",
+      "kind": "menu-item",
+      "implementationId": "play.start",
+      "label": "Start",
+      "enabled": true,
+      "params": {
+        "menu": "Play",
+        "order": 10
+      }
+    },
+    {
+      "id": "menu.play.stop",
+      "extensionId": "aura-playback",
+      "kind": "menu-item",
+      "implementationId": "play.stop",
+      "label": "Stop",
+      "enabled": true,
+      "params": {
+        "menu": "Play",
+        "order": 20
+      }
     }
   ]
 }
