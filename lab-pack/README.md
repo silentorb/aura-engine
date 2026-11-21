@@ -14,7 +14,7 @@ lab-pack/
     instruments.json   # optional demo graph library
 ```
 
-Place this directory’s contents next to `imp-lab-tauri` (or set `IMP_LAB_EXTENSIONS` to the `extensions.json` path). Lab runs without the pack (Imp core only). With the pack loaded, Lab gains Aura node catalogs and a **Play** menu (Start / Stop) that drives Imp graph CPAL playback.
+Place this directory’s contents next to `imp-lab-tauri` (or set `IMP_LAB_EXTENSIONS` to the `extensions.json` path). Lab runs without the pack (Imp core only). With the pack loaded, Lab gains Aura node catalogs and a **Play** menu (Start / Stop) that drives CPAL playback for Imp graphs and Aura `notation` tips (piano-roll audition from the parked playhead).
 
 ## Build the extension libraries
 

@@ -91,6 +91,7 @@ dependencies = [
  "aura_io_cpal",
  "aura_render",
  "aura_sample",
+ "aura_sequencing",
  "imp_lab_extensions",
  "serde_json",
  "tempfile",

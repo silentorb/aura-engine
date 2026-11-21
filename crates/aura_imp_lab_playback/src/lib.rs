@@ -1,15 +1,18 @@
-//! Imp Lab `service` extension: Imp graph playback via Aura translate + CPAL.
+//! Imp Lab `service` extension: Imp graph + Aura notation playback via CPAL.
 
 use aura_imp::{
     aura_registry_with_libraries, discover_graph_libraries, graph_from_json_str, Graph, Registry,
 };
 use aura_integration::{
-    find_output_node, translate_graph_to_sampler_with_options, TranslateOptions,
+    find_output_node, sampler_from_score, score_from_notation_str,
+    translate_graph_to_sampler_with_options, TranslateOptions,
 };
 use aura_io_cpal::PlaybackEngine;
 use aura_render::Sampler;
 use aura_sample::SampleRate;
+use aura_sequencing::beats_to_seconds;
 use imp_lab_extensions::{write_service_error, ImpLabHostV0, ImpLabServiceV0};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::os::raw::c_uchar;
@@ -22,12 +25,15 @@ const SERVICE_IMPLEMENTATION_ID: &str = "playback";
 
 struct PlaybackState {
     engine: Mutex<PlaybackEngine>,
+    /// When set, auto-stop once `position_secs` reaches this value (notation audition).
+    end_secs: Mutex<Option<f64>>,
 }
 
 fn state() -> &'static PlaybackState {
     static STATE: OnceLock<PlaybackState> = OnceLock::new();
     STATE.get_or_init(|| PlaybackState {
         engine: Mutex::new(PlaybackEngine::new()),
+        end_secs: Mutex::new(None),
     })
 }
 
@@ -36,6 +42,8 @@ fn state() -> &'static PlaybackState {
 pub enum PlaybackServiceError {
     #[error("invalid graph JSON: {0}")]
     GraphJson(String),
+    #[error("invalid notation JSON: {0}")]
+    NotationJson(String),
     #[error("{0}")]
     Output(String),
     #[error("registry: {0}")]
@@ -61,11 +69,10 @@ pub fn playback_registry(neighbor_hint: Option<&Path>) -> Result<Registry, Playb
 
 /// Parse graph JSON from the Lab host (bare Imp graph or tip-wrapped).
 pub fn parse_graph_json(json: &str) -> Result<Graph, PlaybackServiceError> {
-    // Prefer bare Graph; if that fails, strip a tip wrapper `{ "type": "...", "nodes", "edges" }`.
     match graph_from_json_str(json) {
         Ok(graph) => Ok(graph),
         Err(first) => {
-            let value: serde_json::Value = serde_json::from_str(json)
+            let value: Value = serde_json::from_str(json)
                 .map_err(|e| PlaybackServiceError::GraphJson(e.to_string()))?;
             let nodes = value.get("nodes").cloned();
             let edges = value.get("edges").cloned();
@@ -89,8 +96,7 @@ pub fn prepare_graph_playback(
     neighbor_hint: Option<&Path>,
 ) -> Result<(String, Box<dyn Sampler>), PlaybackServiceError> {
     let graph = parse_graph_json(graph_json)?;
-    let node_id = find_output_node(&graph)
-        .map_err(|e| PlaybackServiceError::Output(e.to_string()))?;
+    let node_id = find_output_node(&graph).map_err(|e| PlaybackServiceError::Output(e.to_string()))?;
     let registry = playback_registry(neighbor_hint)?;
     let graph_dir = neighbor_hint.and_then(Path::parent);
     let empty_bindings = BTreeMap::new();
@@ -107,19 +113,95 @@ pub fn prepare_graph_playback(
     Ok((node_id, sampler))
 }
 
-/// Start (or restart) playback of the given graph JSON.
-pub fn start_playback(
-    graph_json: &str,
-    neighbor_hint: Option<&Path>,
-) -> Result<(), PlaybackServiceError> {
-    let (_node_id, sampler) = prepare_graph_playback(graph_json, neighbor_hint)?;
-    let mut engine = state()
-        .engine
+fn payload_type(json: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(json).ok()?;
+    value.get("type")?.as_str().map(str::to_string)
+}
+
+fn lab_start_beats(json: &str) -> f64 {
+    let Ok(value) = serde_json::from_str::<Value>(json) else {
+        return 0.0;
+    };
+    value
+        .get("labStartBeats")
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(0.0)
+}
+
+/// Prepare notation tip JSON into a sampler + start/end times.
+pub fn prepare_notation_playback(
+    notation_json: &str,
+) -> Result<(Box<dyn Sampler>, f64, f64), PlaybackServiceError> {
+    let score = score_from_notation_str(notation_json)
+        .map_err(PlaybackServiceError::NotationJson)?;
+    let duration_secs = score.duration_secs().max(0.0);
+    let start_beats = lab_start_beats(notation_json);
+    let tempo = score.tempo;
+    let start_secs = beats_to_seconds(start_beats.max(0.0), tempo);
+    let sampler = sampler_from_score(score, SAMPLE_RATE);
+    Ok((sampler, start_secs, duration_secs.max(start_secs)))
+}
+
+fn set_end_secs(end: Option<f64>) -> Result<(), PlaybackServiceError> {
+    let mut guard = state()
+        .end_secs
         .lock()
         .map_err(|_| PlaybackServiceError::Poisoned)?;
-    engine
-        .start(Arc::from(sampler), SAMPLE_RATE)
-        .map_err(|e| PlaybackServiceError::Playback(e.to_string()))
+    *guard = end;
+    Ok(())
+}
+
+fn maybe_auto_stop(engine: &mut PlaybackEngine) -> Result<(), PlaybackServiceError> {
+    let end = {
+        let guard = state()
+            .end_secs
+            .lock()
+            .map_err(|_| PlaybackServiceError::Poisoned)?;
+        *guard
+    };
+    if let Some(end_secs) = end {
+        if engine.is_playing() && engine.position_secs() >= end_secs {
+            engine.stop();
+            set_end_secs(None)?;
+        }
+    }
+    Ok(())
+}
+
+/// Start (or restart) playback of graph or notation JSON.
+pub fn start_playback(
+    payload_json: &str,
+    neighbor_hint: Option<&Path>,
+) -> Result<(), PlaybackServiceError> {
+    match payload_type(payload_json).as_deref() {
+        Some("notation") => {
+            let (sampler, start_secs, end_secs) = prepare_notation_playback(payload_json)?;
+            let mut engine = state()
+                .engine
+                .lock()
+                .map_err(|_| PlaybackServiceError::Poisoned)?;
+            engine
+                .start_at(Arc::from(sampler), SAMPLE_RATE, start_secs)
+                .map_err(|e| PlaybackServiceError::Playback(e.to_string()))?;
+            drop(engine);
+            set_end_secs(Some(end_secs))?;
+            Ok(())
+        }
+        _ => {
+            let (_node_id, sampler) = prepare_graph_playback(payload_json, neighbor_hint)?;
+            let mut engine = state()
+                .engine
+                .lock()
+                .map_err(|_| PlaybackServiceError::Poisoned)?;
+            engine
+                .start(Arc::from(sampler), SAMPLE_RATE)
+                .map_err(|e| PlaybackServiceError::Playback(e.to_string()))?;
+            drop(engine);
+            set_end_secs(None)?;
+            Ok(())
+        }
+    }
 }
 
 /// Stop playback if running.
@@ -129,45 +211,59 @@ pub fn stop_playback() -> Result<(), PlaybackServiceError> {
         .lock()
         .map_err(|_| PlaybackServiceError::Poisoned)?;
     engine.stop();
+    drop(engine);
+    set_end_secs(None)?;
     Ok(())
 }
 
 /// Toggle: stop if playing, otherwise start.
 pub fn toggle_playback(
-    graph_json: &str,
+    payload_json: &str,
     neighbor_hint: Option<&Path>,
 ) -> Result<(), PlaybackServiceError> {
     let playing = {
-        let engine = state()
+        let mut engine = state()
             .engine
             .lock()
             .map_err(|_| PlaybackServiceError::Poisoned)?;
+        maybe_auto_stop(&mut engine)?;
         engine.is_playing()
     };
     if playing {
         stop_playback()
     } else {
-        start_playback(graph_json, neighbor_hint)
+        start_playback(payload_json, neighbor_hint)
     }
 }
 
-/// Whether CPAL playback is currently active.
+/// Whether CPAL playback is currently active (runs notation auto-stop).
 pub fn is_playing() -> Result<bool, PlaybackServiceError> {
-    let engine = state()
+    let mut engine = state()
         .engine
         .lock()
         .map_err(|_| PlaybackServiceError::Poisoned)?;
+    maybe_auto_stop(&mut engine)?;
     Ok(engine.is_playing())
 }
 
-fn read_graph_and_path<'a>(
+/// Current playback position in seconds (runs notation auto-stop).
+pub fn position_secs() -> Result<f64, PlaybackServiceError> {
+    let mut engine = state()
+        .engine
+        .lock()
+        .map_err(|_| PlaybackServiceError::Poisoned)?;
+    maybe_auto_stop(&mut engine)?;
+    Ok(engine.position_secs())
+}
+
+fn read_payload_and_path(
     graph_json: *const c_uchar,
     graph_len: usize,
     neighbor_path: *const c_char,
 ) -> Result<(String, Option<PathBuf>), PlaybackServiceError> {
     if graph_json.is_null() || graph_len == 0 {
         return Err(PlaybackServiceError::GraphJson(
-            "graph JSON is required".into(),
+            "playback JSON is required".into(),
         ));
     }
     let slice = unsafe { std::slice::from_raw_parts(graph_json, graph_len) };
@@ -205,7 +301,7 @@ unsafe extern "C" fn service_start(
     err_out: *mut c_char,
     err_len: usize,
 ) -> c_int {
-    match read_graph_and_path(graph_json, graph_len, neighbor_path) {
+    match read_payload_and_path(graph_json, graph_len, neighbor_path) {
         Ok((json, path)) => match start_playback(&json, path.as_deref()) {
             Ok(()) => 0,
             Err(e) => fail(err_out, err_len, e),
@@ -233,7 +329,7 @@ unsafe extern "C" fn service_toggle(
     err_out: *mut c_char,
     err_len: usize,
 ) -> c_int {
-    match read_graph_and_path(graph_json, graph_len, neighbor_path) {
+    match read_payload_and_path(graph_json, graph_len, neighbor_path) {
         Ok((json, path)) => match toggle_playback(&json, path.as_deref()) {
             Ok(()) => 0,
             Err(e) => fail(err_out, err_len, e),
@@ -250,6 +346,10 @@ unsafe extern "C" fn service_is_playing(_ctx: *mut c_void) -> c_int {
     }
 }
 
+unsafe extern "C" fn service_position_secs(_ctx: *mut c_void) -> f64 {
+    position_secs().unwrap_or(0.0)
+}
+
 /// Lab extension entrypoint.
 ///
 /// # Safety
@@ -264,7 +364,6 @@ pub unsafe extern "C" fn imp_lab_extension_register(host: *const ImpLabHostV0) -
     let Some(register_service) = h.register_service else {
         return -1;
     };
-    // Ensure process-lifetime state exists before publishing the vtable.
     let _ = state();
     let service = ImpLabServiceV0 {
         ctx: std::ptr::null_mut(),
@@ -272,6 +371,7 @@ pub unsafe extern "C" fn imp_lab_extension_register(host: *const ImpLabHostV0) -
         stop: Some(service_stop),
         toggle: Some(service_toggle),
         is_playing: Some(service_is_playing),
+        position_secs: Some(service_position_secs),
     };
     let id = match CString::new(SERVICE_IMPLEMENTATION_ID) {
         Ok(s) => s,
@@ -297,6 +397,23 @@ mod tests {
         assert!(!node_id.is_empty());
         let sample = sampler.at(0.01);
         assert!(sample.abs() > 1e-6, "expected audible sample, got {sample}");
+    }
+
+    #[test]
+    fn prepare_notation_yields_sampler() {
+        let json = r#"{
+            "type":"notation",
+            "version":1,
+            "tempoBpm":120,
+            "timeSignature":{"beatsPerBar":4,"beatUnit":4},
+            "labStartBeats":0.0,
+            "events":[{"semitone":60,"startBeats":0.0,"durationBeats":0.5,"velocity":1.0}]
+        }"#;
+        let (sampler, start_secs, end_secs) = prepare_notation_playback(json).expect("prepare");
+        assert_eq!(start_secs, 0.0);
+        assert!(end_secs > 0.0);
+        let sample = sampler.at(0.05);
+        assert!(sample.abs() > 1e-4, "expected audible sample, got {sample}");
     }
 
     #[test]
