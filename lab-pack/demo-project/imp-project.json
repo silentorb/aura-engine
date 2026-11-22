@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "dataStores": {
+    "main": {
+      "id": "main",
+      "module": "tome-flatfile",
+      "export": "createFlatfileModule",
+      "options": {
+        "contentPath": "content",
+        "access": "readwrite"
+      }
+    },
+    "cache": {
+      "id": "cache",
+      "module": "tome-sqlite",
+      "export": "createSqliteModule",
+      "options": {
+        "dbPath": ".tome/cache.sqlite"
+      }
+    }
+  },
+  "sync": {
+    "queryStoreId": "cache"
+  },
+  "services": []
+}

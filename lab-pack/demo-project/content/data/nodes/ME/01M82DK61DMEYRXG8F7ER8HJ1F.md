@@ -1,0 +1,50 @@
+---
+title: sine
+created_at: 2026-11-22T20:01:38.861Z
+modified_at: 2026-11-22T20:01:38.861Z
+graph:
+  nodes:
+    0033AFBG000009WDVSQ5ZMMZ0N:
+      id: 0033AFBG000009WDVSQ5ZMMZ0N
+      type: time
+      inputs: {}
+      title: time
+    0033AFBG01000KRVQKEBZ99Y1A:
+      id: 0033AFBG01000KRVQKEBZ99Y1A
+      type: parameter
+      inputs:
+        value: 440
+      title: freq
+    0033AFBG02000XN9KD5HYXYX1Z:
+      id: 0033AFBG02000XN9KD5HYXYX1Z
+      type: sine
+      inputs: {}
+      title: osc
+    0033AFBG030017HQF6WQYJKW2M:
+      id: 0033AFBG030017HQF6WQYJKW2M
+      type: output
+      inputs: {}
+      title: out
+  edges:
+    freq_to_osc:
+      from:
+        node: 0033AFBG01000KRVQKEBZ99Y1A
+        port: value
+      to:
+        node: 0033AFBG02000XN9KD5HYXYX1Z
+        port: frequency
+    time_to_osc:
+      from:
+        node: 0033AFBG000009WDVSQ5ZMMZ0N
+        port: time
+      to:
+        node: 0033AFBG02000XN9KD5HYXYX1Z
+        port: time
+    osc_to_out:
+      from:
+        node: 0033AFBG02000XN9KD5HYXYX1Z
+        port: audio
+      to:
+        node: 0033AFBG030017HQF6WQYJKW2M
+        port: value
+---

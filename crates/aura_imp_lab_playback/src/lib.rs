@@ -1,7 +1,8 @@
 //! Imp Lab `service` extension: Imp graph + Aura notation playback via CPAL.
 
 use aura_imp::{
-    aura_registry_with_libraries, discover_graph_libraries, graph_from_json_str, Graph, Registry,
+    aura_registry_with_libraries, discover_graph_libraries, graph_from_json_str,
+    graph_library_from_json_path, Graph, GraphLibrary, Registry,
 };
 use aura_integration::{
     find_output_node, sampler_from_score, score_from_notation_str,
@@ -19,6 +20,9 @@ use std::os::raw::c_uchar;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use thiserror::Error;
+
+mod project;
+pub use project::{is_project_config, resolve_project_references};
 
 const SAMPLE_RATE: SampleRate = SampleRate::RATE_44100;
 const SERVICE_IMPLEMENTATION_ID: &str = "playback";
@@ -48,6 +52,8 @@ pub enum PlaybackServiceError {
     Output(String),
     #[error("registry: {0}")]
     Registry(String),
+    #[error("project: {0}")]
+    Project(String),
     #[error("translate: {0}")]
     Translate(String),
     #[error("playback: {0}")]
@@ -56,12 +62,33 @@ pub enum PlaybackServiceError {
     Poisoned,
 }
 
-/// Builds a registry for playback, optionally discovering neighbor graph libraries.
+/// Graph libraries shipped in the Lab pack (`catalogs/instruments.json`), found at register.
+fn pack_library_paths() -> &'static Mutex<Vec<PathBuf>> {
+    static PATHS: OnceLock<Mutex<Vec<PathBuf>>> = OnceLock::new();
+    PATHS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn pack_libraries() -> Result<Vec<GraphLibrary>, PlaybackServiceError> {
+    let paths = pack_library_paths()
+        .lock()
+        .map_err(|_| PlaybackServiceError::Poisoned)?
+        .clone();
+    paths
+        .iter()
+        .map(|p| {
+            graph_library_from_json_path(p)
+                .map_err(|e| PlaybackServiceError::Registry(e.to_string()))
+        })
+        .collect()
+}
+
+/// Builds a registry for playback. A legacy graph-file hint discovers graph libraries next to
+/// the file; a project config (or no hint) uses the Lab pack's libraries.
 pub fn playback_registry(neighbor_hint: Option<&Path>) -> Result<Registry, PlaybackServiceError> {
     let libraries = match neighbor_hint {
-        Some(path) => discover_graph_libraries(path)
+        Some(path) if !is_project_config(path) => discover_graph_libraries(path)
             .map_err(|e| PlaybackServiceError::Registry(e.to_string()))?,
-        None => Vec::new(),
+        _ => pack_libraries()?,
     };
     aura_registry_with_libraries(&libraries)
         .map_err(|e| PlaybackServiceError::Registry(e.to_string()))
@@ -95,17 +122,26 @@ pub fn prepare_graph_playback(
     graph_json: &str,
     neighbor_hint: Option<&Path>,
 ) -> Result<(String, Box<dyn Sampler>), PlaybackServiceError> {
-    let graph = parse_graph_json(graph_json)?;
-    let node_id = find_output_node(&graph).map_err(|e| PlaybackServiceError::Output(e.to_string()))?;
+    let mut graph = parse_graph_json(graph_json)?;
+    // Records the graph references (a notation by node id) come from the project's data
+    // stores; a legacy graph-file hint keeps the folder scan of neighboring JSON tips.
+    let (score_bindings, graph_dir) = match neighbor_hint.filter(|p| is_project_config(p)) {
+        Some(config) => (
+            resolve_project_references(&mut graph, config)
+                .map_err(PlaybackServiceError::Project)?,
+            None,
+        ),
+        None => (BTreeMap::new(), neighbor_hint.and_then(Path::parent)),
+    };
+    let node_id =
+        find_output_node(&graph).map_err(|e| PlaybackServiceError::Output(e.to_string()))?;
     let registry = playback_registry(neighbor_hint)?;
-    let graph_dir = neighbor_hint.and_then(Path::parent);
-    let empty_bindings = BTreeMap::new();
     let sampler = translate_graph_to_sampler_with_options(
         &graph,
         &registry,
         SAMPLE_RATE,
         TranslateOptions {
-            score_bindings: &empty_bindings,
+            score_bindings: &score_bindings,
             graph_dir,
         },
     )
@@ -133,8 +169,8 @@ fn lab_start_beats(json: &str) -> f64 {
 pub fn prepare_notation_playback(
     notation_json: &str,
 ) -> Result<(Box<dyn Sampler>, f64, f64), PlaybackServiceError> {
-    let score = score_from_notation_str(notation_json)
-        .map_err(PlaybackServiceError::NotationJson)?;
+    let score =
+        score_from_notation_str(notation_json).map_err(PlaybackServiceError::NotationJson)?;
     let duration_secs = score.duration_secs().max(0.0);
     let start_beats = lab_start_beats(notation_json);
     let tempo = score.tempo;
@@ -350,6 +386,42 @@ unsafe extern "C" fn service_position_secs(_ctx: *mut c_void) -> f64 {
     position_secs().unwrap_or(0.0)
 }
 
+/// Record the pack's demo instruments library (same search as the catalogs extension) so
+/// project playback can build voices like `sine_note_voice`.
+fn remember_pack_libraries(host: &ImpLabHostV0) {
+    const CANDIDATES: &[&str] = &[
+        "catalogs/instruments.json",
+        "instruments.json",
+        "demos/instruments.json",
+    ];
+    let Some(resolve) = host.resolve_pack_path else {
+        return;
+    };
+    let found = CANDIDATES.iter().find_map(|rel| {
+        let rel_c = CString::new(*rel).ok()?;
+        let mut buf = vec![0u8; 4096];
+        // SAFETY: host vtable function with a valid C string and a sized output buffer.
+        let code = unsafe {
+            resolve(
+                host.ctx,
+                rel_c.as_ptr(),
+                buf.as_mut_ptr() as *mut c_char,
+                buf.len(),
+            )
+        };
+        if code != 0 {
+            return None;
+        }
+        // SAFETY: the host wrote a NUL-terminated path into `buf`.
+        let path = unsafe { CStr::from_ptr(buf.as_ptr() as *const c_char) };
+        let path = PathBuf::from(path.to_str().ok()?);
+        path.is_file().then_some(path)
+    });
+    if let (Some(path), Ok(mut paths)) = (found, pack_library_paths().lock()) {
+        *paths = vec![path];
+    }
+}
+
 /// Lab extension entrypoint.
 ///
 /// # Safety
@@ -365,6 +437,7 @@ pub unsafe extern "C" fn imp_lab_extension_register(host: *const ImpLabHostV0) -
         return -1;
     };
     let _ = state();
+    remember_pack_libraries(h);
     let service = ImpLabServiceV0 {
         ctx: std::ptr::null_mut(),
         start: Some(service_start),
@@ -414,6 +487,32 @@ mod tests {
         assert!(end_secs > 0.0);
         let sample = sampler.at(0.05);
         assert!(sample.abs() > 1e-4, "expected audible sample, got {sample}");
+    }
+
+    fn workspace_path(rel: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(rel)
+    }
+
+    #[test]
+    fn project_playback_resolves_the_notation_record_demo_02_uses() {
+        *pack_library_paths().lock().unwrap() =
+            vec![workspace_path("lab-pack/catalogs/instruments.json")];
+        let config = workspace_path("lab-pack/demo-project/imp-project.json");
+        assert!(is_project_config(&config));
+        assert!(!is_project_config(&workspace_path("demos/demo-02.json")));
+
+        let json = std::fs::read_to_string(workspace_path("demos/demo-02.json")).unwrap();
+        let (_node, sampler) =
+            prepare_graph_playback(&json, Some(&config)).expect("demo-02 plays from the project");
+        let peak = (0..200)
+            .map(|i| sampler.at(i as f64 * 0.01).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(peak > 1e-4, "expected audible output, peak {peak}");
+
+        // Without the project the arpeggio notation cannot be found.
+        assert!(prepare_graph_playback(&json, None).is_err());
     }
 
     #[test]

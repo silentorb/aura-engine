@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "tables": {
+    "01M80M9GRAPH00000000000001": {
+      "columns": [
+        {
+          "key": "graph",
+          "name": "Graph",
+          "type": "imp_graph",
+          "storage": "node"
+        }
+      ]
+    },
+    "01M80M9N0TAT00000000000001": {
+      "columns": [
+        {
+          "key": "notation",
+          "name": "Notation",
+          "type": "json",
+          "storage": "node"
+        }
+      ]
+    }
+  }
+}

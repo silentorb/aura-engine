@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "homeNodeId": "01M80M9H0ME000000000000001",
+  "archiveNodeId": "01M80M9ARCH000000000000001",
+  "protectedNodeIds": [
+    "01M80M9H0ME000000000000001",
+    "01M80M9ARCH000000000000001",
+    "01M80M9GRAPH00000000000001",
+    "01M80M9N0TAT00000000000001"
+  ],
+  "graphExplorer": {
+    "defaultAnchorNodeId": "01M80M9H0ME000000000000001"
+  },
+  "staticSite": {
+    "homeNodeId": "01M80M9H0ME000000000000001"
+  },
+  "quickLinks": [],
+  "branding": {
+    "appTitle": "Aura demos"
+  }
+}

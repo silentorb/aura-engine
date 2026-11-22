@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "associations": {
+    "01M80M9SET0000000000000001": {
+      "perspectives": [
+        "Members",
+        "Member of"
+      ],
+      "traits": [
+        "Set"
+      ]
+    }
+  }
+}

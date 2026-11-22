@@ -21,6 +21,8 @@ members = [
     ".mnt/imp-rs/crates/imp_graph_library",
     ".mnt/imp-rs/crates/imp_graph_resolve",
 ]
+# tome-rust-server keeps its own workspace (its crates inherit deps from it), as in Imp Lab.
+exclude = [".mnt/tome-rust-server"]
 
 [workspace.package]
 version = "0.1.0"

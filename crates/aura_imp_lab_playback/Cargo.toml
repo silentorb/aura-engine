@@ -16,6 +16,8 @@ aura_render = { path = "../aura_render" }
 aura_sample = { path = "../aura_sample" }
 aura_sequencing = { path = "../aura_sequencing" }
 imp_lab_extensions = { path = "../../../imp-lab/crates/imp_lab_extensions" }
+tome_db = { path = "../../.mnt/tome-rust-server/crates/tome_db" }
+tome_flatfile = { path = "../../.mnt/tome-rust-server/crates/tome_flatfile" }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
