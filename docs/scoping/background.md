@@ -42,4 +42,4 @@ Notation types, procedural generators, temporal scheduling, and per-note instrum
 
 ## Miro / multi-store sync
 
-Aura wants text files as the VCS-friendly authoring SoT, a queryable SQLite projection, and pull-based app memory (editor `ModelGraph`). That profile is **Miro** on the **Mir** sync fabric. The fabric is Imp-generic (`imp_mir` in imp-rs); Aura only supplies Aura JSON codecs and thin session helpers. Specs: [Mir](https://github.com/silentorb/mir). Design: [`../design/miro.md`](../design/miro.md).
+Aura wants text files as the VCS-friendly authoring SoT, a queryable SQLite projection, and pull-based app memory (editor `ModelGraph`). That profile is **Miro** on the **Mir** sync fabric. The fabric is Imp-generic (`imp_mir`, hosted in tome-rust-server); Aura only supplies Aura JSON codecs and thin session helpers. Specs: [Mir](https://github.com/silentorb/mir). Design: [`../design/miro.md`](../design/miro.md).
