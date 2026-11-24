@@ -13,7 +13,7 @@ mod processor;
 
 pub use processor::{ClapFactory, ClapProcessor};
 
-use aura_plugin_host::{PluginHostError, PluginResolver, ProcessorFactory};
+use aura_plugin_host::{PluginHostError, PluginResolver, PluginSettings, ProcessorFactory};
 use clack_host::prelude::PluginEntry;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -127,7 +127,7 @@ impl PluginResolver for ClapHost {
     fn resolve(
         &self,
         plugin_id: &str,
-        state: Option<&[u8]>,
+        settings: &PluginSettings,
     ) -> Result<Arc<dyn ProcessorFactory>, PluginHostError> {
         let entry = self
             .find_entry(plugin_id)
@@ -137,7 +137,7 @@ impl PluginResolver for ClapHost {
         Ok(Arc::new(ClapFactory::new(
             entry,
             plugin_id.into(),
-            state.map(<[u8]>::to_vec),
+            settings.clone(),
         )))
     }
 }

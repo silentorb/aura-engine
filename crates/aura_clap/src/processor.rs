@@ -1,15 +1,16 @@
 //! CLAP plugin instances as Aura [`Processor`]s.
 
-use crate::host::{AuraHost, AuraShared, PluginExtensions};
+use crate::host::{AuraHost, AuraMainThread, AuraShared, PluginExtensions};
 use crate::main_thread::{self, InstanceId};
 use aura_plugin_host::{
-    ChannelLayout, Event, PluginHostError, Processor, ProcessorConfig, ProcessorFactory,
-    RenderMode, Tail,
+    ChannelLayout, Event, ParamDescription, ParamFlags, ParamSetting, PluginHostError,
+    PluginSettings, Processor, ProcessorConfig, ProcessorFactory, RenderMode, Tail,
 };
 use clack_extensions::audio_ports::{AudioPortFlags, AudioPortInfoBuffer, PluginAudioPorts};
+use clack_extensions::params::{ParamInfoBuffer, ParamInfoFlags, PluginParams};
 use clack_extensions::render::RenderMode as ClapRenderMode;
 use clack_extensions::tail::TailLength;
-use clack_host::events::event_types::{NoteOffEvent, NoteOnEvent};
+use clack_host::events::event_types::{NoteOffEvent, NoteOnEvent, ParamValueEvent};
 use clack_host::prelude::*;
 use std::ffi::CString;
 use std::io::Cursor;
@@ -17,16 +18,20 @@ use std::io::Cursor;
 /// Most events Aura sends in one block before the buffer would grow.
 const EVENT_CAPACITY: usize = 512;
 
-/// Creates instances of one CLAP plugin from a loaded bundle, applying stored state.
+/// Creates instances of one CLAP plugin from a loaded bundle, applying a node's settings.
 pub struct ClapFactory {
     entry: PluginEntry,
     id: String,
-    state: Option<Vec<u8>>,
+    settings: PluginSettings,
 }
 
 impl ClapFactory {
-    pub(crate) fn new(entry: PluginEntry, id: String, state: Option<Vec<u8>>) -> Self {
-        Self { entry, id, state }
+    pub(crate) fn new(entry: PluginEntry, id: String, settings: PluginSettings) -> Self {
+        Self {
+            entry,
+            id,
+            settings,
+        }
     }
 }
 
@@ -94,6 +99,90 @@ struct Created {
     inputs: PortLayout,
     outputs: PortLayout,
     latency: u32,
+    params: Vec<(ClapId, f64)>,
+}
+
+/// Instantiates `id` from `entry` on the CLAP main thread (not activated).
+fn instantiate(
+    entry: &PluginEntry,
+    id: &str,
+    host: &HostInfo,
+) -> Result<PluginInstance<AuraHost>, PluginHostError> {
+    let error = |reason: String| PluginHostError::Instantiate {
+        id: id.into(),
+        reason,
+    };
+    let c_id = CString::new(id).map_err(|e| error(e.to_string()))?;
+    PluginInstance::<AuraHost>::new(
+        |_| AuraShared::default(),
+        |_| AuraMainThread,
+        entry,
+        &c_id,
+        host,
+    )
+    .map_err(|e| error(e.to_string()))
+}
+
+/// The plugin's parameters, read through its params extension (none without it).
+fn describe_params(
+    params: Option<PluginParams>,
+    plugin: &mut PluginMainThreadHandle,
+) -> Vec<ParamDescription> {
+    let Some(params) = params else {
+        return Vec::new();
+    };
+    let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+    let mut buffer = ParamInfoBuffer::default();
+    (0..params.count(plugin))
+        .filter_map(|index| {
+            let info = params.get_info(plugin, index, &mut buffer)?;
+            let flags = info.flags;
+            Some(ParamDescription {
+                id: info.id.get(),
+                name: text(info.name),
+                module: text(info.module),
+                min: info.min_value,
+                max: info.max_value,
+                default: info.default_value,
+                flags: ParamFlags {
+                    automatable: flags.contains(ParamInfoFlags::IS_AUTOMATABLE),
+                    modulatable: flags.contains(ParamInfoFlags::IS_MODULATABLE),
+                    stepped: flags.contains(ParamInfoFlags::IS_STEPPED),
+                    hidden: flags.contains(ParamInfoFlags::IS_HIDDEN),
+                    readonly: flags.contains(ParamInfoFlags::IS_READONLY),
+                },
+            })
+        })
+        .collect()
+}
+
+/// Checks node-data parameter settings against the plugin's parameters and clamps each value
+/// to its parameter's range.
+fn resolve_params(
+    id: &str,
+    settings: &[ParamSetting],
+    available: &[ParamDescription],
+) -> Result<Vec<(ClapId, f64)>, PluginHostError> {
+    settings
+        .iter()
+        .map(|setting| {
+            let param = available
+                .iter()
+                .find(|p| p.id == setting.id)
+                .ok_or_else(|| PluginHostError::UnknownParam {
+                    id: id.into(),
+                    param: setting.id,
+                })?;
+            if param.flags.readonly {
+                return Err(PluginHostError::ReadonlyParam {
+                    id: id.into(),
+                    param: setting.id,
+                });
+            }
+            let value = setting.value.clamp(param.min.min(param.max), param.max.max(param.min));
+            Ok((ClapId::new(setting.id), value))
+        })
+        .collect()
 }
 
 impl ProcessorFactory for ClapFactory {
@@ -101,34 +190,39 @@ impl ProcessorFactory for ClapFactory {
         &self.id
     }
 
+    fn params(&self) -> Result<Vec<ParamDescription>, PluginHostError> {
+        let entry = self.entry.clone();
+        let id = self.id.clone();
+        let host = host_info()?;
+        main_thread::run(move |_| -> Result<Vec<ParamDescription>, PluginHostError> {
+            let mut instance = instantiate(&entry, &id, &host)?;
+            let extensions = instance.access_shared_handler(AuraShared::extensions);
+            Ok(describe_params(extensions.params, &mut instance.plugin_handle()))
+        })?
+    }
+
     fn create(&self, config: ProcessorConfig) -> Result<Box<dyn Processor>, PluginHostError> {
         let entry = self.entry.clone();
         let id = self.id.clone();
-        let state = self.state.clone();
+        let settings = self.settings.clone();
         let host = host_info()?;
         let created = main_thread::run(move |main| -> Result<Created, PluginHostError> {
-            let instantiate = |reason: String| PluginHostError::Instantiate {
-                id: id.clone(),
-                reason,
-            };
-            let c_id = CString::new(id.as_str()).map_err(|e| instantiate(e.to_string()))?;
-            let mut instance = PluginInstance::<AuraHost>::new(
-                |_| AuraShared::default(),
-                |_| (),
-                &entry,
-                &c_id,
-                &host,
-            )
-            .map_err(|e| instantiate(e.to_string()))?;
+            let mut instance = instantiate(&entry, &id, &host)?;
             let extensions = instance.access_shared_handler(AuraShared::extensions);
 
-            if let Some(state) = &state {
+            if let Some(state) = &settings.state {
                 let ext = extensions
                     .state
                     .ok_or_else(|| PluginHostError::StateLoad { id: id.clone() })?;
                 ext.load(&instance.plugin_handle(), &mut Cursor::new(state))
                     .map_err(|_| PluginHostError::StateLoad { id: id.clone() })?;
             }
+            let params = if settings.params.is_empty() {
+                Vec::new()
+            } else {
+                let available = describe_params(extensions.params, &mut instance.plugin_handle());
+                resolve_params(&id, &settings.params, &available)?
+            };
             if let Some(render) = extensions.render {
                 let mode = match config.mode {
                     RenderMode::Offline => ClapRenderMode::Offline,
@@ -166,6 +260,7 @@ impl ProcessorFactory for ClapFactory {
                 inputs,
                 outputs,
                 latency,
+                params,
             })
         })??;
 
@@ -195,6 +290,7 @@ impl ProcessorFactory for ClapFactory {
             inputs: created.inputs,
             outputs: created.outputs,
             latency: created.latency,
+            pending_params: created.params,
             events: EventBuffer::with_capacity(EVENT_CAPACITY),
             out_events: EventBuffer::with_capacity(EVENT_CAPACITY),
             steady_time: 0,
@@ -217,6 +313,8 @@ pub struct ClapProcessor {
     in_ports: AudioPorts,
     out_ports: AudioPorts,
     latency: u32,
+    /// Node-data parameter values, sent at frame 0 of the first block.
+    pending_params: Vec<(ClapId, f64)>,
     events: EventBuffer,
     out_events: EventBuffer,
     steady_time: u64,
@@ -275,6 +373,10 @@ impl Processor for ClapProcessor {
         }
         self.events.clear();
         self.out_events.clear();
+        for (param, value) in self.pending_params.drain(..) {
+            self.events
+                .push(&ParamValueEvent::new(0, param, Pckn::match_all(), value));
+        }
         for event in events {
             match *event {
                 Event::NoteOn {

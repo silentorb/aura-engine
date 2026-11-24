@@ -1,6 +1,7 @@
 //! Deterministic CLAP plugins for testing Aura's plugin host.
 //!
-//! - [`SINE_ID`] — a polyphonic sine synth: note-id aware, velocity-scaled, with a linear
+//! - [`SINE_ID`] — a polyphonic sine synth: note-id aware, velocity-scaled, with a `Level`
+//!   parameter ([`SINE_LEVEL_PARAM`], default [`DEFAULT_SINE_LEVEL`]), a linear
 //!   release of [`SINE_RELEASE_SECS`] and a fixed output latency of [`SINE_LATENCY`] frames.
 //!   Stereo output, no audio input.
 //! - [`GAIN_ID`] — a stereo gain. Its gain lives in the plugin state (4 bytes, `f32`
@@ -14,6 +15,10 @@ use clack_extensions::audio_ports::{
     PluginAudioPortsImpl,
 };
 use clack_extensions::latency::{PluginLatency, PluginLatencyImpl};
+use clack_extensions::params::{
+    ParamDisplayWriter, ParamInfo, ParamInfoFlags, ParamInfoWriter, PluginAudioProcessorParams,
+    PluginMainThreadParams, PluginParams,
+};
 use clack_extensions::note_ports::{
     NoteDialect, NoteDialects, NotePortInfo, NotePortInfoWriter, PluginNotePorts,
     PluginNotePortsImpl,
@@ -23,6 +28,7 @@ use clack_extensions::tail::{PluginTail, PluginTailImpl, TailLength};
 use clack_plugin::entry::prelude::*;
 use clack_plugin::events::spaces::CoreEventSpace;
 use clack_plugin::prelude::*;
+use clack_plugin::events::io::{InputEvents, OutputEvents};
 use clack_plugin::stream::{InputStream, OutputStream};
 use std::ffi::CStr;
 use std::io::{Read, Write};
@@ -32,6 +38,9 @@ pub const SINE_ID: &str = "aura.fixture.sine";
 pub const GAIN_ID: &str = "aura.fixture.gain";
 pub const SINE_LATENCY: u32 = 64;
 pub const SINE_RELEASE_SECS: f64 = 0.1;
+/// Parameter id of the sine's output level (0–1).
+pub const SINE_LEVEL_PARAM: u32 = 0;
+pub const DEFAULT_SINE_LEVEL: f32 = 0.25;
 pub const DEFAULT_GAIN: f32 = 0.5;
 const MAX_FRAMES: usize = 4096;
 
@@ -56,11 +65,84 @@ fn stereo_port(writer: &mut AudioPortInfoWriter, name: &[u8]) {
 
 pub struct FixtureSine;
 
-pub struct SineMainThread;
+/// The sine's `level` parameter (output gain), shared between threads.
+pub struct SineShared {
+    level_bits: AtomicU32,
+}
 
-impl PluginMainThread<'_, ()> for SineMainThread {}
+impl PluginShared<'_> for SineShared {}
 
-impl PluginAudioPortsImpl for SineMainThread {
+impl SineShared {
+    fn level(&self) -> f32 {
+        f32::from_bits(self.level_bits.load(Ordering::Relaxed))
+    }
+
+    fn set_level(&self, level: f64) {
+        let level = level.clamp(0.0, 1.0) as f32;
+        self.level_bits.store(level.to_bits(), Ordering::Relaxed);
+    }
+}
+
+pub struct SineMainThread<'a> {
+    shared: &'a SineShared,
+}
+
+impl<'a> PluginMainThread<'a, SineShared> for SineMainThread<'a> {}
+
+impl PluginMainThreadParams for SineMainThread<'_> {
+    fn count(&self) -> u32 {
+        1
+    }
+
+    fn get_info(&self, param_index: u32, info: &mut ParamInfoWriter) {
+        if param_index == 0 {
+            info.set(&ParamInfo {
+                id: ClapId::new(SINE_LEVEL_PARAM),
+                flags: ParamInfoFlags::IS_AUTOMATABLE,
+                cookie: Default::default(),
+                name: b"Level",
+                module: b"Output",
+                min_value: 0.0,
+                max_value: 1.0,
+                default_value: f64::from(DEFAULT_SINE_LEVEL),
+            });
+        }
+    }
+
+    fn get_value(&self, param_id: ClapId) -> Option<f64> {
+        (param_id.get() == SINE_LEVEL_PARAM).then(|| f64::from(self.shared.level()))
+    }
+
+    fn value_to_text(
+        &self,
+        _param_id: ClapId,
+        value: f64,
+        writer: &mut ParamDisplayWriter,
+    ) -> std::fmt::Result {
+        use std::fmt::Write as _;
+        write!(writer, "{value:.3}")
+    }
+
+    fn text_to_value(&self, _param_id: ClapId, text: &CStr) -> Option<f64> {
+        text.to_str().ok()?.trim().parse().ok()
+    }
+
+    fn flush(&self, input: &InputEvents, _output: &mut OutputEvents) {
+        apply_level_events(self.shared, input);
+    }
+}
+
+fn apply_level_events(shared: &SineShared, input: &InputEvents) {
+    for event in input {
+        if let Some(CoreEventSpace::ParamValue(change)) = event.as_core_event() {
+            if change.param_id().map(|id| id.get()) == Some(SINE_LEVEL_PARAM) {
+                shared.set_level(change.value());
+            }
+        }
+    }
+}
+
+impl PluginAudioPortsImpl for SineMainThread<'_> {
     fn count(&self, is_input: bool) -> u32 {
         if is_input {
             0
@@ -76,7 +158,7 @@ impl PluginAudioPortsImpl for SineMainThread {
     }
 }
 
-impl PluginNotePortsImpl for SineMainThread {
+impl PluginNotePortsImpl for SineMainThread<'_> {
     fn count(&self, is_input: bool) -> u32 {
         if is_input {
             1
@@ -97,20 +179,21 @@ impl PluginNotePortsImpl for SineMainThread {
     }
 }
 
-impl PluginLatencyImpl for SineMainThread {
+impl PluginLatencyImpl for SineMainThread<'_> {
     fn get(&self) -> u32 {
         SINE_LATENCY
     }
 }
 
 impl Plugin for FixtureSine {
-    type AudioProcessor<'a> = SineProcessor;
-    type Shared<'a> = ();
-    type MainThread<'a> = SineMainThread;
+    type AudioProcessor<'a> = SineProcessor<'a>;
+    type Shared<'a> = SineShared;
+    type MainThread<'a> = SineMainThread<'a>;
 
-    fn declare_extensions(builder: &mut PluginExtensions<Self>, _shared: Option<&()>) {
+    fn declare_extensions(builder: &mut PluginExtensions<Self>, _shared: Option<&SineShared>) {
         builder
             .register::<PluginAudioPorts>()
+            .register::<PluginParams>()
             .register::<PluginNotePorts>()
             .register::<PluginLatency>()
             .register::<PluginTail>();
@@ -126,15 +209,17 @@ impl DefaultPluginFactory for FixtureSine {
             .with_features([INSTRUMENT, SYNTHESIZER, STEREO])
     }
 
-    fn new_shared(_host: HostSharedHandle<'_>) -> Result<(), PluginError> {
-        Ok(())
+    fn new_shared(_host: HostSharedHandle<'_>) -> Result<SineShared, PluginError> {
+        Ok(SineShared {
+            level_bits: AtomicU32::new(DEFAULT_SINE_LEVEL.to_bits()),
+        })
     }
 
     fn new_main_thread<'a>(
         _host: HostMainThreadHandle<'a>,
-        _shared: &'a (),
-    ) -> Result<SineMainThread, PluginError> {
-        Ok(SineMainThread)
+        shared: &'a SineShared,
+    ) -> Result<SineMainThread<'a>, PluginError> {
+        Ok(SineMainThread { shared })
     }
 }
 
@@ -149,7 +234,8 @@ struct Voice {
     released: Option<u64>,
 }
 
-pub struct SineProcessor {
+pub struct SineProcessor<'a> {
+    shared: &'a SineShared,
     rate: f64,
     voices: Vec<Voice>,
     /// Output delay line of [`SINE_LATENCY`] frames.
@@ -157,7 +243,7 @@ pub struct SineProcessor {
     delay_pos: usize,
 }
 
-impl SineProcessor {
+impl SineProcessor<'_> {
     fn note_on(&mut self, note_id: i32, key: i16, velocity: f32) {
         if self.voices.len() < self.voices.capacity() {
             self.voices.push(Voice {
@@ -201,7 +287,7 @@ impl SineProcessor {
         }
         self.voices
             .retain(|v| v.released.is_none_or(|r| (r as f64) < release_frames));
-        let dry = sum as f32 * 0.25;
+        let dry = sum as f32 * self.shared.level();
         let wet = self.delay[self.delay_pos];
         self.delay[self.delay_pos] = dry;
         self.delay_pos = (self.delay_pos + 1) % self.delay.len();
@@ -209,20 +295,27 @@ impl SineProcessor {
     }
 }
 
-impl PluginTailImpl for SineProcessor {
+impl PluginTailImpl for SineProcessor<'_> {
     fn get(&self) -> TailLength {
         TailLength::Finite((SINE_RELEASE_SECS * self.rate) as u32)
     }
 }
 
-impl<'a> PluginAudioProcessor<'a, (), SineMainThread> for SineProcessor {
+impl PluginAudioProcessorParams for SineProcessor<'_> {
+    fn flush(&mut self, input: &InputEvents, _output: &mut OutputEvents) {
+        apply_level_events(self.shared, input);
+    }
+}
+
+impl<'a> PluginAudioProcessor<'a, SineShared, SineMainThread<'a>> for SineProcessor<'a> {
     fn activate(
         _host: HostAudioProcessorHandle<'a>,
-        _main_thread: &SineMainThread,
-        _shared: &'a (),
+        _main_thread: &SineMainThread<'a>,
+        shared: &'a SineShared,
         audio_config: PluginAudioConfiguration,
     ) -> Result<Self, PluginError> {
         Ok(Self {
+            shared,
             rate: audio_config.sample_rate,
             voices: Vec::with_capacity(64),
             delay: vec![0.0; SINE_LATENCY as usize],
@@ -250,6 +343,11 @@ impl<'a> PluginAudioProcessor<'a, (), SineMainThread> for SineProcessor {
                     }
                     Some(CoreEventSpace::NoteOff(off)) => {
                         self.note_off(off.note_id().to_raw(), off.key().to_raw());
+                    }
+                    Some(CoreEventSpace::ParamValue(change))
+                        if change.param_id().map(|id| id.get()) == Some(SINE_LEVEL_PARAM) =>
+                    {
+                        self.shared.set_level(change.value());
                     }
                     _ => {}
                 }

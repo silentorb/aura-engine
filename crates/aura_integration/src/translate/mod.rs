@@ -79,6 +79,8 @@ pub enum TranslateError {
     NoPluginHost { node: NodeId, plugin: String },
     #[error("plugin node `{node}` state is not valid base64")]
     InvalidPluginState { node: NodeId },
+    #[error("plugin node `{node}` params are invalid: {reason}")]
+    InvalidPluginParams { node: NodeId, reason: String },
     #[error("plugin node `{node}`: {source}")]
     Plugin {
         node: NodeId,

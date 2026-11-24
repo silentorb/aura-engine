@@ -3,6 +3,10 @@
 use clack_extensions::audio_ports::PluginAudioPorts;
 use clack_extensions::latency::PluginLatency;
 use clack_extensions::log::{HostLog, HostLogImpl, LogSeverity};
+use clack_extensions::params::{
+    HostParams, HostParamsImplMainThread, HostParamsImplShared, ParamClearFlags, ParamRescanFlags,
+    PluginParams,
+};
 use clack_extensions::render::PluginRender;
 use clack_extensions::state::PluginState;
 use clack_extensions::tail::PluginTail;
@@ -14,12 +18,28 @@ pub(crate) struct AuraHost;
 
 impl HostHandlers for AuraHost {
     type Shared<'a> = AuraShared;
-    type MainThread<'a> = ();
+    type MainThread<'a> = AuraMainThread;
     type AudioProcessor<'a> = ();
 
     fn declare_extensions(builder: &mut HostExtensions<Self>, _shared: &AuraShared) {
-        builder.register::<HostLog>();
+        builder.register::<HostLog>().register::<HostParams>();
     }
+}
+
+/// Aura's main-thread host handler. Aura sets parameters only from node data, so the plugin's
+/// parameter notifications have nothing to update.
+pub(crate) struct AuraMainThread;
+
+impl MainThreadHandler<'_> for AuraMainThread {}
+
+impl HostParamsImplMainThread for AuraMainThread {
+    fn rescan(&self, _flags: ParamRescanFlags) {}
+    fn clear(&self, _param_id: ClapId, _flags: ParamClearFlags) {}
+}
+
+impl HostParamsImplShared for AuraShared {
+    /// Aura processes every block it renders, which flushes parameters anyway.
+    fn request_flush(&self) {}
 }
 
 /// The plugin extensions Aura uses, captured once while the plugin initializes.
@@ -30,6 +50,7 @@ pub(crate) struct PluginExtensions {
     pub(crate) tail: Option<PluginTail>,
     pub(crate) state: Option<PluginState>,
     pub(crate) render: Option<PluginRender>,
+    pub(crate) params: Option<PluginParams>,
 }
 
 #[derive(Default)]
@@ -56,6 +77,7 @@ impl<'a> SharedHandler<'a> for AuraShared {
             tail: instance.get_extension(),
             state: instance.get_extension(),
             render: instance.get_extension(),
+            params: instance.get_extension(),
         });
     }
 

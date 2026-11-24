@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 aura_clap = { path = "../aura_clap" }
 aura_integration = { path = "../aura_integration" }
+aura_plugin_host = { path = "../aura_plugin_host" }
 aura_sample = { path = "../aura_sample" }
 thiserror = { workspace = true }
 

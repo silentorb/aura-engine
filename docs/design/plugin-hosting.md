@@ -19,11 +19,15 @@ Aura hosts third-party audio plugins as Imp nodes in both playback modes. Motiva
 
 | Node type | Inputs | Output |
 |---|---|---|
-| `plugin_instrument` | `score`, `plugin`, `state` | `audio` |
-| `plugin_effect` | `audio`, `plugin`, `state` | `audio` |
+| `plugin_instrument` | `score`, `plugin`, `state`, `params` | `audio` |
+| `plugin_effect` | `audio`, `plugin`, `state`, `params` | `audio` |
+
+Plugin nodes have **no plugin-specific ports**. A plugin is configured entirely by embedded node data (`plugin`, `state`, `params`); its only wired inputs are the generic `score` or `audio`.
 
 - `plugin` is a literal naming the plugin (for CLAP, its plugin id). Empty is a translation error.
 - `state` is a literal holding the plugin's saved state, base64-encoded; empty means the plugin's defaults. Aura treats it as opaque. A plugin that rejects it, or has no state support, is a translation error.
+- `params` is a literal holding parameter values: a JSON object string mapping the plugin's stable parameter id (decimal) to a **plain value** in the plugin's own units, e.g. `{"0": 0.4}`. Empty means none. Values are applied after `state`, overriding it, and reach the plugin as parameter-value events at frame 0 of its first block. Values are clamped to the parameter's range. Malformed `params`, an unknown parameter id, or a read-only parameter is a translation error naming the node.
+- Parameter ids come from the plugin (`aura plugin-params <plugin-id>` lists id, name, module, range, default, and flags; `ProcessorFactory::params` is the API).
 - A plugin the resolver cannot find is a translation error naming the node and plugin id. Translating plugin nodes without a resolver is an error, never silence.
 - A plugin instrument **consumes a whole score** and does its own polyphony. This is the stated exception to per-note instancing ([Rule 1](notation-synthesis.md#rule-1-per-note-instances)).
 
@@ -64,6 +68,7 @@ Aura is mono end to end. A mono input is copied to every channel of the plugin's
 ## CLAP backend
 
 - `ClapHost` searches its extra paths, then `CLAP_PATH`, then the platform's standard locations (Linux `~/.clap`, `/usr/lib/clap`; Windows `%COMMONPROGRAMFILES%\CLAP`, `%LOCALAPPDATA%\Programs\Common\CLAP`; macOS `~/Library/Audio/Plug-Ins/CLAP`, `/Library/Audio/Plug-Ins/CLAP`). Bundles load lazily on first discovery or resolve and stay loaded for the host's life. Bundles that fail to load are reported, not fatal.
+- Parameters are read through the CLAP params extension (a plugin without it has none). Aura declares the host params extension as a no-op: it sets parameters only from node data.
 - Every instance's main-thread half runs on **one process-wide CLAP main thread** (frameworks such as JUCE assume one). Only the audio processor leaves it; dropping a processor deactivates and destroys its instance there. That thread also services plugins' `request_callback`.
 - Plugins run **in-process**.
 
@@ -74,10 +79,11 @@ Aura is mono end to end. A mono input is copied to every channel of the plugin's
 - Depending on VST3 → CLAP adapters for other protocols; they are backends behind `Processor`
 - Protocol-specific code in `aura_plugin_host`, `aura_imp`, or the translator
 - Interpreting plugin state blobs
+- Plugin-specific ports on plugin nodes (for now; see open questions)
 
 ## Open questions
 
-- Per-plugin generated node types with one port per parameter; automation and per-note parameter mapping (phase 2)
+- Parameter ports driven by signals (automation, plain values), per-note parameters (`NoteParams` → per-note modulation), and generated per-plugin node types; deferred while plugins are configured only by embedded data
 - Render-ahead and preparation for transport playback (phase 3)
 - Plugin GUIs and capturing state into the node on edit (phase 4)
 - Out-of-process sandboxing

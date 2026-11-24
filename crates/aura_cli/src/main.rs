@@ -1,6 +1,7 @@
 //! Aura command-line interface — graph-driven audio rendering and Miro-profile sync helpers.
 
 use aura_clap::ClapHost;
+use aura_plugin_host::{PluginResolver, PluginSettings};
 use aura_integration::{
     sync_content_root, parse_duration_spec, render_graph_file_to_pcm, write_pcm_to_wav,
     DurationSpec, HostError, IntegrationError, SampleSpec,
@@ -23,6 +24,8 @@ pub enum CliError {
     Integration(#[from] IntegrationError),
     #[error("{0}")]
     Host(#[from] HostError),
+    #[error("{0}")]
+    Plugin(String),
     #[error("missing required --graph path")]
     MissingGraph,
     #[error("missing required --output path")]
@@ -64,6 +67,11 @@ pub enum CliCommand {
     Sync(SyncConfig),
     /// List installed CLAP plugins.
     Plugins { plugin_paths: Vec<PathBuf> },
+    /// List one plugin's parameters.
+    PluginParams {
+        plugin: String,
+        plugin_paths: Vec<PathBuf>,
+    },
 }
 
 fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliCommand, CliError> {
@@ -78,6 +86,7 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
     let mut sync_pull = None;
     let mut sync_mode = false;
     let mut plugins_mode = false;
+    let mut params_plugin = None;
     let mut plugin_paths = Vec::new();
 
     let mut iter = args.into_iter().peekable();
@@ -92,6 +101,9 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
             }
             "plugins" => {
                 plugins_mode = true;
+            }
+            "plugin-params" => {
+                params_plugin = Some(next_value(&mut iter, "plugin-params")?);
             }
             "--plugin-path" => {
                 plugin_paths.push(PathBuf::from(next_value(&mut iter, "plugin-path")?));
@@ -147,6 +159,13 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
         }
     }
 
+    if let Some(plugin) = params_plugin {
+        return Ok(CliCommand::PluginParams {
+            plugin,
+            plugin_paths,
+        });
+    }
+
     if plugins_mode {
         return Ok(CliCommand::Plugins { plugin_paths });
     }
@@ -194,7 +213,8 @@ fn print_help() {
          Usage:\n  \
          aura --graph PATH --output PATH [OPTIONS]\n  \
          aura sync --sync-root PATH --sync-db PATH [--sync-pull REL]\n  \
-         aura plugins [--plugin-path PATH]...\n\n\
+         aura plugins [--plugin-path PATH]...\n  \
+         aura plugin-params PLUGIN_ID [--plugin-path PATH]...\n\n\
          Render options:\n  \
          -g, --graph PATH         Imp graph JSON file\n  \
          -p, --project PATH       Tome project config resolving nodes the graph references\n  \
@@ -253,6 +273,34 @@ fn list_plugins(plugin_paths: &[PathBuf]) {
     }
 }
 
+fn list_plugin_params(plugin: &str, plugin_paths: &[PathBuf]) -> Result<(), CliError> {
+    let host = ClapHost::with_standard_paths(plugin_paths.to_vec());
+    let params = host
+        .resolve(plugin, &PluginSettings::default())
+        .and_then(|factory| factory.params())
+        .map_err(|e| CliError::Plugin(e.to_string()))?;
+    println!("id\tname\tmodule\tmin\tmax\tdefault\tflags");
+    for param in params {
+        let flags = [
+            (param.flags.automatable, "automatable"),
+            (param.flags.modulatable, "modulatable"),
+            (param.flags.stepped, "stepped"),
+            (param.flags.hidden, "hidden"),
+            (param.flags.readonly, "readonly"),
+        ]
+        .iter()
+        .filter(|(set, _)| *set)
+        .map(|(_, name)| *name)
+        .collect::<Vec<_>>()
+        .join(",");
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            param.id, param.name, param.module, param.min, param.max, param.default, flags
+        );
+    }
+    Ok(())
+}
+
 fn run_sync(config: &SyncConfig) -> Result<(), CliError> {
     let graph = sync_content_root(&config.root, &config.db, config.pull.as_deref())?;
     eprintln!(
@@ -300,6 +348,15 @@ fn main() {
             }
         }
         CliCommand::Plugins { plugin_paths } => list_plugins(&plugin_paths),
+        CliCommand::PluginParams {
+            plugin,
+            plugin_paths,
+        } => {
+            if let Err(error) = list_plugin_params(&plugin, &plugin_paths) {
+                eprintln!("error: {error}");
+                std::process::exit(1);
+            }
+        }
     }
 }
 
@@ -359,6 +416,13 @@ mod tests {
         assert_eq!(
             parse_args(["plugins", "--plugin-path", "x"]).expect("parse"),
             CliCommand::Plugins {
+                plugin_paths: vec![PathBuf::from("x")]
+            }
+        );
+        assert_eq!(
+            parse_args(["plugin-params", "aura.fixture.sine", "--plugin-path", "x"]).expect("parse"),
+            CliCommand::PluginParams {
+                plugin: "aura.fixture.sine".into(),
                 plugin_paths: vec![PathBuf::from("x")]
             }
         );

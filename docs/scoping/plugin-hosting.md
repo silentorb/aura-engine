@@ -43,6 +43,6 @@ Mature adapters that load VST3 plugins *into* a CLAP host do not appear to exist
 ## Phasing
 
 1. Hosting seam, CLAP backend, deterministic render cache, streaming shared stages (audition and live MIDI through real synths), CLI and demo.
-2. Per-plugin node types with parameter ports, automation, per-note parameters (`NoteParams` → per-note modulation), state persistence.
+2. Plugin parameters as embedded node data. Settled at the start of this phase: keep it simple and support soft synths configured entirely by node data (saved state plus parameter values in plain units), with no plugin-specific ports. Imp ports carry no names or ranges, and large synths have hundreds of parameters, so parameter ports, signal automation, per-note parameters, and generated per-plugin node types wait until they are needed.
 3. Real-time transport: render-ahead so `PlaybackEngine` never catches a plugin up on the audio thread.
 4. Imp Lab: plugin browser, plugin GUI windows, capturing state on edit.

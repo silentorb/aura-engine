@@ -10,7 +10,7 @@
     "synth": {
       "id": "synth",
       "type": "plugin_instrument",
-      "inputs": { "plugin": "aura.fixture.sine" },
+      "inputs": { "plugin": "aura.fixture.sine", "params": "{\"0\": 0.4}" },
       "title": "synth"
     },
     "gain": {

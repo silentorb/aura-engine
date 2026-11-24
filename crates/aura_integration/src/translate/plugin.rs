@@ -8,11 +8,13 @@
 
 use super::streaming::NodeCtx;
 use super::{NodeValue, TranslateError};
-use aura_imp::plugin::{PLUGIN_EFFECT, PLUGIN_ID_PORT, PLUGIN_INSTRUMENT, PLUGIN_STATE_PORT};
+use aura_imp::plugin::{
+    PLUGIN_EFFECT, PLUGIN_ID_PORT, PLUGIN_INSTRUMENT, PLUGIN_PARAMS_PORT, PLUGIN_STATE_PORT,
+};
 use aura_imp::{Node, PrimitiveValue};
 use aura_plugin_host::{
-    EventSource, MonoStage, NoteEventSource, ProcessorConfig, ProcessorFactory, RenderCache,
-    RenderMode, BLOCK_FRAMES,
+    EventSource, MonoStage, NoteEventSource, ParamSetting, PluginSettings, ProcessorConfig,
+    ProcessorFactory, RenderCache, RenderMode, BLOCK_FRAMES,
 };
 use aura_sample::SampleRate;
 use base64::Engine;
@@ -33,8 +35,8 @@ fn literal(node: &Node, port: &str) -> Result<String, TranslateError> {
     }
 }
 
-/// The plugin id and decoded state a plugin node names.
-fn plugin_ref(node: &Node) -> Result<(String, Option<Vec<u8>>), TranslateError> {
+/// The plugin id and settings (decoded state, parameter values) a plugin node embeds.
+fn plugin_ref(node: &Node) -> Result<(String, PluginSettings), TranslateError> {
     let id = literal(node, PLUGIN_ID_PORT)?;
     if id.trim().is_empty() {
         return Err(TranslateError::MissingPluginId {
@@ -53,7 +55,38 @@ fn plugin_ref(node: &Node) -> Result<(String, Option<Vec<u8>>), TranslateError> 
                 })?,
         )
     };
-    Ok((id, state))
+    let params = parse_params(node, &literal(node, PLUGIN_PARAMS_PORT)?)?;
+    Ok((id, PluginSettings { state, params }))
+}
+
+/// Parses a `params` literal: a JSON object of CLAP parameter id (decimal) to plain value.
+fn parse_params(node: &Node, text: &str) -> Result<Vec<ParamSetting>, TranslateError> {
+    let invalid = |reason: String| TranslateError::InvalidPluginParams {
+        node: node.id.clone(),
+        reason,
+    };
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| invalid(e.to_string()))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid("expected a JSON object of parameter id to value".into()))?;
+    object
+        .iter()
+        .map(|(key, value)| {
+            let id = key
+                .trim()
+                .parse::<u32>()
+                .map_err(|_| invalid(format!("`{key}` is not a parameter id")))?;
+            let value = value
+                .as_f64()
+                .filter(|v| v.is_finite())
+                .ok_or_else(|| invalid(format!("parameter {id} needs a finite number")))?;
+            Ok(ParamSetting { id, value })
+        })
+        .collect()
 }
 
 /// Resolves a plugin node's factory through the translation's plugin host.
@@ -61,7 +94,7 @@ pub(super) fn plugin_factory(
     node: &Node,
     plugins: Option<&dyn aura_plugin_host::PluginResolver>,
 ) -> Result<Arc<dyn ProcessorFactory>, TranslateError> {
-    let (id, state) = plugin_ref(node)?;
+    let (id, settings) = plugin_ref(node)?;
     let Some(plugins) = plugins else {
         return Err(TranslateError::NoPluginHost {
             node: node.id.clone(),
@@ -69,7 +102,7 @@ pub(super) fn plugin_factory(
         });
     };
     plugins
-        .resolve(&id, state.as_deref())
+        .resolve(&id, &settings)
         .map_err(|source| TranslateError::Plugin {
             node: node.id.clone(),
             source,
@@ -305,6 +338,47 @@ mod tests {
             translate(&missing, Some(host.as_ref())).err(),
             Some(TranslateError::Plugin { node, .. }) if node == "synth"
         ));
+    }
+
+    #[test]
+    fn embedded_params_set_the_plugin_and_bad_params_fail_translation() {
+        let host = fixture_host();
+        let quiet = graph_with_inputs(&format!(
+            r#"{{ "plugin": "{SINE_ID}", "params": "{{\"0\": 0.125}}" }}"#
+        ));
+        let sampler = translate(&quiet, Some(host.as_ref())).expect("translate");
+        let loud = peak(sampler.as_ref(), 22050..44100);
+        assert!((loud - 0.125).abs() < 0.01, "level 0.125 applied: {loud}");
+
+        for (params, reason) in [
+            (r#"[1, 2]"#, "expected a JSON object"),
+            (r#"{\"level\": 1}"#, "is not a parameter id"),
+            (r#"{\"0\": \"loud\"}"#, "needs a finite number"),
+        ] {
+            let graph = graph_with_inputs(&format!(
+                r#"{{ "plugin": "{SINE_ID}", "params": "{params}" }}"#
+            ));
+            match translate(&graph, Some(host.as_ref())).err() {
+                Some(TranslateError::InvalidPluginParams { node, reason: got }) => {
+                    assert_eq!(node, "synth");
+                    assert!(got.contains(reason), "{params}: {got}");
+                }
+                other => panic!("{params}: expected invalid params, got {other:?}"),
+            }
+        }
+        let unknown = graph_with_inputs(&format!(
+            r#"{{ "plugin": "{SINE_ID}", "params": "{{\"7\": 1}}" }}"#
+        ));
+        assert_eq!(
+            translate(&unknown, Some(host.as_ref())).err(),
+            Some(TranslateError::Plugin {
+                node: "synth".into(),
+                source: aura_plugin_host::PluginHostError::UnknownParam {
+                    id: SINE_ID.into(),
+                    param: 7
+                }
+            })
+        );
     }
 
     fn graph_with_inputs(inputs: &str) -> Graph {

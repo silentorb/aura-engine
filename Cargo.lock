@@ -72,6 +72,7 @@ version = "0.1.0"
 dependencies = [
  "aura_clap",
  "aura_integration",
+ "aura_plugin_host",
  "aura_sample",
  "tempfile",
  "thiserror 2.0.20",

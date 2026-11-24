@@ -1,7 +1,8 @@
 //! Third-party plugin node library (`aura.plugin`).
 //!
-//! A plugin node names an installed plugin by id and carries its stored state. The host
-//! resolves the id when the graph is translated; see `docs/design/plugin-hosting.md`.
+//! A plugin node names an installed plugin by id and carries its configuration as embedded
+//! data: a saved state blob and parameter values. Plugin nodes have no plugin-specific ports.
+//! The host resolves the id when the graph is translated; see `docs/design/plugin-hosting.md`.
 
 use crate::node_def::primitive_node;
 use crate::signals::{signal, AUDIO_MONO, CONTROL, SCORE};
@@ -18,6 +19,9 @@ pub const PLUGIN_ID_PORT: &str = "plugin";
 /// Literal input holding the plugin's saved state, base64-encoded. Empty for the plugin's
 /// defaults.
 pub const PLUGIN_STATE_PORT: &str = "state";
+/// Literal input holding parameter values as a JSON object string: CLAP parameter id (decimal)
+/// to plain value, e.g. `{"0": 0.4}`. Applied after `state`, overriding it. Empty for none.
+pub const PLUGIN_PARAMS_PORT: &str = "params";
 
 fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option<PrimitiveValue>) -> Port {
     Port {
@@ -54,6 +58,7 @@ pub fn plugin_node_library() -> NodeLibrary {
                     ("score".into(), port("score", signal(SCORE), None)),
                     literal(PLUGIN_ID_PORT),
                     literal(PLUGIN_STATE_PORT),
+                    literal(PLUGIN_PARAMS_PORT),
                 ]),
                 audio_out(),
             ),
@@ -65,6 +70,7 @@ pub fn plugin_node_library() -> NodeLibrary {
                     ("audio".into(), port("audio", audio.clone(), None)),
                     literal(PLUGIN_ID_PORT),
                     literal(PLUGIN_STATE_PORT),
+                    literal(PLUGIN_PARAMS_PORT),
                 ]),
                 audio_out(),
             ),

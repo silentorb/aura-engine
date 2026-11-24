@@ -117,20 +117,60 @@ pub trait Processor: Send {
     ) -> Result<(), PluginHostError>;
 }
 
-/// Creates activated instances of one plugin with its stored state applied.
+/// Creates activated instances of one plugin with its [`PluginSettings`] applied.
 pub trait ProcessorFactory: Send + Sync {
     fn plugin_id(&self) -> &str;
     fn create(&self, config: ProcessorConfig) -> Result<Box<dyn Processor>, PluginHostError>;
+    /// The plugin's parameters, in the plugin's order.
+    fn params(&self) -> Result<Vec<ParamDescription>, PluginHostError>;
+}
+
+/// How a plugin node configures its plugin, from the node's embedded data.
+///
+/// `state` (an opaque plugin-owned blob) is applied first; `params` then override it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PluginSettings {
+    pub state: Option<Vec<u8>>,
+    pub params: Vec<ParamSetting>,
+}
+
+/// A parameter set to a plain value (the plugin's own units), clamped to its range.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ParamSetting {
+    pub id: u32,
+    pub value: f64,
+}
+
+/// One plugin parameter, as the plugin describes it. Values are plain (the plugin's units).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParamDescription {
+    /// Stable identifier; this is what node data refers to.
+    pub id: u32,
+    pub name: String,
+    /// Grouping path, `/`-separated (e.g. `Oscillators/Osc 1`).
+    pub module: String,
+    pub min: f64,
+    pub max: f64,
+    pub default: f64,
+    pub flags: ParamFlags,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ParamFlags {
+    pub automatable: bool,
+    pub modulatable: bool,
+    pub stepped: bool,
+    pub hidden: bool,
+    pub readonly: bool,
 }
 
 /// Finds installed plugins by id. Hosts pass one to translation.
 pub trait PluginResolver: Send + Sync {
-    /// A factory for `plugin_id` that applies `state` (an opaque plugin-owned blob) to every
-    /// instance it creates.
+    /// A factory for `plugin_id` that applies `settings` to every instance it creates.
     fn resolve(
         &self,
         plugin_id: &str,
-        state: Option<&[u8]>,
+        settings: &PluginSettings,
     ) -> Result<Arc<dyn ProcessorFactory>, PluginHostError>;
 }
 
@@ -146,6 +186,10 @@ pub enum PluginHostError {
     Activate { id: String, reason: String },
     #[error("plugin `{id}` rejected its stored state")]
     StateLoad { id: String },
+    #[error("plugin `{id}` has no parameter {param}")]
+    UnknownParam { id: String, param: u32 },
+    #[error("plugin `{id}` parameter {param} is read-only")]
+    ReadonlyParam { id: String, param: u32 },
     #[error("plugin `{id}` failed while processing: {reason}")]
     Process { id: String, reason: String },
 }
