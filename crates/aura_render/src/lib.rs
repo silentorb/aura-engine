@@ -5,7 +5,7 @@ mod streaming;
 
 pub use streaming::{
     voice_channel, BlockSource, StreamVoice, VoiceCommand, VoiceMixer, VoiceSendError,
-    VoiceSender, MAX_VOICES,
+    VoiceSender, MAX_SLOTS, MAX_VOICES,
 };
 
 use aura_sample::{duration_to_frame_count, SampleRate};

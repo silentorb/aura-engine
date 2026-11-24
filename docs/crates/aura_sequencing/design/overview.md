@@ -10,6 +10,7 @@ Musical notation types and musical-time utilities (semitones, scores, chords, te
 - Provide beat↔second conversion and score/event sorting helpers.
 - Support extensible per-note parameters on `NoteEvent`.
 - Provide `LiveNote` (a note still sounding, release stamped at note-off) and carry it in `ScoreSignal::live` for streaming mode ([playback modes](../../../design/playback-modes.md)).
+- `capture` translates a captured performance (`CapturedEvent`: key down / up, sustain down / up, in notation seconds) into `NoteEvent`s by the [live recording](../../../design/live-recording.md#translation-rules) rules: raw timing, per-key pairing, sustain, held-at-stop, a minimum length. It is pure and knows nothing of MIDI.
 
 ## Non-goals / avoided approaches
 

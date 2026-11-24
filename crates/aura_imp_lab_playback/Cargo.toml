@@ -9,13 +9,16 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+aura_composition = { path = "../aura_composition" }
 aura_imp = { path = "../aura_imp" }
 aura_integration = { path = "../aura_integration" }
 aura_io_cpal = { path = "../aura_io_cpal" }
+aura_io_midi = { path = "../aura_io_midi" }
 aura_render = { path = "../aura_render" }
 aura_sample = { path = "../aura_sample" }
 aura_sequencing = { path = "../aura_sequencing" }
 imp_lab_extensions = { path = "../../../imp-lab/crates/imp_lab_extensions" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 

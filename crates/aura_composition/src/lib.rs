@@ -193,6 +193,35 @@ pub fn drum_grid(config: DrumGridConfig) -> Score {
     Score::new(config.time_signature, config.tempo, events).with_cycle_measures(1.0)
 }
 
+/// Metronome click pitch (A5); the click instrument may ignore it.
+pub const CLICK_SEMITONE: Semitone = Semitone(81);
+/// Click velocity on the downbeat and on the other beats.
+pub const CLICK_DOWNBEAT_VELOCITY: f32 = 1.0;
+pub const CLICK_BEAT_VELOCITY: f32 = 0.6;
+const CLICK_DURATION_BEATS: f64 = 0.125;
+
+/// One bar of metronome clicks, one per counted beat of the time signature (6/8 counts six
+/// eighths), with an accented downbeat. Its cycle is one bar, so it loops bar after bar.
+pub fn click_bar(time_signature: TimeSignature, tempo: Tempo) -> Score {
+    let step = 4.0 / f64::from(time_signature.beat_unit.max(1));
+    let events = (0..time_signature.beats_per_bar.max(1))
+        .map(|index| {
+            let velocity = if index == 0 {
+                CLICK_DOWNBEAT_VELOCITY
+            } else {
+                CLICK_BEAT_VELOCITY
+            };
+            NoteEvent::new(
+                CLICK_SEMITONE,
+                f64::from(index) * step,
+                CLICK_DURATION_BEATS.min(step),
+            )
+            .with_velocity(velocity)
+        })
+        .collect();
+    Score::new(time_signature, tempo, events).with_cycle_measures(1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,6 +405,29 @@ mod tests {
         });
         for window in score.events.windows(2) {
             assert!(window[1].start_beats > window[0].start_beats);
+        }
+    }
+
+    #[test]
+    fn click_bar_counts_the_beats_of_the_meter() {
+        let tempo = Tempo::default();
+        for (beats_per_bar, beat_unit, starts) in [
+            (4, 4, vec![0.0, 1.0, 2.0, 3.0]),
+            (3, 4, vec![0.0, 1.0, 2.0]),
+            (6, 8, vec![0.0, 0.5, 1.0, 1.5, 2.0, 2.5]),
+        ] {
+            let meter = TimeSignature {
+                beats_per_bar,
+                beat_unit,
+            };
+            let score = click_bar(meter, tempo);
+            let got: Vec<f64> = score.events.iter().map(|e| e.start_beats).collect();
+            assert_eq!(got, starts);
+            assert_eq!(score.loop_cycle_beats(), meter.quarter_beats_per_bar());
+            assert_eq!(score.events[0].velocity, CLICK_DOWNBEAT_VELOCITY);
+            assert!(score.events[1..]
+                .iter()
+                .all(|e| e.velocity == CLICK_BEAT_VELOCITY));
         }
     }
 }

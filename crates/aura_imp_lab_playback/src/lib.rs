@@ -1,9 +1,12 @@
 //! Imp Lab `service` extension: Imp graph + Aura notation playback via CPAL.
 //!
 //! Transport playback (`start` / `stop` / `toggle`) renders in deterministic mode. Live note
-//! audition (`event`: note on / off) renders in streaming mode; see [`audition`].
+//! audition (`event`: note on / off) renders in streaming mode; see [`audition`]. MIDI input
+//! ([`midi_input`]) is monitored the same way and recorded into notation ([`recording`]).
 
 pub mod audition;
+pub mod midi_input;
+pub mod recording;
 
 use aura_imp::{
     aura_registry_with_libraries, discover_graph_libraries, graph_from_json_str,
@@ -16,8 +19,11 @@ use aura_io_cpal::PlaybackEngine;
 use aura_render::Sampler;
 use aura_sample::SampleRate;
 use aura_sequencing::beats_to_seconds;
-use imp_lab_extensions::{write_service_error, ImpLabHostV0, ImpLabServiceV0};
-use serde_json::Value;
+use imp_lab_extensions::{
+    write_service_error, write_service_reply, ImpLabHostV0, ImpLabServiceV0, Publisher,
+};
+use serde::Serialize;
+use serde_json::{json, Value};
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::os::raw::c_uchar;
 use std::path::{Path, PathBuf};
@@ -41,6 +47,9 @@ struct PlaybackState {
     engine: Mutex<PlaybackEngine>,
     /// When set, auto-stop once `position_secs` reaches this value (notation audition).
     end_secs: Mutex<Option<f64>>,
+    /// Added to the engine clock to give notation time (non-zero while recording, whose
+    /// transport starts at the count-in).
+    position_offset: Mutex<f64>,
 }
 
 fn state() -> &'static PlaybackState {
@@ -48,7 +57,55 @@ fn state() -> &'static PlaybackState {
     STATE.get_or_init(|| PlaybackState {
         engine: Mutex::new(PlaybackEngine::new()),
         end_secs: Mutex::new(None),
+        position_offset: Mutex::new(0.0),
     })
+}
+
+fn set_position_offset(offset: f64) -> Result<(), PlaybackServiceError> {
+    *state()
+        .position_offset
+        .lock()
+        .map_err(|_| PlaybackServiceError::Poisoned)? = offset;
+    Ok(())
+}
+
+/// Topic publisher kept from registration (absent in tests and older hosts).
+fn publisher() -> &'static OnceLock<Publisher> {
+    static PUBLISHER: OnceLock<Publisher> = OnceLock::new();
+    &PUBLISHER
+}
+
+/// Publishes a topic value through the host, when it offers publishing.
+pub(crate) fn publish<T: Serialize + ?Sized>(topic: &str, value: &T) {
+    if let Some(publisher) = publisher().get() {
+        publisher.publish(topic, value);
+    }
+}
+
+/// Starts the transport on `sampler` from its `t = 0`, which is notation time `offset_secs`.
+pub(crate) fn start_transport(
+    sampler: Arc<dyn Sampler>,
+    offset_secs: f64,
+) -> Result<(), PlaybackServiceError> {
+    let mut engine = state()
+        .engine
+        .lock()
+        .map_err(|_| PlaybackServiceError::Poisoned)?;
+    engine
+        .start(sampler, SAMPLE_RATE)
+        .map_err(|e| PlaybackServiceError::Playback(e.to_string()))?;
+    drop(engine);
+    set_end_secs(None)?;
+    set_position_offset(offset_secs)
+}
+
+/// Stops the transport without touching a recording take.
+pub(crate) fn stop_transport() {
+    if let Ok(mut engine) = state().engine.lock() {
+        engine.stop();
+    }
+    let _ = set_end_secs(None);
+    let _ = set_position_offset(0.0);
 }
 
 /// Errors preparing or running Lab pack playback.
@@ -70,6 +127,10 @@ pub enum PlaybackServiceError {
     Playback(String),
     #[error("event: {0}")]
     Event(String),
+    #[error("request: {0}")]
+    Request(String),
+    #[error("recording: {0}")]
+    Recording(String),
     #[error("internal lock poisoned")]
     Poisoned,
 }
@@ -207,6 +268,8 @@ pub fn start_playback(
     payload_json: &str,
     neighbor_hint: Option<&Path>,
 ) -> Result<(), PlaybackServiceError> {
+    recording::end_if_active();
+    set_position_offset(0.0)?;
     match payload_type(payload_json).as_deref() {
         Some("notation") => {
             let (sampler, start_secs, end_secs) = prepare_notation_playback(payload_json)?;
@@ -239,6 +302,8 @@ pub fn start_playback(
 
 /// Stop playback if running.
 pub fn stop_playback() -> Result<(), PlaybackServiceError> {
+    // Stopping the transport ends a take; its notes wait for `record_stop`.
+    recording::end_if_active();
     let mut engine = state()
         .engine
         .lock()
@@ -246,6 +311,7 @@ pub fn stop_playback() -> Result<(), PlaybackServiceError> {
     engine.stop();
     drop(engine);
     set_end_secs(None)?;
+    set_position_offset(0.0)?;
     Ok(())
 }
 
@@ -279,14 +345,24 @@ pub fn is_playing() -> Result<bool, PlaybackServiceError> {
     Ok(engine.is_playing())
 }
 
-/// Current playback position in seconds (runs notation auto-stop).
+/// Current playback position in seconds (runs notation auto-stop). While recording this is
+/// notation time, held at 0 during a count-in that starts before the notation.
 pub fn position_secs() -> Result<f64, PlaybackServiceError> {
+    Ok(position_secs_unclamped()?.max(0.0))
+}
+
+/// Position on the notation timeline; negative during a count-in before beat 0.
+pub(crate) fn position_secs_unclamped() -> Result<f64, PlaybackServiceError> {
+    let offset = *state()
+        .position_offset
+        .lock()
+        .map_err(|_| PlaybackServiceError::Poisoned)?;
     let mut engine = state()
         .engine
         .lock()
         .map_err(|_| PlaybackServiceError::Poisoned)?;
     maybe_auto_stop(&mut engine)?;
-    Ok(engine.position_secs())
+    Ok(engine.position_secs() + offset)
 }
 
 fn read_payload_and_path(
@@ -398,9 +474,88 @@ unsafe extern "C" fn service_event(
     let bytes = unsafe { std::slice::from_raw_parts(json, len) };
     let result = std::str::from_utf8(bytes)
         .map_err(|e| PlaybackServiceError::Event(e.to_string()))
-        .and_then(audition::handle_event);
+        .and_then(handle_event);
     match result {
         Ok(()) => 0,
+        Err(e) => fail(err_out, err_len, e),
+    }
+}
+
+/// Applies a service event: `settings` (extension setting values) or a note audition event.
+pub fn handle_event(json: &str) -> Result<(), PlaybackServiceError> {
+    let value: Value =
+        serde_json::from_str(json).map_err(|e| PlaybackServiceError::Event(e.to_string()))?;
+    if value.get("type").and_then(Value::as_str) == Some("settings") {
+        let values = value
+            .get("values")
+            .and_then(Value::as_object)
+            .ok_or_else(|| PlaybackServiceError::Event("settings needs a `values` object".into()))?;
+        midi_input::apply_settings(values);
+        return Ok(());
+    }
+    audition::handle_event(json)
+}
+
+fn request_bool(value: &Value, key: &str, default: bool) -> bool {
+    value.get(key).and_then(Value::as_bool).unwrap_or(default)
+}
+
+/// Answers a service request (the live note capture protocol):
+///
+/// - `{"type":"capture_info"}` → `{"topic"}`: the take topic (and that capture is offered)
+/// - `{"type":"record_start","notation":{…},"startBeats":n,"click":bool}` → `{"topic"}`
+/// - `{"type":"record_stop"}` → `{"notes":[…]}` (notation events)
+pub fn handle_request(json: &str) -> Result<String, PlaybackServiceError> {
+    let bad = |message: &str| PlaybackServiceError::Request(message.to_string());
+    let value: Value = serde_json::from_str(json).map_err(|e| bad(&e.to_string()))?;
+    let reply = match value.get("type").and_then(Value::as_str) {
+        Some("capture_info") => json!({ "topic": recording::TOPIC_TAKE }),
+        Some("record_start") => {
+            let notation = value
+                .get("notation")
+                .ok_or_else(|| bad("record_start needs `notation`"))?;
+            let start_beats = value
+                .get("startBeats")
+                .and_then(Value::as_f64)
+                .filter(|b| b.is_finite())
+                .unwrap_or(0.0);
+            recording::record_start(
+                &notation.to_string(),
+                start_beats,
+                request_bool(&value, "click", true),
+            )?;
+            json!({ "topic": recording::TOPIC_TAKE })
+        }
+        Some("record_stop") => json!({ "notes": recording::notes_json(&recording::record_stop()?) }),
+        Some(other) => return Err(bad(&format!("unknown request type `{other}`"))),
+        None => return Err(bad("request needs a string `type`")),
+    };
+    Ok(reply.to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn service_request(
+    _ctx: *mut c_void,
+    json: *const c_uchar,
+    len: usize,
+    out: *mut c_uchar,
+    out_cap: usize,
+    out_len: *mut usize,
+    err_out: *mut c_char,
+    err_len: usize,
+) -> c_int {
+    if json.is_null() || len == 0 {
+        let err = PlaybackServiceError::Request("request JSON is required".into());
+        return fail(err_out, err_len, err);
+    }
+    // SAFETY: the host passes a valid buffer of `len` bytes for the duration of the call.
+    let bytes = unsafe { std::slice::from_raw_parts(json, len) };
+    let result = std::str::from_utf8(bytes)
+        .map_err(|e| PlaybackServiceError::Request(e.to_string()))
+        .and_then(handle_request);
+    match result {
+        // SAFETY: the host passes an `out` buffer of `out_cap` bytes and a writable `out_len`.
+        Ok(reply) => unsafe { write_service_reply(out, out_cap, out_len, &reply) },
         Err(e) => fail(err_out, err_len, e),
     }
 }
@@ -457,6 +612,11 @@ pub unsafe extern "C" fn imp_lab_extension_register(host: *const ImpLabHostV0) -
     };
     let _ = state();
     remember_pack_libraries(h);
+    if let Some(host_publisher) = h.publisher() {
+        let _ = publisher().set(host_publisher);
+    }
+    // Publishes the MIDI port list and status, then keeps the configured device connected.
+    midi_input::ensure_thread();
     let service = ImpLabServiceV0 {
         ctx: std::ptr::null_mut(),
         start: Some(service_start),
@@ -465,6 +625,7 @@ pub unsafe extern "C" fn imp_lab_extension_register(host: *const ImpLabHostV0) -
         is_playing: Some(service_is_playing),
         position_secs: Some(service_position_secs),
         event: Some(service_event),
+        request: Some(service_request),
     };
     let id = match CString::new(SERVICE_IMPLEMENTATION_ID) {
         Ok(s) => s,
@@ -548,5 +709,49 @@ mod tests {
         let code = unsafe { imp_lab_extension_register(&vtable) };
         assert_eq!(code, 0);
         assert!(host.services().get("playback").is_some());
+    }
+
+    #[test]
+    fn capture_requests() {
+        assert_eq!(
+            handle_request(r#"{"type":"capture_info"}"#).unwrap(),
+            r#"{"topic":"aura.capture.take"}"#
+        );
+        assert_eq!(
+            handle_request(r#"{"type":"record_stop"}"#).unwrap(),
+            r#"{"notes":[]}"#,
+            "no take: no notes"
+        );
+        assert!(handle_request(r#"{"type":"record_start"}"#).is_err());
+        assert!(handle_request(r#"{"type":"bogus"}"#).is_err());
+        assert!(handle_request("nope").is_err());
+    }
+
+    #[test]
+    fn settings_events_are_accepted() {
+        assert!(handle_event(r#"{"type":"settings","values":{"aura.midi.channels":["1"]}}"#).is_ok());
+        assert!(handle_event(r#"{"type":"settings"}"#).is_err());
+    }
+
+    #[test]
+    fn pack_registers_midi_settings_that_resolve() {
+        let text = std::fs::read_to_string(workspace_path("lab-pack/extensions.json")).unwrap();
+        let config = imp_lab_extensions::parse_extensions_json(&text).expect("pack config");
+        let layout = imp_lab_extensions::settings_layout(&config);
+        assert!(layout.warnings.is_empty(), "{:?}", layout.warnings);
+        let midi = layout
+            .pages
+            .iter()
+            .find(|p| p.category_id.as_deref() == Some("aura.midi"))
+            .expect("MIDI page");
+        let ids: Vec<&str> = midi.settings.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec![midi_input::SETTING_INPUT, midi_input::SETTING_CHANNELS]);
+        assert!(midi
+            .settings
+            .iter()
+            .all(|s| s.service_id.as_deref() == Some(SERVICE_IMPLEMENTATION_ID)));
+        let status = imp_lab_extensions::status_items(&config);
+        assert_eq!(status.len(), 1);
+        assert_eq!(status[0].topic, midi_input::TOPIC_STATUS);
     }
 }

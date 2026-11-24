@@ -1,0 +1,11 @@
+[package]
+name = "aura_io_midi"
+description = "MIDI input adapter for Aura (midir): MIDI messages to Aura performance events"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+aura_sequencing = { path = "../aura_sequencing" }
+midir = { workspace = true }
+thiserror = { workspace = true }

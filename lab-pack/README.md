@@ -19,6 +19,8 @@ lab-pack/
 
 Place this directory’s contents next to `imp-lab-tauri` (or set `IMP_LAB_EXTENSIONS` to the `extensions.json` path). Lab runs without the pack (Imp core only). With the pack loaded, Lab gains Aura node catalogs and a **Play** menu (Start / Stop) that drives deterministic CPAL playback for Imp graphs and Aura `notation` tips (from the parked playhead). The playback service also accepts `event` messages for live note audition in streaming mode (`note_on` / `note_off` / `all_notes_off`), voiced by the `sine_note_voice` instrument in `catalogs/instruments.json`; see [`../docs/design/playback-modes.md`](../docs/design/playback-modes.md).
 
+The pack also brings **MIDI input** ([`../docs/design/live-recording.md`](../docs/design/live-recording.md)). `extensions.json` registers a **MIDI** settings category with two settings, **Input device** (`aura.midi.input`, options from the `aura.midi.ports` topic) and **Channels** (`aura.midi.channels`), and a `status-item` showing the `aura.midi.status` topic. The playback service answers the live note capture requests (`capture_info`, `record_start`, `record_stop`) and publishes the take on `aura.capture.take`. The recording metronome is the `metronome_click` instrument in `catalogs/instruments.json`.
+
 ## Build the extension libraries
 
 From the aura-engine workspace:

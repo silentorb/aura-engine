@@ -1200,6 +1200,65 @@
           }
         }
       }
+    },
+    {
+      "id": "metronome_click",
+      "name": "Metronome click",
+      "inputs": {
+        "score": { "id": "score", "type": { "id": "score" } },
+        "time": { "id": "time", "type": { "id": "time" } }
+      },
+      "outputs": {
+        "audio": { "id": "audio", "type": { "id": "audio_mono" } }
+      },
+      "bindings": {
+        "inputs": {
+          "score": "0033AFBGM001CLICKINSCORE00",
+          "time": "0033AFBGM002CLICKINTIME000"
+        },
+        "outputs": {
+          "audio": "0033AFBGM003CLICKOUTAUDIO0"
+        }
+      },
+      "body": {
+        "nodes": {
+          "0033AFBGM001CLICKINSCORE00": { "id": "0033AFBGM001CLICKINSCORE00", "type": "input", "inputs": {}, "title": "in_score" },
+          "0033AFBGM002CLICKINTIME000": { "id": "0033AFBGM002CLICKINTIME000", "type": "input", "inputs": {}, "title": "in_time" },
+          "0033AFBGM003CLICKOUTAUDIO0": { "id": "0033AFBGM003CLICKOUTAUDIO0", "type": "output", "inputs": {}, "title": "out_audio" },
+          "0033AFBGM004CLICKNOTE00000": { "id": "0033AFBGM004CLICKNOTE00000", "type": "note_at_time", "inputs": {}, "title": "click_note" },
+          "0033AFBGM005CLICKHZ0000000": { "id": "0033AFBGM005CLICKHZ0000000", "type": "semitone_to_hz", "inputs": {}, "title": "click_hz" },
+          "0033AFBGM006CLICKELAPSED00": { "id": "0033AFBGM006CLICKELAPSED00", "type": "time_elapsed", "inputs": {}, "title": "click_elapsed" },
+          "0033AFBGM007CLICKENV000000": {
+            "id": "0033AFBGM007CLICKENV000000",
+            "type": "linear_adsr",
+            "inputs": { "attack": 0.001, "decay": 0.035, "sustain": 0.0, "release": 0.005 },
+            "title": "click_env"
+          },
+          "0033AFBGM008CLICKOSC000000": { "id": "0033AFBGM008CLICKOSC000000", "type": "sine", "inputs": {}, "title": "click_osc" },
+          "0033AFBGM009CLICKACCENT000": { "id": "0033AFBGM009CLICKACCENT000", "type": "multiply_control", "inputs": {}, "title": "click_accent" },
+          "0033AFBGM00ACLICKVOICE0000": { "id": "0033AFBGM00ACLICKVOICE0000", "type": "multiply", "inputs": {}, "title": "click_voice" },
+          "0033AFBGM00BCLICKGAIN00000": { "id": "0033AFBGM00BCLICKGAIN00000", "type": "parameter", "inputs": { "value": 0.5 }, "title": "click_gain" },
+          "0033AFBGM00CCLICKOUT000000": { "id": "0033AFBGM00CCLICKOUT000000", "type": "multiply", "inputs": {}, "title": "click_out" }
+        },
+        "edges": {
+          "score_to_note": { "from": { "node": "0033AFBGM001CLICKINSCORE00", "port": "value" }, "to": { "node": "0033AFBGM004CLICKNOTE00000", "port": "score" } },
+          "time_to_note": { "from": { "node": "0033AFBGM002CLICKINTIME000", "port": "value" }, "to": { "node": "0033AFBGM004CLICKNOTE00000", "port": "time" } },
+          "time_to_elapsed": { "from": { "node": "0033AFBGM002CLICKINTIME000", "port": "value" }, "to": { "node": "0033AFBGM006CLICKELAPSED00", "port": "time" } },
+          "start_to_elapsed": { "from": { "node": "0033AFBGM004CLICKNOTE00000", "port": "note_start" }, "to": { "node": "0033AFBGM006CLICKELAPSED00", "port": "start" } },
+          "semitone_to_hz": { "from": { "node": "0033AFBGM004CLICKNOTE00000", "port": "semitone" }, "to": { "node": "0033AFBGM005CLICKHZ0000000", "port": "semitone" } },
+          "hz_to_osc": { "from": { "node": "0033AFBGM005CLICKHZ0000000", "port": "frequency" }, "to": { "node": "0033AFBGM008CLICKOSC000000", "port": "frequency" } },
+          "elapsed_to_osc": { "from": { "node": "0033AFBGM006CLICKELAPSED00", "port": "elapsed" }, "to": { "node": "0033AFBGM008CLICKOSC000000", "port": "time" } },
+          "elapsed_to_env": { "from": { "node": "0033AFBGM006CLICKELAPSED00", "port": "elapsed" }, "to": { "node": "0033AFBGM007CLICKENV000000", "port": "elapsed" } },
+          "duration_to_env": { "from": { "node": "0033AFBGM004CLICKNOTE00000", "port": "note_duration" }, "to": { "node": "0033AFBGM007CLICKENV000000", "port": "note_duration" } },
+          "env_to_accent": { "from": { "node": "0033AFBGM007CLICKENV000000", "port": "value" }, "to": { "node": "0033AFBGM009CLICKACCENT000", "port": "a" } },
+          "velocity_to_accent": { "from": { "node": "0033AFBGM004CLICKNOTE00000", "port": "velocity" }, "to": { "node": "0033AFBGM009CLICKACCENT000", "port": "b" } },
+          "osc_to_voice": { "from": { "node": "0033AFBGM008CLICKOSC000000", "port": "audio" }, "to": { "node": "0033AFBGM00ACLICKVOICE0000", "port": "a" } },
+          "accent_to_voice": { "from": { "node": "0033AFBGM009CLICKACCENT000", "port": "value" }, "to": { "node": "0033AFBGM00ACLICKVOICE0000", "port": "b" } },
+          "voice_to_out": { "from": { "node": "0033AFBGM00ACLICKVOICE0000", "port": "audio" }, "to": { "node": "0033AFBGM00CCLICKOUT000000", "port": "a" } },
+          "gain_to_out": { "from": { "node": "0033AFBGM00BCLICKGAIN00000", "port": "value" }, "to": { "node": "0033AFBGM00CCLICKOUT000000", "port": "b" } },
+          "out_to_output": { "from": { "node": "0033AFBGM00CCLICKOUT000000", "port": "audio" }, "to": { "node": "0033AFBGM003CLICKOUTAUDIO0", "port": "value" } }
+        }
+      }
     }
   ]
 }

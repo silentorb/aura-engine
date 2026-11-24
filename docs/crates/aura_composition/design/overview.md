@@ -9,6 +9,7 @@ Procedural generators that produce notation (`Score`, `ChordProgression`, and re
 - Generators emit **one finite cycle** (typically measured in bars), not unbounded playback.
 - Favor functional generation over destructive stored sequences.
 - Depend on `aura_sequencing` only among Aura domain crates.
+- `click_bar(time_signature, tempo)` is one bar of metronome clicks, one per counted beat (6/8 counts six eighths), downbeat accented, cycle one bar. It voices the recording metronome ([live recording](../../../design/live-recording.md#recording-a-take)).
 
 ## Non-goals / avoided approaches
 

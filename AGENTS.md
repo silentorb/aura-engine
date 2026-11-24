@@ -82,6 +82,7 @@ This file governs **aura-engine** only. Orchestration (Compose, Dev Container, m
 | `aura_render` | [`docs/crates/aura_render/design/overview.md`](docs/crates/aura_render/design/overview.md) |
 | `aura_io_wav` | [`docs/crates/aura_io_wav/design/overview.md`](docs/crates/aura_io_wav/design/overview.md) |
 | `aura_io_cpal` | [`docs/crates/aura_io_cpal/design/overview.md`](docs/crates/aura_io_cpal/design/overview.md) |
+| `aura_io_midi` | [`docs/crates/aura_io_midi/design/overview.md`](docs/crates/aura_io_midi/design/overview.md) |
 | `aura_integration` | [`docs/crates/aura_integration/design/overview.md`](docs/crates/aura_integration/design/overview.md) |
 | `aura_cli` | [`docs/crates/aura_cli/design/overview.md`](docs/crates/aura_cli/design/overview.md) |
 

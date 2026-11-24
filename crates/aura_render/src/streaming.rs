@@ -4,12 +4,16 @@
 //! consecutive blocks from a [`BlockSource`]; time only moves forward. A [`StreamVoice`] is one
 //! runtime graph instance sounding one [`LiveNote`]; a [`VoiceMixer`] sums voices started and
 //! released from a control thread through a [`VoiceSender`].
+//!
+//! The mixer neither allocates nor frees on the audio thread: voices are boxed on the control
+//! thread, held in preallocated slots, and handed back to the control thread to be dropped once
+//! they finish.
 
 use crate::Sampler;
 use aura_sample::SampleRate;
 use aura_sequencing::LiveNote;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 /// Produces consecutive blocks of mono samples. Each call continues where the last ended.
@@ -25,6 +29,8 @@ const QUIET_SECS: f64 = 0.05;
 /// A released voice stops after this long regardless of level.
 const MAX_TAIL_SECS: f64 = 10.0;
 const COMMAND_CAPACITY: usize = 256;
+/// Voice slots, held and releasing: preallocated so the audio thread never grows them.
+pub const MAX_SLOTS: usize = MAX_VOICES * 2;
 
 /// One runtime graph instance sounding one live note, with its own voice-local clock
 /// (onset at `t = 0`).
@@ -100,13 +106,26 @@ pub enum VoiceSendError {
 }
 
 /// Control-thread handle for a [`VoiceMixer`]. Never blocks.
+///
+/// Every send first drops the finished voices the mixer handed back; [`VoiceSender::reclaim`]
+/// does the same on its own for callers that send rarely.
 #[derive(Clone)]
 pub struct VoiceSender {
     commands: SyncSender<VoiceCommand>,
+    finished: Arc<Mutex<Receiver<Box<StreamVoice>>>>,
 }
 
 impl VoiceSender {
+    /// Drops voices the mixer has finished with (here, off the audio thread). Returns how many.
+    pub fn reclaim(&self) -> usize {
+        let Ok(finished) = self.finished.try_lock() else {
+            return 0;
+        };
+        finished.try_iter().count()
+    }
+
     pub fn send(&self, command: VoiceCommand) -> Result<(), VoiceSendError> {
+        self.reclaim();
         self.commands.try_send(command).map_err(|err| match err {
             TrySendError::Full(_) => VoiceSendError::Full,
             TrySendError::Disconnected(_) => VoiceSendError::Disconnected,
@@ -133,13 +152,31 @@ impl VoiceSender {
 /// start of each block.
 pub struct VoiceMixer {
     commands: Receiver<VoiceCommand>,
-    /// `(id, voice)`; `id` is `None` once released, so a reused id cannot release it again.
+    /// Finished voices go back to the control thread, which drops them.
+    finished: SyncSender<Box<StreamVoice>>,
+    /// `(id, voice)`, oldest first; `id` is `None` once released, so a reused id cannot release
+    /// it again. Capacity [`MAX_SLOTS`], never exceeded.
     voices: Vec<(Option<u64>, Box<StreamVoice>)>,
 }
 
 impl VoiceMixer {
     pub fn voice_count(&self) -> usize {
         self.voices.len()
+    }
+
+    /// Slots allocated for voices; constant for the mixer's life.
+    pub fn slot_capacity(&self) -> usize {
+        self.voices.capacity()
+    }
+
+    /// Hands a voice back to the control thread. Drops it here only if that queue is full,
+    /// which needs more than [`MAX_SLOTS`] voices to finish between two control-thread sends.
+    fn retire(&self, voice: Box<StreamVoice>) {
+        if let Err(TrySendError::Full(voice) | TrySendError::Disconnected(voice)) =
+            self.finished.try_send(voice)
+        {
+            drop(voice);
+        }
     }
 
     fn apply(&mut self, command: VoiceCommand) {
@@ -153,6 +190,14 @@ impl VoiceMixer {
                     {
                         *oldest = None;
                         voice.release();
+                    }
+                }
+                // Every slot taken (at most MAX_VOICES held, so the rest are releasing): cut
+                // the oldest releasing voice short.
+                if self.voices.len() >= MAX_SLOTS {
+                    if let Some(index) = self.voices.iter().position(|(id, _)| id.is_none()) {
+                        let (_, cut) = self.voices.remove(index);
+                        self.retire(cut);
                     }
                 }
                 self.voices.push((Some(id), voice));
@@ -187,18 +232,31 @@ impl BlockSource for VoiceMixer {
         for (_, voice) in &mut self.voices {
             voice.render_add(out);
         }
-        self.voices.retain(|(_, voice)| !voice.is_finished());
+        let mut index = 0;
+        while index < self.voices.len() {
+            if self.voices[index].1.is_finished() {
+                let (_, done) = self.voices.remove(index);
+                self.retire(done);
+            } else {
+                index += 1;
+            }
+        }
     }
 }
 
 /// A connected control handle and mixer.
 pub fn voice_channel() -> (VoiceSender, VoiceMixer) {
     let (commands, receiver) = sync_channel(COMMAND_CAPACITY);
+    let (finished, finished_receiver) = sync_channel(MAX_SLOTS);
     (
-        VoiceSender { commands },
+        VoiceSender {
+            commands,
+            finished: Arc::new(Mutex::new(finished_receiver)),
+        },
         VoiceMixer {
             commands: receiver,
-            voices: Vec::with_capacity(MAX_VOICES * 2),
+            finished,
+            voices: Vec::with_capacity(MAX_SLOTS),
         },
     )
 }
@@ -277,5 +335,49 @@ mod tests {
         sender.all_off().unwrap();
         block(&mut mixer, 44_100 / 10);
         assert_eq!(mixer.voice_count(), 0);
+    }
+
+    /// Silent from note-on: finishes as soon as it's released.
+    struct Silent;
+
+    impl Sampler for Silent {
+        fn at(&self, _t: f64) -> f32 {
+            0.0
+        }
+    }
+
+    fn silent_voice() -> StreamVoice {
+        let live = Arc::new(LiveNote::new(Semitone(60), 1.0, NoteParams::new()));
+        StreamVoice::new(Box::new(Silent), live, RATE)
+    }
+
+    #[test]
+    fn slots_never_grow_under_a_note_on_storm() {
+        let (sender, mut mixer) = voice_channel();
+        let capacity = mixer.slot_capacity();
+        assert_eq!(capacity, MAX_SLOTS);
+        for round in 0..8_u64 {
+            for id in 0..64_u64 {
+                sender.note_on(round * 64 + id, voice()).unwrap_or(());
+                if id % 16 == 0 {
+                    block(&mut mixer, 8);
+                }
+            }
+            block(&mut mixer, 8);
+            assert!(mixer.voice_count() <= MAX_SLOTS);
+            assert_eq!(mixer.slot_capacity(), capacity, "no reallocation");
+        }
+    }
+
+    #[test]
+    fn finished_voices_are_handed_back_to_the_control_thread() {
+        let (sender, mut mixer) = voice_channel();
+        sender.note_on(1, silent_voice()).unwrap();
+        sender.note_on(2, silent_voice()).unwrap();
+        sender.all_off().unwrap();
+        block(&mut mixer, 44_100 / 10);
+        assert_eq!(mixer.voice_count(), 0);
+        assert_eq!(sender.reclaim(), 2, "dropped on the control thread");
+        assert_eq!(sender.reclaim(), 0);
     }
 }

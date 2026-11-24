@@ -53,13 +53,13 @@ The gated envelope is the archetypal fallback. Deterministically, `LinearAdsr` p
 
 - **Program** — `StreamingProgram` type-checks and flattens a voice graph once, then instantiates a fresh runtime graph per note, bound to that note's `LiveNote` (voice-local time, onset `t = 0`).
 - **Voice** — `StreamVoice` (`aura_render`) runs one instance on its own clock. Note-off stamps the release on the live note. A released voice retires once it has been silent briefly, or after a hard tail limit.
-- **Mixer** — `VoiceMixer` (`aura_render`) is a `BlockSource`. It takes note-on / note-off / all-off commands from a control thread without blocking, caps polyphony (starting another voice releases the oldest), and sums voices block by block.
+- **Mixer** — `VoiceMixer` (`aura_render`) is a `BlockSource`. It takes note-on / note-off / all-off commands from a control thread without blocking, caps polyphony (starting another voice releases the oldest), and sums voices block by block. It neither allocates nor frees on the audio thread: voices sit in preallocated slots, and finished voices are handed back to the control thread to be dropped.
 - **Output** — `StreamingOutput` (`aura_io_cpal`) is a persistent device stream that pulls from a `BlockSource`. It runs independently of deterministic `PlaybackEngine` transport playback; both may sound at once.
 
 ## Uses
 
 - **Note audition** in Imp Lab's notation view: the Lab playback extension (`aura_imp_lab_playback`) turns `note_on` / `note_off` service events into voices of the pack's `sine_note_voice`.
-- **Live MIDI recording** (planned) will play through streaming mode while it's captured. The MIDI data will be translated into deterministic notation, not stored as MIDI.
+- **Live MIDI recording** ([live recording](live-recording.md)): a MIDI input plays through streaming mode (the same voices as audition) while a take is captured; the take is translated into deterministic notation, not stored as MIDI.
 
 ## Non-goals / avoided approaches
 
@@ -74,4 +74,4 @@ The gated envelope is the archetypal fallback. Deterministically, `LinearAdsr` p
 - Streaming-only optimizations (phase accumulators, recursive filters) need per-sample state, which `at(&self, t)` doesn't hold. Interior mutability is acceptable for rare cases.
 - Choosing an instrument per notation for audition and transport (audition currently uses `sine_note_voice`)
 - One device output mixing both modes
-- Allocation-free voice retirement on the audio thread, needed before live MIDI
+- Output-latency compensation for recorded takes ([live recording](live-recording.md#open-questions))

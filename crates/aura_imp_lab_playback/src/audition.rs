@@ -116,6 +116,51 @@ struct Audition {
     _output: StreamingOutput,
 }
 
+/// Ids at or above this belong to MIDI monitoring, below it to UI audition, so the two never
+/// release each other's voices.
+pub const MIDI_VOICE_ID_BASE: u64 = 1 << 40;
+
+/// Starts a streaming voice under `id`, opening the streaming output on first use.
+pub(crate) fn voice_on(id: u64, semitone: i16, velocity: f32) -> Result<(), PlaybackServiceError> {
+    let mut guard = audition()
+        .lock()
+        .map_err(|_| PlaybackServiceError::Poisoned)?;
+    if guard.is_none() {
+        *guard = Some(Audition::open()?);
+    }
+    let Some(audition) = guard.as_ref() else {
+        return Ok(());
+    };
+    let voice = audition_voice(&audition.program, semitone, velocity)?;
+    audition
+        .voices
+        .note_on(id, voice)
+        .map_err(|e| PlaybackServiceError::Playback(e.to_string()))
+}
+
+/// Releases the streaming voice under `id` (nothing sounds before the first note-on).
+pub(crate) fn voice_off(id: u64) -> Result<(), PlaybackServiceError> {
+    let guard = audition()
+        .lock()
+        .map_err(|_| PlaybackServiceError::Poisoned)?;
+    match guard.as_ref() {
+        Some(audition) => audition
+            .voices
+            .note_off(id)
+            .map_err(|e| PlaybackServiceError::Playback(e.to_string())),
+        None => Ok(()),
+    }
+}
+
+/// Drops finished voices off the audio thread.
+pub(crate) fn reclaim_voices() {
+    if let Ok(guard) = audition().try_lock() {
+        if let Some(audition) = guard.as_ref() {
+            audition.voices.reclaim();
+        }
+    }
+}
+
 impl Audition {
     fn open() -> Result<Self, PlaybackServiceError> {
         let program = audition_program()?;

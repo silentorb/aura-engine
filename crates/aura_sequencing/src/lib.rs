@@ -1,5 +1,6 @@
 //! Musical notation types and utilities for Aura.
 
+pub mod capture;
 mod live;
 
 pub use live::LiveNote;
