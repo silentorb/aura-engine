@@ -190,6 +190,10 @@ pub enum PluginHostError {
     UnknownParam { id: String, param: u32 },
     #[error("plugin `{id}` parameter {param} is read-only")]
     ReadonlyParam { id: String, param: u32 },
+    #[error("plugin `{id}` has no GUI")]
+    NoGui { id: String },
+    #[error("could not open the GUI of plugin `{id}`: {reason}")]
+    Gui { id: String, reason: String },
     #[error("plugin `{id}` failed while processing: {reason}")]
     Process { id: String, reason: String },
 }

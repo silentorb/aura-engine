@@ -4,6 +4,7 @@ mod note_schedule;
 mod plugin;
 mod streaming;
 
+pub use plugin::plugin_node_settings;
 pub use streaming::{StreamingControl, StreamingError, StreamingProgram};
 
 use note_schedule::NoteSchedule;

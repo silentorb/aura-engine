@@ -6,6 +6,7 @@
 
 pub mod audition;
 pub mod midi_input;
+pub mod plugins;
 pub mod recording;
 
 use aura_clap::ClapHost;
@@ -514,6 +515,8 @@ fn request_bool(value: &Value, key: &str, default: bool) -> bool {
 /// - `{"type":"capture_info"}` → `{"topic"}`: the take topic (and that capture is offered)
 /// - `{"type":"record_start","notation":{…},"startBeats":n,"click":bool}` → `{"topic"}`
 /// - `{"type":"record_stop"}` → `{"notes":[…]}` (notation events)
+/// - `{"type":"node_action","action":"plugin.open_gui","node":{…}}` → `{}`: opens the node's plugin
+///   GUI ([`plugins`])
 pub fn handle_request(json: &str) -> Result<String, PlaybackServiceError> {
     let bad = |message: &str| PlaybackServiceError::Request(message.to_string());
     let value: Value = serde_json::from_str(json).map_err(|e| bad(&e.to_string()))?;
@@ -536,6 +539,7 @@ pub fn handle_request(json: &str) -> Result<String, PlaybackServiceError> {
             json!({ "topic": recording::TOPIC_TAKE })
         }
         Some("record_stop") => json!({ "notes": recording::notes_json(&recording::record_stop()?) }),
+        Some("node_action") => plugins::node_action(&value)?,
         Some(other) => return Err(bad(&format!("unknown request type `{other}`"))),
         None => return Err(bad("request needs a string `type`")),
     };
@@ -624,6 +628,8 @@ pub unsafe extern "C" fn imp_lab_extension_register(host: *const ImpLabHostV0) -
     if let Some(host_publisher) = h.publisher() {
         let _ = publisher().set(host_publisher);
     }
+    // Scans installed plugins off the startup path and publishes the plugin lists.
+    plugins::publish_plugin_lists();
     // Publishes the MIDI port list and status, then keeps the configured device connected.
     midi_input::ensure_thread();
     let service = ImpLabServiceV0 {

@@ -5,7 +5,8 @@
 //!   release of [`SINE_RELEASE_SECS`] and a fixed output latency of [`SINE_LATENCY`] frames.
 //!   Stereo output, no audio input.
 //! - [`GAIN_ID`] — a stereo gain. Its gain lives in the plugin state (4 bytes, `f32`
-//!   little-endian), default [`DEFAULT_GAIN`].
+//!   little-endian), default [`DEFAULT_GAIN`]. It has a floating-only GUI with no real window;
+//!   [`simulate_gui_edit`] makes the next one shown act like a user edit.
 //!
 //! Built as a `cdylib`, this is an ordinary `.clap` bundle (rename the library to
 //! `aura_clap_fixture.clap`). Tests load [`FixtureEntry`] in-process instead.
@@ -14,6 +15,7 @@ use clack_extensions::audio_ports::{
     AudioPortFlags, AudioPortInfo, AudioPortInfoWriter, AudioPortType, PluginAudioPorts,
     PluginAudioPortsImpl,
 };
+use clack_extensions::gui::{GuiConfiguration, GuiSize, PluginGui, PluginGuiImpl, Window};
 use clack_extensions::latency::{PluginLatency, PluginLatencyImpl};
 use clack_extensions::params::{
     ParamDisplayWriter, ParamInfo, ParamInfoFlags, ParamInfoWriter, PluginAudioProcessorParams,
@@ -23,7 +25,7 @@ use clack_extensions::note_ports::{
     NoteDialect, NoteDialects, NotePortInfo, NotePortInfoWriter, PluginNotePorts,
     PluginNotePortsImpl,
 };
-use clack_extensions::state::{PluginState, PluginStateImpl};
+use clack_extensions::state::{HostState, PluginState, PluginStateImpl};
 use clack_extensions::tail::{PluginTail, PluginTailImpl, TailLength};
 use clack_plugin::entry::prelude::*;
 use clack_plugin::events::spaces::CoreEventSpace;
@@ -33,6 +35,7 @@ use clack_plugin::stream::{InputStream, OutputStream};
 use std::ffi::CStr;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
 
 pub const SINE_ID: &str = "aura.fixture.sine";
 pub const GAIN_ID: &str = "aura.fixture.gain";
@@ -393,6 +396,81 @@ impl GainShared {
 
 pub struct GainMainThread<'a> {
     shared: &'a GainShared,
+    host: HostMainThreadHandle<'a>,
+    gui_shown: std::cell::Cell<bool>,
+}
+
+/// A gain the next shown fixture gain GUI applies, as if the user set it there.
+static PENDING_GUI_EDIT: Mutex<Option<f32>> = Mutex::new(None);
+
+/// Test hook: the next [`GAIN_ID`] GUI shown sets its gain to `gain` and marks its state dirty,
+/// as a user edit in a real GUI would.
+pub fn simulate_gui_edit(gain: f32) {
+    if let Ok(mut pending) = PENDING_GUI_EDIT.lock() {
+        *pending = Some(gain);
+    }
+}
+
+/// The fixture gain's GUI: floating only, with no actual window (it exists for host tests).
+impl PluginGuiImpl for GainMainThread<'_> {
+    fn is_api_supported(&self, configuration: GuiConfiguration) -> bool {
+        configuration.is_floating
+    }
+
+    fn get_preferred_api(&self) -> Option<GuiConfiguration<'_>> {
+        None
+    }
+
+    fn create(&self, configuration: GuiConfiguration) -> Result<(), PluginError> {
+        if configuration.is_floating {
+            Ok(())
+        } else {
+            Err(PluginError::Message("the fixture GUI only floats"))
+        }
+    }
+
+    fn destroy(&self) {
+        self.gui_shown.set(false);
+    }
+
+    fn set_scale(&self, _scale: f64) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    fn get_size(&self) -> Option<GuiSize> {
+        Some(GuiSize {
+            width: 200,
+            height: 100,
+        })
+    }
+
+    fn set_size(&self, _size: GuiSize) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    fn set_parent(&self, _window: Window) -> Result<(), PluginError> {
+        Err(PluginError::Message("the fixture GUI only floats"))
+    }
+
+    fn set_transient(&self, _window: Window) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    fn show(&self) -> Result<(), PluginError> {
+        self.gui_shown.set(true);
+        let pending = PENDING_GUI_EDIT.lock().ok().and_then(|mut p| p.take());
+        if let Some(gain) = pending {
+            self.shared.gain_bits.store(gain.to_bits(), Ordering::Relaxed);
+            if let Some(state) = self.host.get_extension::<HostState>() {
+                state.mark_dirty(&self.host);
+            }
+        }
+        Ok(())
+    }
+
+    fn hide(&self) -> Result<(), PluginError> {
+        Ok(())
+    }
 }
 
 impl<'a> PluginMainThread<'a, GainShared> for GainMainThread<'a> {}
@@ -435,7 +513,8 @@ impl Plugin for FixtureGain {
     fn declare_extensions(builder: &mut PluginExtensions<Self>, _shared: Option<&GainShared>) {
         builder
             .register::<PluginAudioPorts>()
-            .register::<PluginState>();
+            .register::<PluginState>()
+            .register::<PluginGui>();
     }
 }
 
@@ -455,10 +534,14 @@ impl DefaultPluginFactory for FixtureGain {
     }
 
     fn new_main_thread<'a>(
-        _host: HostMainThreadHandle<'a>,
+        host: HostMainThreadHandle<'a>,
         shared: &'a GainShared,
     ) -> Result<GainMainThread<'a>, PluginError> {
-        Ok(GainMainThread { shared })
+        Ok(GainMainThread {
+            shared,
+            host,
+            gui_shown: Default::default(),
+        })
     }
 }
 

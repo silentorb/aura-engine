@@ -20,6 +20,7 @@ aura_render = { path = "../aura_render" }
 aura_sample = { path = "../aura_sample" }
 aura_sequencing = { path = "../aura_sequencing" }
 imp_lab_extensions = { path = "../../../imp-lab/crates/imp_lab_extensions" }
+base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

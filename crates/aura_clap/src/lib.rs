@@ -7,10 +7,13 @@
 //! Plugins run in-process: a plugin is native code, and a crashing plugin takes the host with
 //! it. Design: `docs/design/plugin-hosting.md`.
 
+mod editor;
 mod host;
 mod main_thread;
 mod processor;
+mod windowing;
 
+pub use editor::{EditorEvent, SAVE_DELAY};
 pub use processor::{ClapFactory, ClapProcessor};
 
 use aura_plugin_host::{PluginHostError, PluginResolver, PluginSettings, ProcessorFactory};
@@ -120,6 +123,70 @@ impl ClapHost {
             }
         }
         self.with_scanned(|bundles, _| bundles.iter().find(|b| has(b)).map(|b| b.entry.clone()))
+    }
+}
+
+impl ClapHost {
+    /// Opens `plugin_id`'s own GUI on a fresh instance configured with `settings`, titled
+    /// `title`. `listener` receives the plugin's saved state as the user edits it, and
+    /// [`EditorEvent::Closed`] when the editor closes. Runs on the CLAP main thread.
+    pub fn open_editor(
+        &self,
+        plugin_id: &str,
+        settings: &PluginSettings,
+        title: &str,
+        listener: impl FnMut(EditorEvent) + Send + 'static,
+    ) -> Result<EditorHandle, PluginHostError> {
+        let entry = self
+            .find_entry(plugin_id)
+            .ok_or_else(|| PluginHostError::NotFound {
+                id: plugin_id.into(),
+            })?;
+        let id = plugin_id.to_string();
+        let settings = settings.clone();
+        let title = title.to_string();
+        let host = processor::host_info()?;
+        let editor = main_thread::run_with_windows(move |main, windows| {
+            let mut instance = processor::instantiate(&entry, &id, &host)?;
+            processor::configure_inactive(&id, &mut instance, &settings)?;
+            let instance_id = main.insert(instance);
+            let main_thread::MainState {
+                instances, editors, ..
+            } = main;
+            editors.open(&id, instance_id, instances, windows, &title, Box::new(listener))
+        })??;
+        Ok(EditorHandle { id: editor })
+    }
+}
+
+/// An open plugin editor. It stays open until the user closes it or [`EditorHandle::close`]
+/// is called; dropping the handle does not close it.
+#[derive(Debug)]
+pub struct EditorHandle {
+    id: editor::EditorId,
+}
+
+impl EditorHandle {
+    pub fn is_open(&self) -> bool {
+        let id = self.id;
+        main_thread::run(move |main| main.editors.is_open(id)).unwrap_or(false)
+    }
+
+    /// Brings the editor's window to the front (an embedded GUI only).
+    pub fn focus(&self) {
+        let id = self.id;
+        let _ = main_thread::run(move |main| main.editors.focus(id));
+    }
+
+    /// Closes the editor, saving a pending change first.
+    pub fn close(&self) {
+        let id = self.id;
+        let _ = main_thread::run(move |main| {
+            let main_thread::MainState {
+                instances, editors, ..
+            } = main;
+            editors.close(id, instances);
+        });
     }
 }
 

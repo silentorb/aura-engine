@@ -33,7 +33,7 @@ pub use tome_source::{
     TomeNodeProvider,
 };
 pub use translate::{
-    find_output_node, sampler_from_score, translate_graph_with_bindings,
+    find_output_node, plugin_node_settings, sampler_from_score, translate_graph_with_bindings,
     translate_graph_with_options, StreamingControl, StreamingError, StreamingProgram,
     TranslateError, TranslateOptions,
 };

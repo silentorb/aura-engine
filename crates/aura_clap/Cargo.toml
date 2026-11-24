@@ -9,7 +9,10 @@ license.workspace = true
 aura_plugin_host = { path = "../aura_plugin_host" }
 aura_sample = { path = "../aura_sample" }
 clack-host = { workspace = true }
-clack-extensions = { workspace = true, features = ["clack-host", "audio-ports", "latency", "tail", "state", "render", "log", "params"] }
+clack-extensions = { workspace = true, features = ["clack-host", "audio-ports", "latency", "tail", "state", "render", "log", "params", "gui"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+winit = { workspace = true }
 
 [dev-dependencies]
 aura_render = { path = "../aura_render" }

@@ -35,7 +35,7 @@ impl ClapFactory {
     }
 }
 
-fn host_info() -> Result<HostInfo, PluginHostError> {
+pub(crate) fn host_info() -> Result<HostInfo, PluginHostError> {
     HostInfo::new(
         "Aura",
         "Silent Orb",
@@ -103,7 +103,7 @@ struct Created {
 }
 
 /// Instantiates `id` from `entry` on the CLAP main thread (not activated).
-fn instantiate(
+pub(crate) fn instantiate(
     entry: &PluginEntry,
     id: &str,
     host: &HostInfo,
@@ -115,12 +115,49 @@ fn instantiate(
     let c_id = CString::new(id).map_err(|e| error(e.to_string()))?;
     PluginInstance::<AuraHost>::new(
         |_| AuraShared::default(),
-        |_| AuraMainThread,
+        |_| AuraMainThread::default(),
         entry,
         &c_id,
         host,
     )
     .map_err(|e| error(e.to_string()))
+}
+
+/// Applies a node's settings to an instance that is not processing (an editor): state first,
+/// then parameter values, flushed on the main thread.
+pub(crate) fn configure_inactive(
+    id: &str,
+    instance: &mut PluginInstance<AuraHost>,
+    settings: &PluginSettings,
+) -> Result<(), PluginHostError> {
+    let extensions = instance.access_shared_handler(AuraShared::extensions);
+    if let Some(state) = &settings.state {
+        let ext = extensions
+            .state
+            .ok_or_else(|| PluginHostError::StateLoad { id: id.into() })?;
+        ext.load(&instance.plugin_handle(), &mut Cursor::new(state))
+            .map_err(|_| PluginHostError::StateLoad { id: id.into() })?;
+    }
+    if settings.params.is_empty() {
+        return Ok(());
+    }
+    let available = describe_params(extensions.params, &mut instance.plugin_handle());
+    let values = resolve_params(id, &settings.params, &available)?;
+    let (Some(params), Some(mut plugin)) = (extensions.params, instance.inactive_plugin_handle())
+    else {
+        return Ok(());
+    };
+    let mut input = EventBuffer::with_capacity(values.len());
+    for (param, value) in values {
+        input.push(&ParamValueEvent::new(0, param, Pckn::match_all(), value));
+    }
+    let mut output = EventBuffer::new();
+    params.flush(
+        &mut plugin,
+        &InputEvents::from_buffer(&input),
+        &mut OutputEvents::from_buffer(&mut output),
+    );
+    Ok(())
 }
 
 /// The plugin's parameters, read through its params extension (none without it).

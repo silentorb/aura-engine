@@ -241,3 +241,52 @@ fn unknown_parameter_is_rejected() {
         }
     );
 }
+
+#[test]
+fn editors_report_gui_edits_as_saved_state() {
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+    let host = fixture_host();
+
+    // Opening and closing without an edit reports no state.
+    let (events, received) = channel();
+    let editor = host
+        .open_editor(GAIN_ID, &settings(Some(&gain_state(0.25))), "Gain", move |event| {
+            let _ = events.send(event);
+        })
+        .expect("open editor");
+    assert!(editor.is_open());
+    editor.close();
+    assert!(!editor.is_open());
+    assert_eq!(
+        received.recv_timeout(Duration::from_secs(2)),
+        Ok(EditorEvent::Closed)
+    );
+
+    // A GUI edit is saved after the save delay and reported as the plugin's state.
+    aura_clap_fixture::simulate_gui_edit(0.75);
+    let (events, received) = channel();
+    let editor = host
+        .open_editor(GAIN_ID, &PluginSettings::default(), "Gain", move |event| {
+            let _ = events.send(event);
+        })
+        .expect("open editor");
+    assert_eq!(
+        received.recv_timeout(Duration::from_secs(2)),
+        Ok(EditorEvent::State(gain_state(0.75)))
+    );
+    editor.close();
+    assert_eq!(
+        received.recv_timeout(Duration::from_secs(2)),
+        Ok(EditorEvent::Closed)
+    );
+}
+
+#[test]
+fn a_plugin_without_a_gui_has_no_editor() {
+    let host = fixture_host();
+    let error = host
+        .open_editor(SINE_ID, &PluginSettings::default(), "Sine", |_| {})
+        .expect_err("no GUI");
+    assert_eq!(error, PluginHostError::NoGui { id: SINE_ID.into() });
+}

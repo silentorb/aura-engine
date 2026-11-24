@@ -60,6 +60,13 @@ fn plugin_ref(node: &Node) -> Result<(String, PluginSettings), TranslateError> {
     Ok((id, PluginSettings { state, params }))
 }
 
+/// The plugin id and settings a plugin node (`plugin_instrument` / `plugin_effect`) embeds, as
+/// translation reads them. Hosts use this to open a node's plugin outside translation (an
+/// editor).
+pub fn plugin_node_settings(node: &Node) -> Result<(String, PluginSettings), TranslateError> {
+    plugin_ref(node)
+}
+
 /// Parses a `params` literal: a JSON object of CLAP parameter id (decimal) to plain value.
 fn parse_params(node: &Node, text: &str) -> Result<Vec<ParamSetting>, TranslateError> {
     let invalid = |reason: String| TranslateError::InvalidPluginParams {

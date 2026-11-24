@@ -166,6 +166,56 @@
       }
     },
     {
+      "id": "aura.plugins.instrument-choice",
+      "extensionId": "aura-playback",
+      "kind": "node-literal-options",
+      "enabled": true,
+      "params": {
+        "nodeType": "plugin_instrument",
+        "port": "plugin",
+        "optionsTopic": "aura.plugins.instruments"
+      }
+    },
+    {
+      "id": "aura.plugins.effect-choice",
+      "extensionId": "aura-playback",
+      "kind": "node-literal-options",
+      "enabled": true,
+      "params": {
+        "nodeType": "plugin_effect",
+        "port": "plugin",
+        "optionsTopic": "aura.plugins.effects"
+      }
+    },
+    {
+      "id": "aura.plugins.instrument-gui",
+      "extensionId": "aura-playback",
+      "kind": "node-action",
+      "label": "Open plugin GUI",
+      "enabled": true,
+      "params": {
+        "nodeType": "plugin_instrument",
+        "serviceId": "aura-playback",
+        "action": "plugin.open_gui",
+        "editsTopic": "aura.plugins.edits",
+        "order": 10
+      }
+    },
+    {
+      "id": "aura.plugins.effect-gui",
+      "extensionId": "aura-playback",
+      "kind": "node-action",
+      "label": "Open plugin GUI",
+      "enabled": true,
+      "params": {
+        "nodeType": "plugin_effect",
+        "serviceId": "aura-playback",
+        "action": "plugin.open_gui",
+        "editsTopic": "aura.plugins.edits",
+        "order": 10
+      }
+    },
+    {
       "id": "aura.midi.status",
       "extensionId": "aura-playback",
       "kind": "status-item",

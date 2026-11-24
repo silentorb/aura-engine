@@ -72,6 +72,17 @@ Streaming is plugins' native model; Aura supplies the graph split, decided once 
 - Plugins in streaming are activated in **real-time** render mode.
 - In the per-voice fallback a release takes effect at the next block the plugin renders (at most one block late).
 
+## Imp Lab: choosing plugins and editing them
+
+The Lab pack gives plugin nodes UI through Imp Lab's generic node UI components (Lab knows nothing of plugins):
+
+- **Choosing a plugin.** A plugin node's `plugin` literal is a dropdown of installed plugins: instruments for `plugin_instrument`, everything else for `plugin_effect` (by the CLAP `instrument` feature). The pack scans the standard CLAP locations off the startup path and publishes the lists (`aura.plugins.instruments`, `aura.plugins.effects`).
+- **Editing a plugin.** **Open plugin GUI** in Properties opens the plugin's own GUI on a separate editor instance configured from the node's `state` and `params`. Opening it again for the same node brings the open editor forward.
+- **Edits flow into the node.** When the plugin reports a change (it marks its state dirty, asks for a parameter flush, or rescans values), the editor saves the plugin's state 300 ms after the last change, and once more on close if a change is pending. Each saved state becomes a node edit (`aura.plugins.edits`): `state` set to the new blob, `params` removed (the state holds every parameter). One editor session is one undo step in Lab.
+- **Hearing edits.** The editor instance is not the one sounding: edits are heard on the next audition note or the next Play, which translate from the node's data.
+
+Editors (`aura_clap::ClapHost::open_editor`) embed the plugin GUI in a host window where the CLAP main thread runs a window system and the plugin supports embedding, and ask the plugin for a floating window otherwise. Plugins without a GUI report that, and Lab shows the message.
+
 ## Channels
 
 Aura is mono end to end. A mono input is copied to every channel of the plugin's main input port; the output is the average of the main output port's channels. Other ports receive silence and are ignored.
@@ -81,6 +92,7 @@ Aura is mono end to end. A mono input is copied to every channel of the plugin's
 - `ClapHost` searches its extra paths, then `CLAP_PATH`, then the platform's standard locations (Linux `~/.clap`, `/usr/lib/clap`; Windows `%COMMONPROGRAMFILES%\CLAP`, `%LOCALAPPDATA%\Programs\Common\CLAP`; macOS `~/Library/Audio/Plug-Ins/CLAP`, `/Library/Audio/Plug-Ins/CLAP`). Bundles load lazily on first discovery or resolve and stay loaded for the host's life. Bundles that fail to load are reported, not fatal.
 - Parameters are read through the CLAP params extension (a plugin without it has none). Aura declares the host params extension as a no-op: it sets parameters only from node data.
 - Every instance's main-thread half runs on **one process-wide CLAP main thread** (frameworks such as JUCE assume one). Only the audio processor leaves it; dropping a processor deactivates and destroys its instance there. That thread also services plugins' `request_callback`.
+- The CLAP main thread runs a `winit` event loop (X11 on Linux, so plugins can embed; it also pumps Win32 messages) when it can open a display, and a plain job loop otherwise (headless CI and containers), where only floating plugin GUIs open. macOS has no window system yet.
 - Plugins run **in-process**.
 
 ## Non-goals / avoided approaches
@@ -97,7 +109,8 @@ Aura is mono end to end. A mono input is copied to every channel of the plugin's
 - Parameter ports driven by signals (automation, plain values), per-note parameters (`NoteParams` → per-note modulation), and generated per-plugin node types; deferred while plugins are configured only by embedded data
 - Reusing renders across plays (each play translates afresh and renders from the start)
 - A "preparing" state in Imp Lab while a late start renders
-- Plugin GUIs and capturing state into the node on edit (phase 4)
 - Out-of-process sandboxing
+- Hearing GUI edits immediately (the editor would have to drive the sounding instance)
+- Linux plugin GUIs that need the host's timer or file-descriptor support (JUCE on Linux); Windows is the verified path
 - Multichannel Aura audio
 - Bounding cache memory for long renders (currently about 10.6 MB per plugin node per minute at 44.1 kHz)
