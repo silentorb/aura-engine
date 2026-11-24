@@ -3,6 +3,7 @@
 mod duration;
 mod host;
 mod notation_file;
+mod tome_source;
 mod translate;
 
 use translate::{infer_score_duration_secs, translate_graph};
@@ -14,26 +15,26 @@ use aura_io_wav::{write_wav32, WavError};
 use aura_render::{sample_offline, RenderError, RenderSpec, Sampler};
 use aura_sample::SampleRate;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use thiserror::Error;
 
 pub use duration::{DurationParseError, DurationSpec, SampleSpec};
 pub use host::{
     aura_json_kind, aura_json_kind_fn, aura_projection_db_path, authoring_path_for_mir_record,
-    build_host_node_index, sync_content_root, notation_tip_definition, notation_tip_endpoint,
-    notation_tip_endpoint_with_title, open_aura_session, open_aura_session_for_root,
-    open_aura_session_in_memory, pull_by_node_id, pull_graph, resolve_local_node, resolve_node,
-    HostError, HostLocalNode, HostNodeIndex, HostNodeRef, HostResolver, Session,
-    NOTATION_NODE_TYPE, NOTATION_TIP_NODE_TYPE, StoreRecord,
+    open_aura_session, open_aura_session_for_root, open_aura_session_in_memory, pull_graph,
+    sync_content_root, HostError, Session, StoreRecord,
 };
 pub use notation_file::{
     notation_identity_from_str, score_from_notation_path, score_from_notation_str, NotationFileError,
+};
+pub use tome_source::{
+    notation_score_bindings, open_project_nodes, translate_graph_with_project, ProjectSourceError,
+    TomeNodeProvider,
 };
 pub use translate::{
     find_output_node, sampler_from_score, translate_graph_with_bindings,
     translate_graph_with_options, TranslateError, TranslateOptions,
 };
-pub use imp_typecheck::{NodeResolver, ResolvedEndpoint};
 
 #[derive(Debug, Error)]
 pub enum IntegrationError {
@@ -53,14 +54,14 @@ pub enum IntegrationError {
     Registry(#[from] RegistryError),
     #[error("failed to resolve graph composites: {0}")]
     Resolve(String),
+    #[error("{0}")]
+    ProjectSource(#[from] ProjectSourceError),
 }
 
 /// A graph loaded with its neighboring graph libraries and merged registry.
 pub struct LoadedGraph {
     pub graph: Graph,
     pub registry: Registry,
-    /// Content root (graph file parent); indexes notation tip NodeIds for score bindings.
-    pub graph_dir: Option<PathBuf>,
 }
 
 /// Loads an Imp graph and neighboring graph libraries from a JSON file path.
@@ -68,12 +69,7 @@ pub fn load_graph(path: &Path) -> Result<LoadedGraph, IntegrationError> {
     let graph = graph_from_json_path(path)?;
     let libraries = discover_graph_libraries(path)?;
     let registry = aura_registry_with_libraries(&libraries)?;
-    let graph_dir = path.parent().map(Path::to_path_buf);
-    Ok(LoadedGraph {
-        graph,
-        registry,
-        graph_dir,
-    })
+    Ok(LoadedGraph { graph, registry })
 }
 
 /// Loads an Imp graph from a JSON file path (graph only, no libraries).
@@ -90,22 +86,22 @@ pub fn translate_graph_to_sampler(
     Ok(translate_graph(graph, registry, sample_rate)?)
 }
 
-/// Translates an Imp graph with optional score bindings and content-root tip NodeId resolve.
-pub fn translate_graph_to_sampler_with_options(
-    graph: &Graph,
+/// Translates a graph source with scores for its notation nodes.
+pub fn translate_graph_to_sampler_with_options<'a>(
+    source: impl Into<aura_imp::GraphSource<'a>>,
     registry: &aura_imp::Registry,
     sample_rate: SampleRate,
     options: TranslateOptions<'_>,
 ) -> Result<Box<dyn Sampler>, IntegrationError> {
     Ok(translate_graph_with_options(
-        graph,
+        source,
         registry,
         sample_rate,
         options,
     )?)
 }
 
-/// Translates an Imp graph with host [`aura_sequencing::ScoreSignal`] bindings for remote NodeIds.
+/// Translates an Imp graph with [`aura_sequencing::ScoreSignal`]s for its notation nodes.
 pub fn translate_graph_to_sampler_with_bindings(
     graph: &Graph,
     registry: &aura_imp::Registry,
@@ -143,24 +139,26 @@ pub fn sample_graph(sampler: &dyn Sampler, spec: SampleSpec) -> Result<Vec<f32>,
 }
 
 /// Loads, translates, and samples a graph to mono PCM.
-pub fn render_graph_to_pcm(loaded: &LoadedGraph, spec: SampleSpec) -> Result<Vec<f32>, IntegrationError> {
-    let empty_bindings = BTreeMap::new();
-    let sampler = translate_graph_with_options(
-        &loaded.graph,
-        &loaded.registry,
-        spec.sample_rate,
-        TranslateOptions {
-            score_bindings: &empty_bindings,
-            graph_dir: loaded.graph_dir.as_deref(),
-        },
-    )?;
+///
+/// `project` is a Tome project config whose records supply nodes the graph references.
+pub fn render_graph_to_pcm(
+    loaded: &LoadedGraph,
+    spec: SampleSpec,
+    project: Option<&Path>,
+) -> Result<Vec<f32>, IntegrationError> {
+    let sampler =
+        translate_graph_with_project(&loaded.graph, &loaded.registry, spec.sample_rate, project)?;
     sample_graph(sampler.as_ref(), spec)
 }
 
 /// Loads, translates, and samples a graph file to mono PCM.
-pub fn render_graph_file_to_pcm(path: &Path, spec: SampleSpec) -> Result<Vec<f32>, IntegrationError> {
+pub fn render_graph_file_to_pcm(
+    path: &Path,
+    spec: SampleSpec,
+    project: Option<&Path>,
+) -> Result<Vec<f32>, IntegrationError> {
     let loaded = load_graph(path)?;
-    render_graph_to_pcm(&loaded, spec)
+    render_graph_to_pcm(&loaded, spec, project)
 }
 
 /// Writes mono PCM samples to a 32-bit float WAV file.
@@ -232,7 +230,7 @@ mod tests {
             sample_rate: SampleRate::RATE_44100,
             duration: DurationSpec::Seconds(10.0),
         };
-        let pcm = render_graph_to_pcm(&loaded, spec).expect("render");
+        let pcm = render_graph_to_pcm(&loaded, spec, None).expect("render");
         assert_eq!(pcm.len(), 441_000);
     }
 
@@ -243,18 +241,21 @@ mod tests {
             sample_rate: SampleRate::RATE_44100,
             duration: DurationSpec::measures_4_4(8.0, aura_sequencing::Tempo::default()),
         };
-        let pcm = render_graph_to_pcm(&loaded, spec).expect("render");
+        let pcm = render_graph_to_pcm(&loaded, spec, None).expect("render");
         assert_eq!(pcm.len(), 705_600);
     }
 
     #[test]
     fn render_static_arpeggio_demo_matches_expected_frames() {
         let loaded = load_graph(&workspace_demo_path("demo-02.json")).expect("load");
+        // demo-02's arpeggio is a notation record in the Tome demo project.
+        let demo_project = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../lab-pack/demo-project/imp-project.json");
         let spec = SampleSpec {
             sample_rate: SampleRate::RATE_44100,
             duration: DurationSpec::measures_4_4(8.0, aura_sequencing::Tempo::default()),
         };
-        let pcm = render_graph_to_pcm(&loaded, spec).expect("render");
+        let pcm = render_graph_to_pcm(&loaded, spec, Some(&demo_project)).expect("render");
         assert_eq!(pcm.len(), 705_600);
     }
 

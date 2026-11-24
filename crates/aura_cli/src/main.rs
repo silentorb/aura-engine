@@ -41,6 +41,8 @@ pub enum CliError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RenderGraphConfig {
     pub graph: PathBuf,
+    /// Tome project config whose records supply nodes the graph references (e.g. notations).
+    pub project: Option<PathBuf>,
     pub output: PathBuf,
     pub duration: DurationSpec,
     pub sample_rate: SampleRate,
@@ -61,6 +63,7 @@ pub enum CliCommand {
 
 fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliCommand, CliError> {
     let mut graph = None;
+    let mut project = None;
     let mut output = None;
     let mut duration = DEFAULT_DURATION.to_string();
     let mut tempo = DEFAULT_TEMPO;
@@ -94,6 +97,9 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
             }
             "--graph" | "-g" => {
                 graph = Some(next_value(&mut iter, "graph")?);
+            }
+            "--project" | "-p" => {
+                project = Some(next_value(&mut iter, "project")?);
             }
             "--output" | "-o" => {
                 output = Some(next_value(&mut iter, "output")?);
@@ -144,6 +150,7 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
 
     Ok(CliCommand::Render(RenderGraphConfig {
         graph: PathBuf::from(graph),
+        project: project.map(PathBuf::from),
         output: PathBuf::from(output),
         duration,
         sample_rate,
@@ -171,6 +178,7 @@ fn print_help() {
          aura sync --sync-root PATH --sync-db PATH [--sync-pull REL]\n\n\
          Render options:\n  \
          -g, --graph PATH         Imp graph JSON file\n  \
+         -p, --project PATH       Tome project config resolving nodes the graph references\n  \
          -o, --output PATH        Output WAV path\n  \
          -d, --duration SPEC      Duration: seconds (10, 10s) or measures (2m)\n  \
          --tempo BPM              Tempo for measure durations (default: 120)\n  \
@@ -188,7 +196,7 @@ pub fn render_graph(config: &RenderGraphConfig) -> Result<(), CliError> {
         sample_rate: config.sample_rate,
         duration: config.duration,
     };
-    let pcm = render_graph_file_to_pcm(&config.graph, spec)?;
+    let pcm = render_graph_file_to_pcm(&config.graph, spec, config.project.as_deref())?;
     write_pcm_to_wav(&config.output, &pcm, config.sample_rate)?;
     Ok(())
 }

@@ -5,8 +5,7 @@ use aura_imp::{
     graph_library_from_json_path, Graph, GraphLibrary, Registry,
 };
 use aura_integration::{
-    find_output_node, sampler_from_score, score_from_notation_str,
-    translate_graph_to_sampler_with_options, TranslateOptions,
+    find_output_node, sampler_from_score, score_from_notation_str, translate_graph_with_project,
 };
 use aura_io_cpal::PlaybackEngine;
 use aura_render::Sampler;
@@ -14,15 +13,21 @@ use aura_sample::SampleRate;
 use aura_sequencing::beats_to_seconds;
 use imp_lab_extensions::{write_service_error, ImpLabHostV0, ImpLabServiceV0};
 use serde_json::Value;
-use std::collections::BTreeMap;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::os::raw::c_uchar;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use thiserror::Error;
 
-mod project;
-pub use project::{is_project_config, resolve_project_references};
+/// Whether `path` is a Tome v2 project config (as opposed to a legacy graph file).
+pub fn is_project_config(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    serde_json::from_str::<Value>(&text).ok().is_some_and(|v| {
+        v.get("version") == Some(&Value::from(2)) && v.get("dataStores").is_some()
+    })
+}
 
 const SAMPLE_RATE: SampleRate = SampleRate::RATE_44100;
 const SERVICE_IMPLEMENTATION_ID: &str = "playback";
@@ -122,29 +127,14 @@ pub fn prepare_graph_playback(
     graph_json: &str,
     neighbor_hint: Option<&Path>,
 ) -> Result<(String, Box<dyn Sampler>), PlaybackServiceError> {
-    let mut graph = parse_graph_json(graph_json)?;
-    // Records the graph references (a notation by node id) come from the project's data
-    // stores; a legacy graph-file hint keeps the folder scan of neighboring JSON tips.
-    let (score_bindings, graph_dir) = match neighbor_hint.filter(|p| is_project_config(p)) {
-        Some(config) => (
-            resolve_project_references(&mut graph, config)
-                .map_err(PlaybackServiceError::Project)?,
-            None,
-        ),
-        None => (BTreeMap::new(), neighbor_hint.and_then(Path::parent)),
-    };
+    let graph = parse_graph_json(graph_json)?;
+    // Nodes the graph references but does not hold (a notation, a node of another graph) come
+    // from the project's Tome stores. A legacy graph-file hint resolves nothing beyond the file.
+    let project = neighbor_hint.filter(|p| is_project_config(p));
     let node_id =
         find_output_node(&graph).map_err(|e| PlaybackServiceError::Output(e.to_string()))?;
     let registry = playback_registry(neighbor_hint)?;
-    let sampler = translate_graph_to_sampler_with_options(
-        &graph,
-        &registry,
-        SAMPLE_RATE,
-        TranslateOptions {
-            score_bindings: &score_bindings,
-            graph_dir,
-        },
-    )
+    let sampler = translate_graph_with_project(&graph, &registry, SAMPLE_RATE, project)
     .map_err(|e| PlaybackServiceError::Translate(e.to_string()))?;
     Ok((node_id, sampler))
 }

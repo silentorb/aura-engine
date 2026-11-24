@@ -15,36 +15,16 @@ use aura_dsp::{
     add, bandlimited_saw, deterministic_noise, exponential_sweep_sine, highpass_noise, multiply,
     sine,
 };
-use crate::host::{
-    authoring_path_for_mir_record, build_host_node_index, notation_tip_endpoint, HostResolver,
-    HostNodeIndex,
+use aura_imp::{
+    flatten_graph, Graph, GraphSource, Node, NodeId, PortReference, PrimitiveValue, Registry,
+    NOTATION_NODE_TYPE,
 };
-use crate::notation_file::score_from_notation_path;
-use aura_imp::{flatten_graph, Graph, Node, NodeId, PortReference, PrimitiveValue, Registry};
 use aura_instrumentation::LinearAdsr;
 use aura_render::Sampler;
 use aura_sample::SampleRate;
-use imp_typecheck::{check_graph_with_resolver, NodeResolver, ResolvedEndpoint};
+use imp_typecheck::check_graph;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 use thiserror::Error;
-
-/// Typecheck resolver: explicit score bindings, then host content-root index.
-struct TranslateNodeResolver<'a> {
-    score_bindings: &'a BTreeMap<NodeId, ScoreSignal>,
-    host: Option<HostResolver<'a>>,
-}
-
-impl NodeResolver for TranslateNodeResolver<'_> {
-    fn resolve_endpoint(&self, node_id: &NodeId) -> Option<ResolvedEndpoint> {
-        if self.score_bindings.contains_key(node_id) {
-            return Some(notation_tip_endpoint(node_id));
-        }
-        self.host
-            .as_ref()
-            .and_then(|host| host.resolve_endpoint(node_id))
-    }
-}
 
 type TargetKey = (NodeId, String);
 
@@ -84,23 +64,16 @@ pub enum TranslateError {
     TypeCheck { message: String },
     #[error("graph resolve failed: {message}")]
     Resolve { message: String },
-    #[error("remote score NodeId `{node}` has no bound ScoreSignal and no content-root tip")]
+    #[error("notation node `{node}` has no bound ScoreSignal")]
     MissingScoreBinding { node: NodeId },
-    #[error("failed to build host node index for content root: {message}")]
-    ContentIndex { message: String },
-    #[error("notation tip `{node}`: {message}")]
-    NotationFile { node: NodeId, message: String },
-    #[error("remote imp-graph node `{node}`: {message}")]
-    RemoteGraphNode { node: NodeId, message: String },
 }
 
 /// Options for Imp graph translation.
 #[derive(Debug, Clone, Copy)]
 pub struct TranslateOptions<'a> {
-    /// Host overrides for remote notation tip NodeIds (`ScoreSignal` by NodeId).
+    /// Scores for notation nodes (`NOTATION_NODE_TYPE`), by NodeId. Hosts read them from the
+    /// notation records that the graph source resolved.
     pub score_bindings: &'a BTreeMap<NodeId, ScoreSignal>,
-    /// Content root used to index remote NodeIds (notation tips + imp-graph nodes).
-    pub graph_dir: Option<&'a Path>,
 }
 
 enum NodeValue {
@@ -129,7 +102,7 @@ pub fn translate_graph(
     translate_graph_with_bindings(graph, registry, sample_rate, &BTreeMap::new())
 }
 
-/// Translates an Imp graph with host score bindings for remote notation NodeIds.
+/// Translates an Imp graph with scores for its notation nodes.
 pub fn translate_graph_with_bindings(
     graph: &Graph,
     registry: &Registry,
@@ -140,39 +113,20 @@ pub fn translate_graph_with_bindings(
         graph,
         registry,
         sample_rate,
-        TranslateOptions {
-            score_bindings,
-            graph_dir: None,
-        },
+        TranslateOptions { score_bindings },
     )
 }
 
-/// Translates an Imp graph with score bindings and an optional content root for remote NodeIds.
-pub fn translate_graph_with_options(
-    graph: &Graph,
+/// Translates a graph source (a document plus any providers for nodes it references).
+pub fn translate_graph_with_options<'a>(
+    source: impl Into<GraphSource<'a>>,
     registry: &Registry,
     sample_rate: SampleRate,
     options: TranslateOptions<'_>,
 ) -> Result<Box<dyn Sampler>, TranslateError> {
-    let mut graph = graph.clone();
-    let mut score_bindings = options.score_bindings.clone();
-    let index = prepare_remote_resolve(
-        &mut graph,
-        options.graph_dir,
-        registry,
-        &mut score_bindings,
-    )?;
-
-    let host = options.graph_dir.map(|root| HostResolver {
-        content_root: root,
-        index: &index,
-        registry,
-    });
-    let resolver = TranslateNodeResolver {
-        score_bindings: &score_bindings,
-        host,
-    };
-    let type_errors = check_graph_with_resolver(&graph, registry, Some(&resolver));
+    let source: GraphSource<'a> = source.into();
+    let score_bindings = options.score_bindings;
+    let type_errors = check_graph(source, registry);
     if let Some(error) = type_errors.first() {
         return Err(TranslateError::TypeCheck {
             message: error.message.clone(),
@@ -180,7 +134,7 @@ pub fn translate_graph_with_options(
     }
 
     let graph =
-        flatten_graph(&graph, registry).map_err(|message| TranslateError::Resolve { message })?;
+        flatten_graph(source, registry).map_err(|message| TranslateError::Resolve { message })?;
 
     let output_node = find_output_node(&graph)?;
     let edges_by_target = index_edges_by_target(&graph);
@@ -192,7 +146,7 @@ pub fn translate_graph_with_options(
         sample_rate,
         &edges_by_target,
         &mut visiting,
-        &score_bindings,
+        score_bindings,
         &output_node,
         "value",
     )? {
@@ -254,80 +208,6 @@ fn index_edges_by_target(graph: &Graph) -> BTreeMap<TargetKey, Vec<PortReference
         .collect()
 }
 
-/// Materialize remote `imp-graph` nodes into the working graph and bind notation tip scores.
-///
-/// Notation tips stay absent from `Graph.nodes` and are typechecked/evaluated via host resolve.
-fn prepare_remote_resolve(
-    graph: &mut Graph,
-    content_root: Option<&Path>,
-    _registry: &Registry,
-    score_bindings: &mut BTreeMap<NodeId, ScoreSignal>,
-) -> Result<HostNodeIndex, TranslateError> {
-    let Some(root) = content_root else {
-        return Ok(HostNodeIndex::new());
-    };
-
-    let index = build_host_node_index(root).map_err(|err| TranslateError::ContentIndex {
-        message: err.to_string(),
-    })?;
-
-    let mut candidates = BTreeSet::new();
-    for edge in graph.edges.values() {
-        candidates.insert(edge.from.node.clone());
-        candidates.insert(edge.to.node.clone());
-    }
-
-    for node_id in candidates {
-        if graph.nodes.contains_key(&node_id) {
-            continue;
-        }
-        let Some(node_ref) = index.get(&node_id) else {
-            continue;
-        };
-        match node_ref.kind.as_str() {
-            "imp-graph" => {
-                let path = authoring_path_for_mir_record(root, &node_ref.mir_record_id);
-                let content = std::fs::read_to_string(&path).map_err(|err| {
-                    TranslateError::RemoteGraphNode {
-                        node: node_id.clone(),
-                        message: err.to_string(),
-                    }
-                })?;
-                let tip = aura_imp::graph_from_json_str(&content).map_err(|err| {
-                    TranslateError::RemoteGraphNode {
-                        node: node_id.clone(),
-                        message: err.to_string(),
-                    }
-                })?;
-                let node = tip.nodes.get(&node_id).cloned().ok_or_else(|| {
-                    TranslateError::RemoteGraphNode {
-                        node: node_id.clone(),
-                        message: format!(
-                            "node missing from tip `{}`",
-                            node_ref.mir_record_id
-                        ),
-                    }
-                })?;
-                graph.nodes.insert(node_id, node);
-            }
-            "notation" => {
-                if score_bindings.contains_key(&node_id) {
-                    continue;
-                }
-                let path = authoring_path_for_mir_record(root, &node_ref.mir_record_id);
-                let score =
-                    score_from_notation_path(&path).map_err(|err| TranslateError::NotationFile {
-                        node: node_id.clone(),
-                        message: err.to_string(),
-                    })?;
-                score_bindings.insert(node_id, ScoreSignal::finite(score));
-            }
-            _ => {}
-        }
-    }
-    Ok(index)
-}
-
 fn translate_node(
     graph: &Graph,
     registry: &Registry,
@@ -345,9 +225,14 @@ fn translate_node(
     }
 
     let Some(node) = graph.nodes.get(node_id) else {
-        // Host-resolved remote (typically a notation tip NodeId).
-        let _ = (registry, sample_rate, edges_by_target, output_port);
-        let result = match score_bindings.get(node_id) {
+        visiting.remove(node_id);
+        return Err(TranslateError::UnknownNode {
+            node: node_id.into(),
+        });
+    };
+
+    let result = match node.node_type.as_str() {
+        NOTATION_NODE_TYPE => match score_bindings.get(node_id) {
             Some(signal) if output_port == "score" => Ok(NodeValue::ScoreSignal(signal.clone())),
             Some(_) => Err(TranslateError::MissingOutputPort {
                 node: node_id.into(),
@@ -356,12 +241,7 @@ fn translate_node(
             None => Err(TranslateError::MissingScoreBinding {
                 node: node_id.into(),
             }),
-        };
-        visiting.remove(node_id);
-        return result;
-    };
-
-    let result = match node.node_type.as_str() {
+        },
         "output" => {
             let source = wired_source(edges_by_target, node_id, "value")?;
             translate_node(
@@ -2142,144 +2022,7 @@ mod tests {
     }
 
     #[test]
-    fn translate_static_arpeggio_demo_by_notation_tip_id() {
-        let json = include_str!("../../../../demos/demo-02.json");
-        let graph = aura_imp::graph_from_json_str(json).expect("graph");
-        let graph_path = workspace_demo_path("demo-02.json");
-        let libraries = discover_graph_libraries(&graph_path).expect("libraries");
-        let registry = aura_registry_with_libraries(&libraries).expect("registry");
-        translate_graph_with_options(
-            &graph,
-            &registry,
-            SampleRate::RATE_44100,
-            TranslateOptions {
-                score_bindings: &BTreeMap::new(),
-                graph_dir: graph_path.parent(),
-            },
-        )
-        .expect("translate");
-    }
-
-    #[test]
-    fn remote_notation_tip_id_loads_via_content_root_index() {
-        use aura_imp::{Edge, Graph, Node, PortReference};
-        use std::fs;
-        use tempfile::tempdir;
-
-        let dir = tempdir().expect("tempdir");
-        let tip_id = "01MTESTNOTATIONTIP000000001";
-        fs::write(
-            dir.path().join("arp.json"),
-            format!(
-                r#"{{
-              "type": "notation",
-              "id": "{tip_id}",
-              "version": 1,
-              "tempoBpm": 120.0,
-              "timeSignature": {{ "beatsPerBar": 4, "beatUnit": 4 }},
-              "events": [
-                {{ "semitone": 57, "startBeats": 0.0, "durationBeats": 1.0, "velocity": 1.0 }}
-              ]
-            }}"#
-            ),
-        )
-        .expect("write notation");
-
-        let registry = aura_registry().expect("registry");
-        let graph = Graph {
-            nodes: BTreeMap::from([
-                (
-                    "clock".into(),
-                    Node {
-                        id: "clock".into(),
-                        title: None,
-                        node_type: "time".into(),
-                        type_args: vec![],
-                        inputs: BTreeMap::new(),
-                    },
-                ),
-                (
-                    "voice".into(),
-                    Node {
-                        id: "voice".into(),
-                        title: None,
-                        node_type: "poly_sine_score".into(),
-                        type_args: vec![],
-                        inputs: BTreeMap::new(),
-                    },
-                ),
-                (
-                    "out".into(),
-                    Node {
-                        id: "out".into(),
-                        title: None,
-                        node_type: "output".into(),
-                        type_args: vec![],
-                        inputs: BTreeMap::new(),
-                    },
-                ),
-            ]),
-            edges: BTreeMap::from([
-                (
-                    "score_to_voice".into(),
-                    Edge {
-                        from: PortReference {
-                            node: tip_id.into(),
-                            port: "score".into(),
-                        },
-                        to: PortReference {
-                            node: "voice".into(),
-                            port: "score".into(),
-                        },
-                        order: None,
-                    },
-                ),
-                (
-                    "time_to_voice".into(),
-                    Edge {
-                        from: PortReference {
-                            node: "clock".into(),
-                            port: "time".into(),
-                        },
-                        to: PortReference {
-                            node: "voice".into(),
-                            port: "time".into(),
-                        },
-                        order: None,
-                    },
-                ),
-                (
-                    "voice_to_out".into(),
-                    Edge {
-                        from: PortReference {
-                            node: "voice".into(),
-                            port: "audio".into(),
-                        },
-                        to: PortReference {
-                            node: "out".into(),
-                            port: "value".into(),
-                        },
-                        order: None,
-                    },
-                ),
-            ]),
-        };
-
-        let sampler = translate_graph_with_options(
-            &graph,
-            &registry,
-            SampleRate::RATE_44100,
-            TranslateOptions {
-                score_bindings: &BTreeMap::new(),
-                graph_dir: Some(dir.path()),
-            },
-        )
-        .expect("translate");
-        assert_eq!(sampler.at(0.0), sampler.at(0.0));
-    }
-
-    #[test]
-    fn missing_notation_tip_without_content_root_typechecks_as_unknown() {
+    fn unresolved_notation_endpoint_typechecks_as_unknown() {
         use aura_imp::{Edge, Graph, Node, PortReference};
 
         let registry = aura_registry().expect("registry");
@@ -2437,12 +2180,13 @@ mod tests {
     }
 
     #[test]
-    fn remote_score_binding_feeds_poly_sine_and_mixes_chords() {
+    fn notation_node_score_binding_feeds_poly_sine_and_mixes_chords() {
         use aura_imp::{Edge, Graph, Node, PortReference};
+        use aura_imp::LayeredNodes;
         use aura_sequencing::{NoteEvent, Score, Semitone, Tempo, TimeSignature};
 
         let registry = aura_registry().expect("registry");
-        let remote_id = "remote_score_tip";
+        let remote_id = "notation_record";
         let graph = Graph {
             nodes: BTreeMap::from([
                 (
@@ -2535,11 +2279,31 @@ mod tests {
             remote_id.into(),
             ScoreSignal::finite(score),
         )]);
-        let sampler = translate_graph_with_bindings(
-            &graph,
+        // The notation is a node from another provider (a Tome store in hosts), not the document.
+        let notation_nodes = BTreeMap::from([(
+            remote_id.to_string(),
+            Node {
+                id: remote_id.into(),
+                title: None,
+                node_type: NOTATION_NODE_TYPE.into(),
+                type_args: vec![],
+                inputs: BTreeMap::new(),
+            },
+        )]);
+        let nodes = LayeredNodes {
+            providers: vec![&graph.nodes, &notation_nodes],
+        };
+        let source = GraphSource {
+            nodes: &nodes,
+            edges: &graph.edges,
+        };
+        let sampler = translate_graph_with_options(
+            source,
             &registry,
             SampleRate::RATE_44100,
-            &bindings,
+            TranslateOptions {
+                score_bindings: &bindings,
+            },
         )
         .expect("translate");
 
@@ -2596,7 +2360,7 @@ mod tests {
             )]),
         };
 
-        let errors = check_graph_with_resolver(&graph, &registry, None);
+        let errors = check_graph(&graph, &registry);
         assert!(
             errors.iter().any(|e| e.message.contains("Loopable")
                 || e.message.contains("does not satisfy bound")

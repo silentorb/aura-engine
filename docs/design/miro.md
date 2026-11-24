@@ -9,15 +9,13 @@ Declarative requirements for Aura’s use of Mir/Miro. Motivation: multi-represe
 - Aura **must** use SQLite as the Miro database projection (via `imp_mir`’s generic SQLite store).
 - Aura host helpers **may** map Aura JSON `type` into opaque Mir record `kind` and pull Imp `Graph` values through `aura_imp` JSON helpers.
 - Direct `load_graph` / filesystem open paths **must** keep working; Miro is an additive parallel session path.
-- Product open / resolve keys **must** be Imp **NodeId**s. Aura **must** maintain a host index `NodeId → { mir_record_id, kind }` over the content root (`imp-graph` local node ids; `notation` tip `id`). Mir `pull_record` takes the opaque Mir record id from that index — never treat a NodeId as a filesystem path.
-- Headless translate with a content root **must** use that same index as an Imp host NodeId resolver: materialize missing `imp-graph` endpoints into the working local map, and bind notation tip NodeIds to `ScoreSignal` without inserting an Imp proxy type.
+- Mir `pull_record` takes an opaque Mir record id — never treat a NodeId as a filesystem path.
+- Aura **must not** resolve NodeIds a graph references but does not hold. That is an Imp and Tome concern: translation reads a graph source (the document layered with Tome's `tome_imp` node provider over a Tome project), and Aura only contributes node types (e.g. the notation node type, whose id is the Notation type node).
 - Opaque Mir record ids **may** be encoded by the text store as root-relative paths; that encoding is host/store policy, not a Mir-normative or product API.
-- The editor **must** expose a durable Miro pull workflow into app memory (`ModelGraph`): open a `Session` for a content root, resolve a NodeId through the host index, pull the Mir blob, and materialize it through the stacked document-type pipeline. Product open **must** be Miro-first (workspace + open-by-NodeId); filesystem open remains as a secondary escape hatch. Direct `load_graph` for CLI/demos **must** keep working.
-- Editor app memory for Imp graphs **must** treat `ModelGraph.graph.nodes` as the Imp **local** instance map for that tab. Pulled JSON **must** preserve edge topology even when endpoints lack a local node entry. Hosts **must** treat indexed missing NodeIds as host-resolved remotes (typecheck/translate via Miro index); OpenNode **may** copy an `imp-graph` node into the local map, and **may** open a notation tip tab without inserting a fake Imp node — not as a Mir observe sink.
-- Notation tips used with Miro **must** carry a stable tip-level `id` (NodeId) so they can be indexed without colliding on a fixed placeholder.
 
 ## Non-goals / avoided approaches
 
+- An Aura host NodeId index or `NodeResolver` over a content root (or any other Aura-side node resolution, including synthetic definitions such as `#aura/notation`): node resolution belongs to Imp graph sources and Tome
 - An `aura_mir` fabric crate that duplicates `imp_mir`
 - Encoding Aura path layouts or SQL schemas as Mir-normative requirements
 - Promoting path-shaped Mir blob keys as the editor/product open identity

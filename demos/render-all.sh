@@ -16,6 +16,7 @@ echo "Wrote output/demo-01.wav"
 
 cargo run -p aura_cli --quiet -- \
   --graph demos/demo-02.json \
+  --project lab-pack/demo-project/imp-project.json \
   --output output/demo-02.wav \
   --duration 8m \
   --tempo 120 \

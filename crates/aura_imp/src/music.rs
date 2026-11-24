@@ -20,6 +20,16 @@ fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option
     }
 }
 
+/// Imp node type of a notation record.
+///
+/// Tome types are nodes: a notation record is an instance of the Notation type-table hub, so the
+/// hub's id is the node type. It must match imp-lab's lab model (`lab_model::NOTATION_TABLE_ID`).
+/// A node of this type has one `score` output, taken from the record's `notation` body.
+pub const NOTATION_NODE_TYPE: &str = "01M80M9N0TAT00000000000001";
+
+/// Record column holding a notation record's body (imp-lab lab model).
+pub const NOTATION_COLUMN: &str = "notation";
+
 /// Returns the Aura music node library.
 pub fn music_node_library() -> NodeLibrary {
     let control = signal(CONTROL);
@@ -357,6 +367,14 @@ pub fn music_node_library() -> NodeLibrary {
                 "audio".into(),
                 port("audio", signal(AUDIO_MONO), None),
             )]),
+        ),
+        // A notation record: its score comes from the record itself (see `NOTATION_NODE_TYPE`).
+        primitive_node(
+            NOTATION_NODE_TYPE,
+            Vec::new(),
+            None,
+            BTreeMap::new(),
+            BTreeMap::from([("score".into(), port("score", signal(SCORE), None))]),
         ),
     ];
 

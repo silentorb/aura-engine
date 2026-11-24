@@ -96,8 +96,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",
- "tome_db",
- "tome_flatfile",
 ]
 
 [[package]]
@@ -125,6 +123,7 @@ dependencies = [
  "aura_sample",
  "aura_scheduler",
  "aura_sequencing",
+ "imp_core_types",
  "imp_graph_resolve",
  "imp_mir",
  "imp_typecheck",
@@ -132,6 +131,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",
+ "tome_imp",
 ]
 
 [[package]]
@@ -1348,6 +1348,17 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "tome_imp"
+version = "0.1.0"
+dependencies = [
+ "imp_core_types",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tome_db",
+ "tome_graph_interfaces",
 ]
 
 [[package]]

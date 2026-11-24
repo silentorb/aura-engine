@@ -13,7 +13,8 @@ pub mod signals;
 pub mod time;
 
 pub use imp_core_types::{
-    concrete_type, core_node_library, Edge, EdgeId, Graph, GraphLibrary, InputValues, Node,
+    concrete_type, core_node_library, graph_source, materialize_graph, Edge, EdgeId, Graph,
+    GraphLibrary, GraphSource, InputValues, LayeredNodes, Node, NodeProvider,
     NodeDefinition, NodeId, NodeLibrary, NodeType, NodeTypeId, Port, PortId, PortReference, Ports,
     PrimitiveValue, SignalType, SignalTypeId,
 };
@@ -23,6 +24,7 @@ pub use imp_registry::{
     list_graph_libraries, list_libraries, list_node_types, load_graph_library, load_library,
     load_type_constraint_library, DuplicateNodeTypeError, Registry,
 };
+pub use music::{NOTATION_COLUMN, NOTATION_NODE_TYPE};
 pub use registry::{
     aura_registry, aura_registry_with_libraries, discover_graph_libraries,
     discover_graph_library_paths, graph_from_json_path, graph_from_json_str,
