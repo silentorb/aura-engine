@@ -1,6 +1,6 @@
 [package]
 name = "aura_render"
-description = "Offline audio rendering for Aura"
+description = "Deterministic and streaming audio rendering for Aura"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 aura_dsp = { path = "../aura_dsp" }
 aura_sample = { path = "../aura_sample" }
+aura_sequencing = { path = "../aura_sequencing" }
 thiserror = { workspace = true }
 
 [dev-dependencies]

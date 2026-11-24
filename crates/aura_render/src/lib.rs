@@ -1,4 +1,12 @@
-//! Offline audio rendering for Aura.
+//! Audio rendering for Aura: deterministic sampling ([`Sampler`]) and streaming blocks
+//! ([`BlockSource`]).
+
+mod streaming;
+
+pub use streaming::{
+    voice_channel, BlockSource, StreamVoice, VoiceCommand, VoiceMixer, VoiceSendError,
+    VoiceSender, MAX_VOICES,
+};
 
 use aura_sample::{duration_to_frame_count, SampleRate};
 use thiserror::Error;

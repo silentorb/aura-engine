@@ -162,6 +162,7 @@ version = "0.1.0"
 dependencies = [
  "aura_dsp",
  "aura_sample",
+ "aura_sequencing",
  "thiserror 2.0.20",
 ]
 
@@ -594,6 +595,7 @@ name = "imp_core_types"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]

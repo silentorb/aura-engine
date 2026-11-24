@@ -32,4 +32,5 @@ See [Silent Orb: Scoping and Design](https://silentorb.com/business/product/scop
 | [`architecture.md`](architecture.md) | System overview, crate layout, data flow |
 | [`imp-execution.md`](imp-execution.md) | Imp graph Time → Sample execution model |
 | [`notation-synthesis.md`](notation-synthesis.md) | Notation → audio pipeline and integration rules |
+| [`playback-modes.md`](playback-modes.md) | Deterministic and streaming modes; per-node streaming implementations |
 | [`../rust-style.md`](../rust-style.md) | Rust crate naming and layout conventions |

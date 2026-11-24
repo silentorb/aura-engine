@@ -1,4 +1,9 @@
 //! Imp Lab `service` extension: Imp graph + Aura notation playback via CPAL.
+//!
+//! Transport playback (`start` / `stop` / `toggle`) renders in deterministic mode. Live note
+//! audition (`event`: note on / off) renders in streaming mode; see [`audition`].
+
+pub mod audition;
 
 use aura_imp::{
     aura_registry_with_libraries, discover_graph_libraries, graph_from_json_str,
@@ -29,7 +34,7 @@ pub fn is_project_config(path: &Path) -> bool {
     })
 }
 
-const SAMPLE_RATE: SampleRate = SampleRate::RATE_44100;
+pub(crate) const SAMPLE_RATE: SampleRate = SampleRate::RATE_44100;
 const SERVICE_IMPLEMENTATION_ID: &str = "playback";
 
 struct PlaybackState {
@@ -63,6 +68,8 @@ pub enum PlaybackServiceError {
     Translate(String),
     #[error("playback: {0}")]
     Playback(String),
+    #[error("event: {0}")]
+    Event(String),
     #[error("internal lock poisoned")]
     Poisoned,
 }
@@ -376,6 +383,28 @@ unsafe extern "C" fn service_position_secs(_ctx: *mut c_void) -> f64 {
     position_secs().unwrap_or(0.0)
 }
 
+unsafe extern "C" fn service_event(
+    _ctx: *mut c_void,
+    json: *const c_uchar,
+    len: usize,
+    err_out: *mut c_char,
+    err_len: usize,
+) -> c_int {
+    if json.is_null() || len == 0 {
+        let err = PlaybackServiceError::Event("event JSON is required".into());
+        return fail(err_out, err_len, err);
+    }
+    // SAFETY: the host passes a valid buffer of `len` bytes for the duration of the call.
+    let bytes = unsafe { std::slice::from_raw_parts(json, len) };
+    let result = std::str::from_utf8(bytes)
+        .map_err(|e| PlaybackServiceError::Event(e.to_string()))
+        .and_then(audition::handle_event);
+    match result {
+        Ok(()) => 0,
+        Err(e) => fail(err_out, err_len, e),
+    }
+}
+
 /// Record the pack's demo instruments library (same search as the catalogs extension) so
 /// project playback can build voices like `sine_note_voice`.
 fn remember_pack_libraries(host: &ImpLabHostV0) {
@@ -435,6 +464,7 @@ pub unsafe extern "C" fn imp_lab_extension_register(host: *const ImpLabHostV0) -
         toggle: Some(service_toggle),
         is_playing: Some(service_is_playing),
         position_secs: Some(service_position_secs),
+        event: Some(service_event),
     };
     let id = match CString::new(SERVICE_IMPLEMENTATION_ID) {
         Ok(s) => s,
@@ -485,10 +515,15 @@ mod tests {
             .join(rel)
     }
 
-    #[test]
-    fn project_playback_resolves_the_notation_record_demo_02_uses() {
+    /// Points playback at the pack's instruments library, as registration does in Lab.
+    pub(crate) fn use_pack_libraries() {
         *pack_library_paths().lock().unwrap() =
             vec![workspace_path("lab-pack/catalogs/instruments.json")];
+    }
+
+    #[test]
+    fn project_playback_resolves_the_notation_record_demo_02_uses() {
+        use_pack_libraries();
         let config = workspace_path("lab-pack/demo-project/imp-project.json");
         assert!(is_project_config(&config));
         assert!(!is_project_config(&workspace_path("demos/demo-02.json")));

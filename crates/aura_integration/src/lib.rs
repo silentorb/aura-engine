@@ -33,7 +33,7 @@ pub use tome_source::{
 };
 pub use translate::{
     find_output_node, sampler_from_score, translate_graph_with_bindings,
-    translate_graph_with_options, TranslateError, TranslateOptions,
+    translate_graph_with_options, StreamingProgram, TranslateError, TranslateOptions,
 };
 
 #[derive(Debug, Error)]

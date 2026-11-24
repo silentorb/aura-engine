@@ -34,6 +34,10 @@ Translation walks the DAG once and composes nested closures (`Sampler::at(t)`). 
 
 Seekability and purity are testable (`at(t)` twice is identical; sparse `t` matches a sequential pass).
 
+## Translation modes
+
+Translation targets one of two modes ([`playback-modes.md`](playback-modes.md)). **Deterministic** is the default and has the properties above. **Streaming** translates a voice graph once per live note; `t` only moves forward and is voice-local. Every node type has a deterministic implementation and may have a streaming one; streaming builds the streaming implementation when it exists and the deterministic one otherwise. The runtime form is the same `Sampler::at(t)` graph in both modes, and nodes never check the mode while sampling.
+
 ## Translate-time vs sample-time
 
 | Kind | When | Examples |
@@ -50,11 +54,12 @@ Render duration is passed alongside the graph (`SampleSpec` / CLI `--duration`).
 ## Non-goals / avoided approaches
 
 - Stock `imp_execution` (tabular row evaluation) for continuous audio
-- FunDSP-style sequential `tick` state for the primary sampler path
+- FunDSP-style sequential `tick` state for the primary (deterministic) sampler path
+- Mode flags read per sample; the mode is chosen once, at translation
 - Interpreting Imp nodes per sample instead of compiling once at translate time
 
 ## Deferred
 
 - Higher-order graphs (graph produces graph)
 - Buffer/block batching without changing `f(t)` semantics
-- Real-time CPAL sampler path
+- Streaming-only stateful optimizations (see [`playback-modes.md`](playback-modes.md))

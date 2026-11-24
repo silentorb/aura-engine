@@ -1,0 +1,227 @@
+//! Live note audition: streaming-mode voices started and released by Lab service events.
+//!
+//! Each `note_on` instantiates the audition instrument (`sine_note_voice` from the Lab pack)
+//! for one live note; `note_off` releases it so its streaming envelope rings out. Voices mix on a
+//! persistent [`StreamingOutput`], independent of deterministic transport playback.
+
+use crate::{playback_registry, PlaybackServiceError, SAMPLE_RATE};
+use aura_imp::{graph_from_json_str, NOTATION_NODE_TYPE};
+use aura_integration::StreamingProgram;
+use aura_io_cpal::StreamingOutput;
+use aura_render::{voice_channel, StreamVoice, VoiceSender};
+use aura_sequencing::{LiveNote, NoteParams, Semitone};
+use serde_json::Value;
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// Instrument graph type that auditions notes (Lab pack `catalogs/instruments.json`).
+pub const AUDITION_INSTRUMENT: &str = "sine_note_voice";
+
+/// A Lab service event for live audition.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AuditionEvent {
+    NoteOn {
+        id: u64,
+        semitone: i16,
+        velocity: f32,
+    },
+    NoteOff {
+        id: u64,
+    },
+    AllNotesOff,
+}
+
+/// Parses `{"type":"note_on","id":1,"semitone":60,"velocity":1}`, `{"type":"note_off","id":1}`,
+/// or `{"type":"all_notes_off"}`.
+pub fn parse_event(json: &str) -> Result<AuditionEvent, PlaybackServiceError> {
+    let bad = |message: &str| PlaybackServiceError::Event(message.to_string());
+    let value: Value = serde_json::from_str(json).map_err(|e| bad(&e.to_string()))?;
+    let id = || {
+        value
+            .get("id")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| bad("event needs a non-negative integer `id`"))
+    };
+    match value.get("type").and_then(Value::as_str) {
+        Some("note_on") => {
+            let semitone = value
+                .get("semitone")
+                .and_then(Value::as_i64)
+                .and_then(|s| i16::try_from(s).ok())
+                .ok_or_else(|| bad("note_on needs an integer `semitone`"))?;
+            let velocity = value
+                .get("velocity")
+                .and_then(Value::as_f64)
+                .map_or(1.0, |v| v.clamp(0.0, 1.0) as f32);
+            Ok(AuditionEvent::NoteOn {
+                id: id()?,
+                semitone,
+                velocity,
+            })
+        }
+        Some("note_off") => Ok(AuditionEvent::NoteOff { id: id()? }),
+        Some("all_notes_off") => Ok(AuditionEvent::AllNotesOff),
+        Some(other) => Err(bad(&format!("unknown event type `{other}`"))),
+        None => Err(bad("event needs a string `type`")),
+    }
+}
+
+/// The audition graph: a notation node (the live note) through the audition instrument.
+fn audition_graph_json() -> String {
+    format!(
+        r#"{{
+          "nodes": {{
+            "note": {{ "id": "note", "type": "{NOTATION_NODE_TYPE}", "inputs": {{}} }},
+            "time": {{ "id": "time", "type": "time", "inputs": {{}} }},
+            "voice": {{ "id": "voice", "type": "{AUDITION_INSTRUMENT}", "inputs": {{}} }},
+            "out": {{ "id": "out", "type": "output", "inputs": {{}}, "title": "out" }}
+          }},
+          "edges": {{
+            "score": {{ "id": "score", "from": {{ "node": "note", "port": "score" }}, "to": {{ "node": "voice", "port": "score" }} }},
+            "time": {{ "id": "time", "from": {{ "node": "time", "port": "time" }}, "to": {{ "node": "voice", "port": "time" }} }},
+            "audio": {{ "id": "audio", "from": {{ "node": "voice", "port": "audio" }}, "to": {{ "node": "out", "port": "value" }} }}
+          }}
+        }}"#
+    )
+}
+
+/// Prepares the audition instrument for streaming with the Lab pack's libraries.
+pub fn audition_program() -> Result<StreamingProgram, PlaybackServiceError> {
+    let graph = graph_from_json_str(&audition_graph_json())
+        .map_err(|e| PlaybackServiceError::GraphJson(e.to_string()))?;
+    let registry = playback_registry(None)?;
+    StreamingProgram::prepare(&graph, &registry, SAMPLE_RATE)
+        .map_err(|e| PlaybackServiceError::Translate(e.to_string()))
+}
+
+/// A voice of `program` sounding a new live note.
+pub fn audition_voice(
+    program: &StreamingProgram,
+    semitone: i16,
+    velocity: f32,
+) -> Result<StreamVoice, PlaybackServiceError> {
+    let live = Arc::new(LiveNote::new(
+        Semitone(semitone),
+        velocity,
+        NoteParams::new(),
+    ));
+    let root = program
+        .instantiate(Arc::clone(&live))
+        .map_err(|e| PlaybackServiceError::Translate(e.to_string()))?;
+    Ok(StreamVoice::new(root, live, SAMPLE_RATE))
+}
+
+struct Audition {
+    program: StreamingProgram,
+    voices: VoiceSender,
+    _output: StreamingOutput,
+}
+
+impl Audition {
+    fn open() -> Result<Self, PlaybackServiceError> {
+        let program = audition_program()?;
+        let (voices, mixer) = voice_channel();
+        let output = StreamingOutput::open(Box::new(mixer), SAMPLE_RATE)
+            .map_err(|e| PlaybackServiceError::Playback(e.to_string()))?;
+        Ok(Self {
+            program,
+            voices,
+            _output: output,
+        })
+    }
+}
+
+fn audition() -> &'static Mutex<Option<Audition>> {
+    static AUDITION: OnceLock<Mutex<Option<Audition>>> = OnceLock::new();
+    AUDITION.get_or_init(|| Mutex::new(None))
+}
+
+/// Applies one audition event. The streaming output opens on the first `note_on`.
+pub fn handle_event(json: &str) -> Result<(), PlaybackServiceError> {
+    let event = parse_event(json)?;
+    let mut guard = audition()
+        .lock()
+        .map_err(|_| PlaybackServiceError::Poisoned)?;
+    let sent = match event {
+        AuditionEvent::NoteOn {
+            id,
+            semitone,
+            velocity,
+        } => {
+            if guard.is_none() {
+                *guard = Some(Audition::open()?);
+            }
+            let Some(audition) = guard.as_ref() else {
+                return Ok(());
+            };
+            let voice = audition_voice(&audition.program, semitone, velocity)?;
+            audition.voices.note_on(id, voice)
+        }
+        // Nothing sounds before the first note-on.
+        AuditionEvent::NoteOff { id } => match guard.as_ref() {
+            Some(audition) => audition.voices.note_off(id),
+            None => Ok(()),
+        },
+        AuditionEvent::AllNotesOff => match guard.as_ref() {
+            Some(audition) => audition.voices.all_off(),
+            None => Ok(()),
+        },
+    };
+    sent.map_err(|e| PlaybackServiceError::Playback(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aura_render::BlockSource;
+
+    #[test]
+    fn parses_note_events() {
+        assert_eq!(
+            parse_event(r#"{"type":"note_on","id":3,"semitone":64,"velocity":0.5}"#).unwrap(),
+            AuditionEvent::NoteOn {
+                id: 3,
+                semitone: 64,
+                velocity: 0.5
+            }
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"note_on","id":1,"semitone":60}"#).unwrap(),
+            AuditionEvent::NoteOn {
+                id: 1,
+                semitone: 60,
+                velocity: 1.0
+            }
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"note_off","id":3}"#).unwrap(),
+            AuditionEvent::NoteOff { id: 3 }
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"all_notes_off"}"#).unwrap(),
+            AuditionEvent::AllNotesOff
+        );
+        assert!(parse_event(r#"{"type":"note_on","id":1}"#).is_err());
+        assert!(parse_event(r#"{"type":"bend","id":1}"#).is_err());
+        assert!(parse_event("not json").is_err());
+    }
+
+    #[test]
+    fn audition_instrument_streams_from_the_pack_without_a_device() {
+        crate::tests::use_pack_libraries();
+        let program = audition_program().expect("audition program");
+        let (voices, mut mixer) = voice_channel();
+        voices
+            .note_on(1, audition_voice(&program, 69, 1.0).expect("voice"))
+            .unwrap();
+        let mut block = vec![0.0; 4410];
+        mixer.render_block(&mut block);
+        let peak = block.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+        assert!(peak > 0.5, "audible while held, peak {peak}");
+
+        voices.note_off(1).unwrap();
+        for _ in 0..4 {
+            mixer.render_block(&mut block);
+        }
+        assert_eq!(mixer.voice_count(), 0, "voice retires after its release");
+    }
+}

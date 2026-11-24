@@ -26,3 +26,4 @@ Optimize for **capture** over perfect organization. Prefer adding a short note t
 |----------|-------------|
 | [`product.md`](product.md) | Vision, goals, open questions |
 | [`background.md`](background.md) | Cross-cutting background, multi-repo/env context, avoided directions |
+| [`playback-modes.md`](playback-modes.md) | Why deterministic is primary and streaming degrades from it |

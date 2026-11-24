@@ -2,7 +2,7 @@
 
 ## Summary
 
-Instrument trait, per-note sampling, envelopes, and mix-down for offline render.
+Instrument trait, per-note sampling, envelopes, and mix-down for offline render. `LinearAdsr` has a deterministic evaluation (`value_at`, release inside the known note length) and a streaming one (`gated_value_at`, release from note-off), driven by the same parameters ([playback modes](../../../design/playback-modes.md)).
 
 ## Requirements
 

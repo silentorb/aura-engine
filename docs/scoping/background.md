@@ -8,11 +8,11 @@ Aura spans composition, synthesis, scheduling, and I/O. A single crate with modu
 
 ## Audio paths
 
-Aura needs both offline rendering (disk) and eventual real-time playback, with shared synthesis between paths and sane Rust-ecosystem integration (DASP, CPAL).
+Aura needs both offline rendering (disk) and real-time playback, with shared synthesis between paths and sane Rust-ecosystem integration (DASP, CPAL). Real-time use splits into deterministic transport playback and reactive streaming (note audition, live MIDI); see [`playback-modes.md`](playback-modes.md).
 
 ## Dev environment
 
-Primary development is WSL via **aura-workbench** (Dev Container + Compose): separate containers for the engine and editor. Real-time audio output is unreliable in this setup. Offline WAV validation is the practical first path; live CPAL remains deferred until the environment supports it.
+Primary development is WSL via **aura-workbench** (Dev Container + Compose): separate containers for the engine and editor. Real-time audio output is unreliable in this setup. Offline WAV validation is the practical automated path; live CPAL output is heard on the Windows Imp Lab export.
 
 ## Multi-repo layout
 
@@ -34,7 +34,7 @@ imp-rs is bind-mounted at `.mnt/imp-rs` (host `~/dev/imp-rs`) so Cargo path deps
 
 ## Seekable sampling vs sequential DSP
 
-Aura targets explicit time and seekable pure `f(t)` sampling. Sequential `tick` DSP (phase accumulators, filter history between samples) is deterministic when run in order but is not a pure function of time — seeking requires simulating prior samples. That conflict is why FunDSP-style tick units are avoided; see design non-goals in [`../design/imp-execution.md`](../design/imp-execution.md) and [`../crates/aura_dsp/design/overview.md`](../crates/aura_dsp/design/overview.md).
+Aura targets explicit time and seekable pure `f(t)` sampling. Sequential `tick` DSP (phase accumulators, filter history between samples) is deterministic when run in order but is not a pure function of time — seeking requires simulating prior samples. That conflict is why FunDSP-style tick units are avoided; see design non-goals in [`../design/imp-execution.md`](../design/imp-execution.md) and [`../crates/aura_dsp/design/overview.md`](../crates/aura_dsp/design/overview.md). Streaming mode only ever runs forward, so it is where sequential optimizations may eventually live, as optional streaming implementations ([`playback-modes.md`](playback-modes.md)).
 
 ## Domain separation
 

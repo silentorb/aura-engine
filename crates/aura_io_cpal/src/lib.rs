@@ -1,9 +1,11 @@
 //! Real-time audio playback for Aura via CPAL.
 //!
-//! Streams a pure [`Sampler`] through the default output device. Device
-//! availability depends on the host environment (WSL/devcontainer may have none).
+//! Deterministic mode plays a pure [`Sampler`] on the default output device
+//! ([`PlaybackEngine`]); streaming mode pulls blocks from a [`BlockSource`]
+//! ([`StreamingOutput`]). Device availability depends on the host environment
+//! (WSL/devcontainer may have none).
 
-use aura_render::Sampler;
+use aura_render::{BlockSource, Sampler};
 use aura_sample::SampleRate;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, Stream};
@@ -88,17 +90,6 @@ impl PlaybackEngine {
     ) -> Result<(), PlaybackError> {
         self.stop();
 
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or(PlaybackError::NoOutputDevice)?;
-        let default_config = device
-            .default_output_config()
-            .map_err(PlaybackError::DefaultConfig)?;
-
-        let mut config: cpal::StreamConfig = default_config.into();
-        config.sample_rate = sample_rate.get();
-
         let rate = f64::from(sample_rate.get());
         let start_sample = if start_secs <= 0.0 || rate <= 0.0 {
             0
@@ -106,42 +97,15 @@ impl PlaybackEngine {
             (start_secs * rate).round().max(0.0) as u64
         };
         let sample_clock = Arc::new(AtomicU64::new(start_sample));
+        let clock = Arc::clone(&sample_clock);
 
-        let stream = match default_config.sample_format() {
-            SampleFormat::F32 => {
-                build_stream::<f32>(&device, config, sampler, Arc::clone(&sample_clock))?
+        let stream = open_output(sample_rate, move |block: &mut [f32]| {
+            for out in block.iter_mut() {
+                let frame = clock.fetch_add(1, Ordering::Relaxed);
+                *out = sampler.at(frame as f64 / rate);
             }
-            SampleFormat::I16 => {
-                build_stream::<i16>(&device, config, sampler, Arc::clone(&sample_clock))?
-            }
-            SampleFormat::U16 => {
-                build_stream::<u16>(&device, config, sampler, Arc::clone(&sample_clock))?
-            }
-            SampleFormat::I32 => {
-                build_stream::<i32>(&device, config, sampler, Arc::clone(&sample_clock))?
-            }
-            SampleFormat::U32 => {
-                build_stream::<u32>(&device, config, sampler, Arc::clone(&sample_clock))?
-            }
-            SampleFormat::I64 => {
-                build_stream::<i64>(&device, config, sampler, Arc::clone(&sample_clock))?
-            }
-            SampleFormat::U64 => {
-                build_stream::<u64>(&device, config, sampler, Arc::clone(&sample_clock))?
-            }
-            SampleFormat::U8 => {
-                build_stream::<u8>(&device, config, sampler, Arc::clone(&sample_clock))?
-            }
-            SampleFormat::I8 => {
-                build_stream::<i8>(&device, config, sampler, Arc::clone(&sample_clock))?
-            }
-            SampleFormat::F64 => {
-                build_stream::<f64>(&device, config, sampler, Arc::clone(&sample_clock))?
-            }
-            format => return Err(PlaybackError::UnsupportedFormat(format)),
-        };
+        })?;
 
-        stream.play().map_err(PlaybackError::PlayStream)?;
         self.sample_clock = sample_clock;
         self.sample_rate_hz = rate;
         self.stream = Some(stream);
@@ -168,28 +132,93 @@ impl Drop for PlaybackEngine {
     }
 }
 
-fn build_stream<T>(
+/// Streaming-mode output: a persistent stream pulling consecutive blocks from a
+/// [`BlockSource`] (typically a voice mixer fed note events from a control thread).
+///
+/// Opened once and kept open, so new voices start on the next device block. Runs independently
+/// of [`PlaybackEngine`]; both may play at once. Dropping it closes the stream.
+pub struct StreamingOutput {
+    _stream: Stream,
+}
+
+impl std::fmt::Debug for StreamingOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamingOutput").finish_non_exhaustive()
+    }
+}
+
+impl StreamingOutput {
+    /// Opens the default output device and starts pulling from `source`.
+    pub fn open(
+        mut source: Box<dyn BlockSource>,
+        sample_rate: SampleRate,
+    ) -> Result<Self, PlaybackError> {
+        let stream = open_output(sample_rate, move |block: &mut [f32]| {
+            source.render_block(block);
+        })?;
+        Ok(Self { _stream: stream })
+    }
+}
+
+/// Opens and starts an output stream on the default device at `sample_rate`. `fill` writes each
+/// device block as mono samples; they are duplicated across output channels.
+fn open_output<F>(sample_rate: SampleRate, fill: F) -> Result<Stream, PlaybackError>
+where
+    F: FnMut(&mut [f32]) + Send + 'static,
+{
+    let host = cpal::default_host();
+    let device = host
+        .default_output_device()
+        .ok_or(PlaybackError::NoOutputDevice)?;
+    let default_config = device
+        .default_output_config()
+        .map_err(PlaybackError::DefaultConfig)?;
+
+    let mut config: cpal::StreamConfig = default_config.into();
+    config.sample_rate = sample_rate.get();
+
+    let stream = match default_config.sample_format() {
+        SampleFormat::F32 => build_stream::<f32, F>(&device, config, fill)?,
+        SampleFormat::I16 => build_stream::<i16, F>(&device, config, fill)?,
+        SampleFormat::U16 => build_stream::<u16, F>(&device, config, fill)?,
+        SampleFormat::I32 => build_stream::<i32, F>(&device, config, fill)?,
+        SampleFormat::U32 => build_stream::<u32, F>(&device, config, fill)?,
+        SampleFormat::I64 => build_stream::<i64, F>(&device, config, fill)?,
+        SampleFormat::U64 => build_stream::<u64, F>(&device, config, fill)?,
+        SampleFormat::U8 => build_stream::<u8, F>(&device, config, fill)?,
+        SampleFormat::I8 => build_stream::<i8, F>(&device, config, fill)?,
+        SampleFormat::F64 => build_stream::<f64, F>(&device, config, fill)?,
+        format => return Err(PlaybackError::UnsupportedFormat(format)),
+    };
+    stream.play().map_err(PlaybackError::PlayStream)?;
+    Ok(stream)
+}
+
+/// Mono scratch frames reserved up front so typical device blocks never allocate.
+const SCRATCH_FRAMES: usize = 8192;
+
+fn build_stream<T, F>(
     device: &cpal::Device,
     config: cpal::StreamConfig,
-    sampler: Arc<dyn Sampler>,
-    sample_clock: Arc<AtomicU64>,
+    mut fill: F,
 ) -> Result<Stream, PlaybackError>
 where
     T: SizedSample + FromSample<f32> + Send + 'static,
+    F: FnMut(&mut [f32]) + Send + 'static,
 {
-    let channels = config.channels as usize;
-    let rate = f64::from(config.sample_rate);
+    let channels = (config.channels as usize).max(1);
     let err_fn = |err| eprintln!("aura_io_cpal stream error: {err}");
+    let mut mono = Vec::with_capacity(SCRATCH_FRAMES);
 
     device
         .build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
-                for frame in data.chunks_mut(channels) {
-                    let clock = sample_clock.fetch_add(1, Ordering::Relaxed);
-                    let t = clock as f64 / rate;
-                    let mono = sampler.at(t);
-                    let sample = T::from_sample(mono);
+                let frames = data.len() / channels;
+                mono.resize(frames, 0.0);
+                fill(&mut mono);
+                for (frame, &value) in data.chunks_mut(channels).zip(mono.iter()) {
+                    let sample = T::from_sample(value);
                     for out in frame.iter_mut() {
                         *out = sample;
                     }

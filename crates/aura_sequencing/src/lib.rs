@@ -1,6 +1,11 @@
 //! Musical notation types and utilities for Aura.
 
+mod live;
+
+pub use live::LiveNote;
+
 use std::collections::HashMap;
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Beats per bar and beat unit (e.g. 4/4 → beats_per_bar=4, beat_unit=4).
@@ -239,10 +244,15 @@ impl ChordSignal for ProgressionSignal {
 }
 
 /// Score with optional unbounded loop (modulus over cycle duration at sample time).
+///
+/// In streaming mode a score may also carry a [`LiveNote`]: the one note a voice is sounding.
+/// `score` then holds that note as it stood at note-on (zero length), so node implementations
+/// without a streaming variant still receive an ordinary score; streaming variants read `live`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoreSignal {
     pub score: Score,
     pub looping: bool,
+    pub live: Option<Arc<LiveNote>>,
 }
 
 impl ScoreSignal {
@@ -250,6 +260,18 @@ impl ScoreSignal {
         Self {
             score,
             looping: false,
+            live: None,
+        }
+    }
+
+    /// A score signal for a live note: a zero-length note-on snapshot plus the live note.
+    pub fn live(note: Arc<LiveNote>) -> Self {
+        let mut event = NoteEvent::new(note.semitone, 0.0, 0.0).with_velocity(note.velocity);
+        event.params = note.params.clone();
+        Self {
+            score: Score::new(TimeSignature::default(), Tempo::default(), vec![event]),
+            looping: false,
+            live: Some(note),
         }
     }
 

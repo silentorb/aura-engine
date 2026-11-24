@@ -55,7 +55,7 @@ By default, each note is sampled as a **distinct instrument instance**, independ
 
 ### Rule 2: Future-aware sampling
 
-When possible (primarily during non-real-time rendering), samplers receive the full scheduled timeline via `ScheduleContext`, allowing instruments to react to **future** notes—not only the current event. Live MIDI recording may not provide full lookahead; live and offline output may diverge in those cases.
+When possible (primarily during non-real-time rendering), samplers receive the full scheduled timeline via `ScheduleContext`, allowing instruments to react to **future** notes—not only the current event. Streaming mode (note audition, later live MIDI) has no lookahead; it uses per-node streaming fallbacks and may diverge from deterministic output. See [`playback-modes.md`](playback-modes.md).
 
 ### Rule 3: Deterministic offline rendering
 
@@ -123,6 +123,6 @@ An indirect dependency is a hidden direct dependency. Core library crates expose
 
 ## Open questions
 
-- Live CPAL scheduler parity with offline lookahead semantics
+- How far streaming fallbacks should approximate deterministic lookahead
 - Graph-owned duration vs external render parameters
 - Buffer sampling optimizations preserving FP semantics

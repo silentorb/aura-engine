@@ -12,11 +12,12 @@ This repository is **aura-engine**. Day-to-day development attaches through **au
 |-----------|------|
 | Sequencing | Notation types and musical time (`aura_sequencing`) |
 | Composition | Procedural generators (`aura_composition`) |
-| Scheduler | Offline timeline and event dispatch (`aura_scheduler`); live CPAL event dispatch deferred |
+| Scheduler | Offline timeline and event dispatch (`aura_scheduler`) |
 | Synthesizer | Imp node libraries (`aura_imp`) and pure DSP (`aura_dsp`) |
-| Integration | Graph translation and sampling (`aura_integration`) |
+| Integration | Graph translation for deterministic and streaming modes, and sampling (`aura_integration`) |
 | Instrumentation | Per-note sampling and mix-down (`aura_instrumentation`) |
-| I/O | Offline WAV export (`aura_io_wav`); CPAL live stream (`aura_io_cpal`) |
+| Rendering | Deterministic `Sampler` sampling; streaming voices and mixing (`aura_render`) |
+| I/O | Offline WAV export (`aura_io_wav`); CPAL transport and streaming outputs (`aura_io_cpal`) |
 
 ## Crate layout
 
@@ -31,9 +32,9 @@ Organize Rust source as a Cargo workspace of small crates under `crates/`. New f
 | [`aura_instrumentation`](../../crates/aura_instrumentation) | Instruments, per-note render, mix-down | aura_scheduler, aura_dsp, aura_sample |
 | [`aura_imp`](../../crates/aura_imp) | Imp node libraries and JSON helpers | imp_core_types, imp_registry |
 | [`aura_dsp`](../../crates/aura_dsp) | Pure Time → Sample DSP functions | — |
-| [`aura_render`](../../crates/aura_render) | Offline sampling via `Sampler` | aura_dsp, aura_sample |
+| [`aura_render`](../../crates/aura_render) | Deterministic sampling via `Sampler`; streaming voices, mixer, `BlockSource` | aura_dsp, aura_sample, aura_sequencing |
 | [`aura_io_wav`](../../crates/aura_io_wav) | 32-bit float WAV write/read verification | aura_render, aura_sample |
-| [`aura_io_cpal`](../../crates/aura_io_cpal) | Real-time playback (`PlaybackEngine` over CPAL) | CPAL, DASP, aura_render |
+| [`aura_io_cpal`](../../crates/aura_io_cpal) | Real-time output: `PlaybackEngine` (deterministic transport) and `StreamingOutput` (streaming) | CPAL, DASP, aura_render |
 | [`aura_integration`](../../crates/aura_integration) | Imp graph translation, render glue, thin Miro host helpers | aura_imp, composition stack, render, io-wav, `imp_mir` |
 | [`aura_cli`](../../crates/aura_cli) | Thin graph-driven CLI (+ `sync`) | aura_integration |
 
@@ -56,7 +57,7 @@ An indirect dependency is a hidden direct dependency. Orchestration lives in `au
 | **`aura_dsp`** | Pure `Time → Sample` functions |
 | **`aura_io_wav`** | Offline 32-bit float WAV I/O |
 
-Offline and future real-time paths must share the same pure `Sampler::at(t)` functions.
+Both playback modes share the same `Sampler::at(t)` runtime form and the same node implementations, except where a node type supplies a streaming implementation ([`playback-modes.md`](playback-modes.md)).
 
 ## Data flow
 
@@ -81,7 +82,7 @@ Music nodes (`arpeggio`, `epic_minor_progression`, `note_at_time`, …) delegate
 
 ### Real-time playback
 
-`aura_io_cpal::PlaybackEngine` opens the default output device and calls the same `Sampler::at(t)` functions as offline rendering, advancing `t` from 0 until stopped. Missing devices return a clear error.
+Transport playback is deterministic: `aura_io_cpal::PlaybackEngine` opens the default output device and calls the same `Sampler::at(t)` functions as offline rendering, advancing `t` from a start time until stopped. Live note audition is streaming: `StreamingOutput` pulls blocks from a `VoiceMixer` whose voices are per-note instances of a voice graph translated for streaming mode. Missing devices return a clear error. See [`playback-modes.md`](playback-modes.md).
 
 ## Constraints
 
@@ -93,10 +94,11 @@ Music nodes (`arpeggio`, `epic_minor_progression`, `note_at_time`, …) delegate
 
 - A single monolithic crate for all Aura domains
 - FunDSP-style sequential `tick` DSP as the primary synthesis model
+- Streaming as the primary playback model (it degrades from deterministic; see [`playback-modes.md`](playback-modes.md))
 - Hiding surface orchestration behind transitive core-crate dependencies
 
 ## Open questions
 
 - Buffer/block sampling optimizations without breaking FP semantics
 - Graph-owned duration vs external render parameters
-- Live scheduler parity with offline lookahead
+- How far streaming fallbacks should approximate deterministic look-ahead

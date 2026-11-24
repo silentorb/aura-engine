@@ -17,7 +17,7 @@ lab-pack/
     content/           #   one Tome data store (flat files)
 ```
 
-Place this directory’s contents next to `imp-lab-tauri` (or set `IMP_LAB_EXTENSIONS` to the `extensions.json` path). Lab runs without the pack (Imp core only). With the pack loaded, Lab gains Aura node catalogs and a **Play** menu (Start / Stop) that drives CPAL playback for Imp graphs and Aura `notation` tips (piano-roll audition from the parked playhead).
+Place this directory’s contents next to `imp-lab-tauri` (or set `IMP_LAB_EXTENSIONS` to the `extensions.json` path). Lab runs without the pack (Imp core only). With the pack loaded, Lab gains Aura node catalogs and a **Play** menu (Start / Stop) that drives deterministic CPAL playback for Imp graphs and Aura `notation` tips (from the parked playhead). The playback service also accepts `event` messages for live note audition in streaming mode (`note_on` / `note_off` / `all_notes_off`), voiced by the `sine_note_voice` instrument in `catalogs/instruments.json`; see [`../docs/design/playback-modes.md`](../docs/design/playback-modes.md).
 
 ## Build the extension libraries
 

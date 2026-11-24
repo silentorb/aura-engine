@@ -1,6 +1,9 @@
 //! Imp graph → Sampler translation.
 
 mod note_schedule;
+mod streaming;
+
+pub use streaming::StreamingProgram;
 
 use note_schedule::NoteSchedule;
 use aura_composition::{
@@ -8,6 +11,7 @@ use aura_composition::{
     DrumGridConfig, DrumLane,
 };
 use aura_sequencing::{
+    LiveNote,
     ChordProgression, ChordSignal, ProgressionSignal, Score, ScoreSignal, Semitone, Tempo,
     TimeSignature,
 };
@@ -24,6 +28,7 @@ use aura_render::Sampler;
 use aura_sample::SampleRate;
 use imp_typecheck::check_graph;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 use thiserror::Error;
 
 type TargetKey = (NodeId, String);
@@ -117,48 +122,109 @@ pub fn translate_graph_with_bindings(
     )
 }
 
-/// Translates a graph source (a document plus any providers for nodes it references).
+/// Translates a graph source (a document plus any providers for nodes it references) for
+/// deterministic mode.
 pub fn translate_graph_with_options<'a>(
     source: impl Into<GraphSource<'a>>,
     registry: &Registry,
     sample_rate: SampleRate,
     options: TranslateOptions<'_>,
 ) -> Result<Box<dyn Sampler>, TranslateError> {
-    let source: GraphSource<'a> = source.into();
-    let score_bindings = options.score_bindings;
-    let type_errors = check_graph(source, registry);
-    if let Some(error) = type_errors.first() {
-        return Err(TranslateError::TypeCheck {
-            message: error.message.clone(),
-        });
+    let prepared = PreparedGraph::prepare(source, registry)?;
+    let bindings = Bindings {
+        scores: options.score_bindings,
+        mode: TranslateMode::Deterministic,
+    };
+    prepared.translate(registry, sample_rate, &bindings)
+}
+
+/// The execution mode a graph is translated for (see `docs/design/playback-modes.md`).
+///
+/// Every node type has a deterministic implementation and may have a streaming one. In
+/// streaming mode the translator builds a node type's streaming implementation when it has one
+/// and its deterministic implementation otherwise. Nodes never check the mode while sampling.
+#[derive(Debug, Clone, Default)]
+pub(crate) enum TranslateMode {
+    /// Random-access sampling with full knowledge of the score.
+    #[default]
+    Deterministic,
+    /// Sequential sampling of one voice instance sounding a live note (onset at `t = 0`).
+    Streaming { live: Arc<LiveNote> },
+}
+
+/// Translation-wide inputs threaded through node translation: notation scores and the mode.
+pub(crate) struct Bindings<'a> {
+    pub(crate) scores: &'a BTreeMap<NodeId, ScoreSignal>,
+    pub(crate) mode: TranslateMode,
+}
+
+impl Bindings<'_> {
+    /// The live note when translating for streaming mode.
+    pub(crate) fn live(&self) -> Option<&Arc<LiveNote>> {
+        match &self.mode {
+            TranslateMode::Deterministic => None,
+            TranslateMode::Streaming { live } => Some(live),
+        }
+    }
+}
+
+/// A type-checked, flattened graph with its output node and edge index, ready to translate
+/// (once for deterministic mode, or once per voice instance for streaming mode).
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedGraph {
+    graph: Graph,
+    output_node: NodeId,
+    edges_by_target: BTreeMap<TargetKey, Vec<PortReference>>,
+}
+
+impl PreparedGraph {
+    pub(crate) fn prepare<'a>(
+        source: impl Into<GraphSource<'a>>,
+        registry: &Registry,
+    ) -> Result<Self, TranslateError> {
+        let source: GraphSource<'a> = source.into();
+        let type_errors = check_graph(source, registry);
+        if let Some(error) = type_errors.first() {
+            return Err(TranslateError::TypeCheck {
+                message: error.message.clone(),
+            });
+        }
+        let graph = flatten_graph(source, registry)
+            .map_err(|message| TranslateError::Resolve { message })?;
+        let output_node = find_output_node(&graph)?;
+        let edges_by_target = index_edges_by_target(&graph);
+        Ok(Self {
+            graph,
+            output_node,
+            edges_by_target,
+        })
     }
 
-    let graph =
-        flatten_graph(source, registry).map_err(|message| TranslateError::Resolve { message })?;
-
-    let output_node = find_output_node(&graph)?;
-    let edges_by_target = index_edges_by_target(&graph);
-    let mut visiting = BTreeSet::new();
-
-    match translate_node(
-        &graph,
-        registry,
-        sample_rate,
-        &edges_by_target,
-        &mut visiting,
-        score_bindings,
-        &output_node,
-        "value",
-    )? {
-        NodeValue::Signal(sampler) => Ok(sampler),
-        NodeValue::ScoreSignal(_)
-        | NodeValue::ProgressionSignal(_)
-        | NodeValue::Tempo(_)
-        | NodeValue::TimeSignature(_) => {
-            Err(TranslateError::MissingOutputPort {
-                node: output_node,
+    pub(crate) fn translate(
+        &self,
+        registry: &Registry,
+        sample_rate: SampleRate,
+        bindings: &Bindings<'_>,
+    ) -> Result<Box<dyn Sampler>, TranslateError> {
+        let mut visiting = BTreeSet::new();
+        match translate_node(
+            &self.graph,
+            registry,
+            sample_rate,
+            &self.edges_by_target,
+            &mut visiting,
+            bindings,
+            &self.output_node,
+            "value",
+        )? {
+            NodeValue::Signal(sampler) => Ok(sampler),
+            NodeValue::ScoreSignal(_)
+            | NodeValue::ProgressionSignal(_)
+            | NodeValue::Tempo(_)
+            | NodeValue::TimeSignature(_) => Err(TranslateError::MissingOutputPort {
+                node: self.output_node.clone(),
                 port: "value".into(),
-            })
+            }),
         }
     }
 }
@@ -214,7 +280,7 @@ fn translate_node(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     output_port: &str,
 ) -> Result<NodeValue, TranslateError> {
@@ -231,8 +297,53 @@ fn translate_node(
         });
     };
 
-    let result = match node.node_type.as_str() {
-        NOTATION_NODE_TYPE => match score_bindings.get(node_id) {
+    // Streaming mode builds a node type's streaming implementation when it has one; otherwise,
+    // and always in deterministic mode, its deterministic implementation below.
+    let streaming_impl = bindings
+        .live()
+        .and_then(|_| streaming::streaming_implementation(&node.node_type));
+    let result = if let Some(build) = streaming_impl {
+        build(&mut streaming::NodeCtx {
+            graph,
+            registry,
+            sample_rate,
+            edges_by_target,
+            visiting,
+            bindings,
+            node,
+            output_port,
+        })
+    } else {
+        translate_deterministic(
+            graph,
+            registry,
+            sample_rate,
+            edges_by_target,
+            visiting,
+            bindings,
+            node,
+            output_port,
+        )
+    };
+    visiting.remove(node_id);
+    result
+}
+
+/// Deterministic implementations of every Aura node type.
+#[allow(clippy::too_many_arguments)]
+fn translate_deterministic(
+    graph: &Graph,
+    registry: &Registry,
+    sample_rate: SampleRate,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
+    visiting: &mut BTreeSet<NodeId>,
+    bindings: &Bindings<'_>,
+    node: &Node,
+    output_port: &str,
+) -> Result<NodeValue, TranslateError> {
+    let node_id = node.id.as_str();
+    match node.node_type.as_str() {
+        NOTATION_NODE_TYPE => match bindings.scores.get(node_id) {
             Some(signal) if output_port == "score" => Ok(NodeValue::ScoreSignal(signal.clone())),
             Some(_) => Err(TranslateError::MissingOutputPort {
                 node: node_id.into(),
@@ -250,7 +361,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 &source.node,
                 &source.port,
             )
@@ -274,7 +385,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "start",
             )?;
@@ -284,7 +395,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "time",
             )?;
@@ -297,7 +408,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "frequency",
             )?;
@@ -307,7 +418,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "time",
             )?;
@@ -320,7 +431,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "a",
             )?;
@@ -330,7 +441,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "b",
             )?;
@@ -343,7 +454,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "a",
             )?;
@@ -353,7 +464,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "b",
             )?;
@@ -366,7 +477,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "inputs",
             )?;
@@ -379,7 +490,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "start_hz",
             )?;
@@ -389,7 +500,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "decay_rate",
             )?;
@@ -399,7 +510,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "elapsed",
             )?;
@@ -416,7 +527,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "seed",
             )?;
@@ -426,7 +537,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "time",
             )?;
@@ -439,7 +550,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "seed",
             )?;
@@ -449,7 +560,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "time",
             )?;
@@ -459,7 +570,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "dt",
             )?;
@@ -472,7 +583,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "frequency",
             )?;
@@ -482,7 +593,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "elapsed",
             )?;
@@ -492,7 +603,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "cutoff",
             )?;
@@ -509,7 +620,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "attack",
             )?;
@@ -519,7 +630,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "decay",
             )?;
@@ -529,7 +640,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "sustain",
             )?;
@@ -539,7 +650,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "release",
             )?;
@@ -549,7 +660,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "elapsed",
             )?;
@@ -559,7 +670,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "note_duration",
             )?;
@@ -579,7 +690,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "semitone",
             )?;
@@ -592,7 +703,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node,
             )?,
         ))),
@@ -606,7 +717,7 @@ fn translate_node(
             sample_rate,
             edges_by_target,
             visiting,
-            score_bindings,
+            bindings,
             node_id,
             output_port,
         ),
@@ -616,7 +727,7 @@ fn translate_node(
             sample_rate,
             edges_by_target,
             visiting,
-            score_bindings,
+            bindings,
             node_id,
             output_port,
         ),
@@ -626,7 +737,7 @@ fn translate_node(
             sample_rate,
             edges_by_target,
             visiting,
-            score_bindings,
+            bindings,
             node,
         )?))),
         "bass_line" => Ok(NodeValue::ScoreSignal(ScoreSignal::finite(build_bass_line_score(
@@ -635,7 +746,7 @@ fn translate_node(
             sample_rate,
             edges_by_target,
             visiting,
-            score_bindings,
+            bindings,
             node,
         )?))),
         "drum_grid" => Ok(NodeValue::ScoreSignal(ScoreSignal::finite(build_drum_grid_score(
@@ -644,7 +755,7 @@ fn translate_node(
             sample_rate,
             edges_by_target,
             visiting,
-            score_bindings,
+            bindings,
             node,
         )?))),
         "loop" => translate_loop_value(
@@ -653,7 +764,7 @@ fn translate_node(
             sample_rate,
             edges_by_target,
             visiting,
-            score_bindings,
+            bindings,
             node_id,
         ),
         "note_at_time" => translate_note_at_time_port(
@@ -662,7 +773,7 @@ fn translate_node(
             sample_rate,
             edges_by_target,
             visiting,
-            score_bindings,
+            bindings,
             node_id,
             output_port,
         ),
@@ -672,7 +783,7 @@ fn translate_node(
             sample_rate,
             edges_by_target,
             visiting,
-            score_bindings,
+            bindings,
             node,
             output_port,
         ),
@@ -682,7 +793,7 @@ fn translate_node(
             sample_rate,
             edges_by_target,
             visiting,
-            score_bindings,
+            bindings,
             node_id,
             output_port,
         ),
@@ -693,7 +804,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "score",
             )?;
@@ -711,7 +822,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "score",
             )?;
@@ -721,7 +832,7 @@ fn translate_node(
                 sample_rate,
                 edges_by_target,
                 visiting,
-                score_bindings,
+                bindings,
                 node_id,
                 "time",
             )?;
@@ -738,10 +849,7 @@ fn translate_node(
                 node_type: other.into(),
             })
         }
-    };
-
-    visiting.remove(node_id);
-    result
+    }
 }
 
 fn translate_note_at_time_port(
@@ -750,7 +858,7 @@ fn translate_note_at_time_port(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     output_port: &str,
 ) -> Result<NodeValue, TranslateError> {
@@ -760,7 +868,7 @@ fn translate_note_at_time_port(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         node_id,
         "score",
     )?;
@@ -789,7 +897,7 @@ fn translate_note_param_at_time_port(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node: &Node,
     output_port: &str,
 ) -> Result<NodeValue, TranslateError> {
@@ -806,7 +914,7 @@ fn translate_note_param_at_time_port(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &node.id,
         "score",
     )?;
@@ -825,7 +933,7 @@ fn translate_chord_at_time_port(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     output_port: &str,
 ) -> Result<NodeValue, TranslateError> {
@@ -835,7 +943,7 @@ fn translate_chord_at_time_port(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         node_id,
         "progression",
     )?;
@@ -845,7 +953,7 @@ fn translate_chord_at_time_port(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         node_id,
         "tempo",
     )?;
@@ -855,7 +963,7 @@ fn translate_chord_at_time_port(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         node_id,
         "time",
     )?;
@@ -880,7 +988,7 @@ fn translate_tempo_at_time_port(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     output_port: &str,
 ) -> Result<NodeValue, TranslateError> {
@@ -890,7 +998,7 @@ fn translate_tempo_at_time_port(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         node_id,
         "tempo",
     )?;
@@ -900,7 +1008,7 @@ fn translate_tempo_at_time_port(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         node_id,
         "time",
     )?;
@@ -924,7 +1032,7 @@ fn translate_time_signature_at_time_port(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     output_port: &str,
 ) -> Result<NodeValue, TranslateError> {
@@ -934,7 +1042,7 @@ fn translate_time_signature_at_time_port(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         node_id,
         "time_signature",
     )?;
@@ -944,7 +1052,7 @@ fn translate_time_signature_at_time_port(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         node_id,
         "time",
     )?;
@@ -969,7 +1077,7 @@ fn translate_loop_value(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
 ) -> Result<NodeValue, TranslateError> {
     let source = wired_source(edges_by_target, node_id, "value")?;
@@ -979,7 +1087,7 @@ fn translate_loop_value(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &source.node,
         &source.port,
     )? {
@@ -999,7 +1107,7 @@ fn resolve_score_signal_input(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     port: &str,
 ) -> Result<ScoreSignal, TranslateError> {
@@ -1010,7 +1118,7 @@ fn resolve_score_signal_input(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &source.node,
         &source.port,
     )? {
@@ -1027,7 +1135,7 @@ fn resolve_progression_signal_input(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     port: &str,
 ) -> Result<ProgressionSignal, TranslateError> {
@@ -1038,7 +1146,7 @@ fn resolve_progression_signal_input(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &source.node,
         &source.port,
     )? {
@@ -1055,7 +1163,7 @@ fn resolve_tempo_input(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     port: &str,
 ) -> Result<Tempo, TranslateError> {
@@ -1068,7 +1176,7 @@ fn resolve_tempo_input(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &source.node,
         &source.port,
     )? {
@@ -1085,7 +1193,7 @@ fn resolve_time_signature_input(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     port: &str,
 ) -> Result<TimeSignature, TranslateError> {
@@ -1098,7 +1206,7 @@ fn resolve_time_signature_input(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &source.node,
         &source.port,
     )? {
@@ -1115,7 +1223,7 @@ fn signal_input(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     port: &str,
 ) -> Result<Box<dyn Sampler>, TranslateError> {
@@ -1131,7 +1239,7 @@ fn signal_input(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &source.node,
         &source.port,
     )? {
@@ -1173,7 +1281,7 @@ fn build_epic_minor_progression(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node: &Node,
 ) -> Result<ChordProgression, TranslateError> {
     let root = read_number_input(node, "root", Semitone::A3.0 as f64)? as i16;
@@ -1184,7 +1292,7 @@ fn build_epic_minor_progression(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &node.id,
         "time_signature",
     )?;
@@ -1202,7 +1310,7 @@ fn build_arpeggio_score(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node: &Node,
 ) -> Result<Score, TranslateError> {
     let progression = resolve_progression_signal_input(
@@ -1211,7 +1319,7 @@ fn build_arpeggio_score(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &node.id,
         "progression",
     )?;
@@ -1221,7 +1329,7 @@ fn build_arpeggio_score(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &node.id,
         "tempo",
     )?;
@@ -1231,7 +1339,7 @@ fn build_arpeggio_score(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &node.id,
         "time_signature",
     )?;
@@ -1251,7 +1359,7 @@ fn build_bass_line_score(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node: &Node,
 ) -> Result<Score, TranslateError> {
     let progression = resolve_progression_signal_input(
@@ -1260,7 +1368,7 @@ fn build_bass_line_score(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &node.id,
         "progression",
     )?;
@@ -1270,7 +1378,7 @@ fn build_bass_line_score(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &node.id,
         "tempo",
     )?;
@@ -1280,7 +1388,7 @@ fn build_bass_line_score(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &node.id,
         "time_signature",
     )?;
@@ -1302,7 +1410,7 @@ fn build_drum_grid_score(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node: &Node,
 ) -> Result<Score, TranslateError> {
     let tempo = resolve_tempo_input(
@@ -1311,7 +1419,7 @@ fn build_drum_grid_score(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &node.id,
         "tempo",
     )?;
@@ -1321,7 +1429,7 @@ fn build_drum_grid_score(
         sample_rate,
         edges_by_target,
         visiting,
-        score_bindings,
+        bindings,
         &node.id,
         "time_signature",
     )?;
@@ -1406,7 +1514,7 @@ fn signal_inputs_variadic(
     sample_rate: SampleRate,
     edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
     visiting: &mut BTreeSet<NodeId>,
-    score_bindings: &BTreeMap<NodeId, ScoreSignal>,
+    bindings: &Bindings<'_>,
     node_id: &str,
     port: &str,
 ) -> Result<Vec<Box<dyn Sampler>>, TranslateError> {
@@ -1425,7 +1533,7 @@ fn signal_inputs_variadic(
             sample_rate,
             edges_by_target,
             visiting,
-            score_bindings,
+            bindings,
             &source.node,
             &source.port,
         )? {
@@ -1856,7 +1964,10 @@ pub fn infer_score_duration_secs(graph: &Graph, sample_rate: SampleRate) -> Opti
         sample_rate,
         &edges_by_target,
         &mut visiting,
-        &BTreeMap::new(),
+        &Bindings {
+            scores: &BTreeMap::new(),
+            mode: TranslateMode::Deterministic,
+        },
         score_node,
     )
     .ok()?;

@@ -9,6 +9,7 @@ Musical notation types and musical-time utilities (semitones, scores, chords, te
 - Own notation ontology: semitones, scale degrees, intervals, chords, keys — not MIDI as source of truth.
 - Provide beat↔second conversion and score/event sorting helpers.
 - Support extensible per-note parameters on `NoteEvent`.
+- Provide `LiveNote` (a note still sounding, release stamped at note-off) and carry it in `ScoreSignal::live` for streaming mode ([playback modes](../../../design/playback-modes.md)).
 
 ## Non-goals / avoided approaches
 
