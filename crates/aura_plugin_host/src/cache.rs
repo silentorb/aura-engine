@@ -1,10 +1,12 @@
 //! A plugin as a seekable sampler: render forward once, keep the result.
 
 use crate::{sort_events, Event, MonoStage, NoteEventSource, PluginHostError, Tail, BLOCK_FRAMES};
-use aura_render::Sampler;
+use aura_render::{is_realtime_reader, Sampler};
 use aura_sample::SampleRate;
 use aura_sequencing::LiveNote;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::time::Duration;
 
 /// Where a [`RenderCache`]'s note events come from.
 pub enum EventSource {
@@ -22,6 +24,71 @@ const QUIET_LEVEL: f32 = 1e-6;
 const QUIET_SECS: f64 = 0.25;
 const MAX_TAIL_SECS: f64 = 30.0;
 
+/// Frames per output chunk, and the most chunks a cache holds: about 3.4 hours at 44.1 kHz.
+/// Rendering stops (and the rest is silence) past that.
+const CHUNK_FRAMES: usize = 1 << 16;
+const MAX_CHUNKS: usize = 8192;
+/// Blocks the render-ahead worker renders before letting go of the plugin, so inline readers
+/// are not shut out for long.
+const WORKER_BATCH_BLOCKS: u64 = 16;
+/// How long the render-ahead worker waits when it is far enough ahead.
+const WORKER_IDLE: Duration = Duration::from_millis(5);
+
+/// Rendered output, readable without waiting on the renderer: append-only chunks of atomics.
+/// One renderer at a time appends (under the cache's render lock); `len` publishes frames to
+/// readers.
+struct Output {
+    chunks: Box<[OnceLock<Box<[AtomicU32]>>]>,
+    len: AtomicUsize,
+    finished: AtomicBool,
+}
+
+impl Output {
+    fn new() -> Self {
+        Self {
+            chunks: (0..MAX_CHUNKS).map(|_| OnceLock::new()).collect(),
+            len: AtomicUsize::new(0),
+            finished: AtomicBool::new(false),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len.load(Ordering::Acquire)
+    }
+
+    fn is_finished(&self) -> bool {
+        self.finished.load(Ordering::Acquire)
+    }
+
+    fn finish(&self) {
+        self.finished.store(true, Ordering::Release);
+    }
+
+    fn get(&self, index: usize) -> Option<f32> {
+        if index >= self.len() {
+            return None;
+        }
+        let chunk = self.chunks[index / CHUNK_FRAMES].get()?;
+        Some(f32::from_bits(chunk[index % CHUNK_FRAMES].load(Ordering::Relaxed)))
+    }
+
+    /// Appends `samples`. Returns false (writing nothing) once the cache is full.
+    fn push(&self, samples: &[f32]) -> bool {
+        let start = self.len.load(Ordering::Relaxed);
+        if start + samples.len() > MAX_CHUNKS * CHUNK_FRAMES {
+            return false;
+        }
+        for (offset, sample) in samples.iter().enumerate() {
+            let index = start + offset;
+            let chunk = self.chunks[index / CHUNK_FRAMES]
+                .get_or_init(|| (0..CHUNK_FRAMES).map(|_| AtomicU32::new(0)).collect());
+            chunk[index % CHUNK_FRAMES].store(sample.to_bits(), Ordering::Relaxed);
+        }
+        self.len.store(start + samples.len(), Ordering::Release);
+        true
+    }
+}
+
 /// A plugin instance rendered forward into a retained buffer and read as a [`Sampler`].
 ///
 /// `at(t)` renders blocks until `t` is covered, then reads (with linear interpolation off the
@@ -31,9 +98,29 @@ const MAX_TAIL_SECS: f64 = 30.0;
 ///
 /// The plugin's inputs (`input` audio, the score) are pure, so they are sampled at whatever
 /// frames each block needs.
+///
+/// **Real-time reading.** A read from a [real-time reader](aura_render::mark_realtime_reader)
+/// never renders or waits: a frame not rendered yet reads as silence and counts as an underrun.
+/// [`Sampler::prepare`] renders ahead first and starts a background worker that keeps the
+/// requested margin past the furthest real-time read. Every other reader renders inline. The
+/// same frames render in the same order whichever thread renders them, so output is identical.
+///
+/// Clones share one cache.
+#[derive(Clone)]
 pub struct RenderCache {
-    state: Mutex<CacheState>,
+    inner: Arc<CacheInner>,
+}
+
+struct CacheInner {
     rate: f64,
+    output: Output,
+    state: Mutex<CacheState>,
+    /// Furthest frame a real-time reader has asked for.
+    playhead: AtomicU64,
+    /// Frames the worker keeps rendered past `playhead`.
+    ahead: AtomicU64,
+    underruns: AtomicU64,
+    worker_started: AtomicBool,
 }
 
 struct CacheState {
@@ -41,8 +128,6 @@ struct CacheState {
     stage: MonoStage,
     events: EventSource,
     input: Option<Box<dyn Sampler>>,
-    /// Output, latency removed: `rendered[k]` is the sample at frame `k`.
-    rendered: Vec<f32>,
     /// Frames the plugin has processed (its own clock, which runs `latency` ahead of output).
     plugin_frame: u64,
     latency: u64,
@@ -68,30 +153,37 @@ impl RenderCache {
         let latency = u64::from(stage.latency_frames());
         let block = BLOCK_FRAMES as usize;
         Self {
-            state: Mutex::new(CacheState {
-                plugin_id: plugin_id.into(),
-                stage,
-                events,
-                input,
-                rendered: Vec::new(),
-                plugin_frame: 0,
-                latency,
-                live_on_sent: false,
-                live_off_frame: None,
-                quiet_frames: 0,
-                finished: false,
-                failure: None,
-                block_events: Vec::with_capacity(64),
-                in_buf: vec![0.0; block],
-                out_buf: vec![0.0; block],
+            inner: Arc::new(CacheInner {
+                rate: f64::from(sample_rate.get()),
+                output: Output::new(),
+                state: Mutex::new(CacheState {
+                    plugin_id: plugin_id.into(),
+                    stage,
+                    events,
+                    input,
+                    plugin_frame: 0,
+                    latency,
+                    live_on_sent: false,
+                    live_off_frame: None,
+                    quiet_frames: 0,
+                    finished: false,
+                    failure: None,
+                    block_events: Vec::with_capacity(64),
+                    in_buf: vec![0.0; block],
+                    out_buf: vec![0.0; block],
+                }),
+                playhead: AtomicU64::new(0),
+                ahead: AtomicU64::new(0),
+                underruns: AtomicU64::new(0),
+                worker_started: AtomicBool::new(false),
             }),
-            rate: f64::from(sample_rate.get()),
         }
     }
 
     /// The error that stopped rendering early, if any. Output after it is silence.
     pub fn failure(&self) -> Option<PluginHostError> {
-        self.state
+        self.inner
+            .state
             .lock()
             .ok()
             .and_then(|state| state.failure.clone())
@@ -99,7 +191,68 @@ impl RenderCache {
 
     /// Frames rendered so far.
     pub fn rendered_frames(&self) -> usize {
-        self.state.lock().map(|s| s.rendered.len()).unwrap_or(0)
+        self.inner.output.len()
+    }
+
+    /// Whether the render-ahead worker has been started (by [`Sampler::prepare`]).
+    pub fn has_worker(&self) -> bool {
+        self.inner.worker_started.load(Ordering::Acquire)
+    }
+}
+
+impl CacheInner {
+    fn frame_of(&self, secs: f64) -> u64 {
+        (secs.max(0.0) * self.rate) as u64
+    }
+
+    /// Renders until `frames` frames exist or the plugin has finished.
+    fn render_until(&self, frames: usize) {
+        if self.output.len() >= frames || self.output.is_finished() {
+            return;
+        }
+        if let Ok(mut state) = self.state.lock() {
+            state.ensure(frames, self.rate, &self.output);
+        }
+    }
+
+    /// The sample at `index`: rendered inline when needed, except for real-time readers.
+    fn sample(&self, index: usize, realtime: bool) -> f32 {
+        if let Some(value) = self.output.get(index) {
+            return value;
+        }
+        if self.output.is_finished() {
+            return 0.0;
+        }
+        if realtime {
+            self.underruns.fetch_add(1, Ordering::Relaxed);
+            return 0.0;
+        }
+        self.render_until(index + 1);
+        self.output.get(index).unwrap_or(0.0)
+    }
+}
+
+/// Keeps a cache rendered `ahead` frames past its playhead until it finishes or is dropped.
+fn render_ahead(cache: Weak<CacheInner>) {
+    loop {
+        let Some(inner) = cache.upgrade() else {
+            return;
+        };
+        if inner.output.is_finished() {
+            return;
+        }
+        let target = inner
+            .playhead
+            .load(Ordering::Relaxed)
+            .saturating_add(inner.ahead.load(Ordering::Relaxed));
+        let rendered = inner.output.len() as u64;
+        if rendered < target {
+            let batch = rendered + WORKER_BATCH_BLOCKS * u64::from(BLOCK_FRAMES);
+            inner.render_until(target.min(batch) as usize);
+        } else {
+            drop(inner);
+            std::thread::sleep(WORKER_IDLE);
+        }
     }
 }
 
@@ -108,33 +261,59 @@ impl Sampler for RenderCache {
         if time_secs.is_nan() || time_secs < 0.0 {
             return 0.0;
         }
-        let position = time_secs * self.rate;
+        let inner = &self.inner;
+        let position = time_secs * inner.rate;
         let index = position.floor() as usize;
         let frac = (position - index as f64) as f32;
-        let Ok(mut state) = self.state.lock() else {
-            return 0.0;
-        };
-        let needed = if frac > 0.0 { index + 1 } else { index };
-        state.ensure(needed, self.rate);
-        let a = state.rendered.get(index).copied().unwrap_or(0.0);
+        let realtime = is_realtime_reader();
+        if realtime {
+            inner.playhead.fetch_max(index as u64, Ordering::Relaxed);
+        }
+        let a = inner.sample(index, realtime);
         if frac > 0.0 {
-            let b = state.rendered.get(index + 1).copied().unwrap_or(0.0);
+            let b = inner.sample(index + 1, realtime);
             a + (b - a) * frac
         } else {
             a
         }
     }
-}
 
-impl CacheState {
-    /// Renders until frame `index` exists or the plugin has finished.
-    fn ensure(&mut self, index: usize, rate: f64) {
-        while self.rendered.len() <= index && !self.finished {
-            self.render_block(rate);
+    fn prepare(&self, start_secs: f64, ahead_secs: f64) {
+        let inner = &self.inner;
+        let start = inner.frame_of(start_secs);
+        let ahead = inner.frame_of(ahead_secs);
+        inner.ahead.fetch_max(ahead, Ordering::Relaxed);
+        inner.playhead.fetch_max(start, Ordering::Relaxed);
+        inner.render_until((start + ahead) as usize);
+        if inner.output.is_finished() || inner.worker_started.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let cache = Arc::downgrade(inner);
+        if let Err(error) = std::thread::Builder::new()
+            .name("aura-plugin-render".into())
+            .spawn(move || render_ahead(cache))
+        {
+            // Without a worker, real-time reads past the prepared range read as silence
+            // (counted as underruns); rendering still happens for every other reader.
+            eprintln!("aura: could not start plugin render-ahead: {error}");
+            inner.worker_started.store(false, Ordering::Release);
         }
     }
 
-    fn render_block(&mut self, rate: f64) {
+    fn underruns(&self) -> u64 {
+        self.inner.underruns.load(Ordering::Relaxed)
+    }
+}
+
+impl CacheState {
+    /// Renders until `frames` frames exist or the plugin has finished.
+    fn ensure(&mut self, frames: usize, rate: f64, output: &Output) {
+        while output.len() < frames && !self.finished {
+            self.render_block(rate, output);
+        }
+    }
+
+    fn render_block(&mut self, rate: f64, output: &Output) {
         let frames = BLOCK_FRAMES;
         let start = self.plugin_frame;
         self.block_events.clear();
@@ -181,13 +360,18 @@ impl CacheState {
             eprintln!("aura: plugin `{}` stopped: {error}", self.plugin_id);
             self.failure = Some(error);
             self.finished = true;
+            output.finish();
             return;
         }
         self.plugin_frame += u64::from(frames);
 
         // Plugin frame p is output frame p - latency.
         let skip = self.latency.saturating_sub(start).min(u64::from(frames)) as usize;
-        self.rendered.extend_from_slice(&self.out_buf[skip..]);
+        if !output.push(&self.out_buf[skip..]) {
+            self.finished = true;
+            output.finish();
+            return;
+        }
 
         let peak = self.out_buf.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
         if peak >= QUIET_LEVEL {
@@ -196,6 +380,9 @@ impl CacheState {
             self.quiet_frames += u64::from(frames);
         }
         self.finished = self.is_done(rate);
+        if self.finished {
+            output.finish();
+        }
     }
 
     /// Whether nothing more can sound: no audio input, no notes left, and the tail is over.
@@ -362,6 +549,119 @@ mod tests {
         );
         assert_eq!(at_frame(&cache, 0), 0.5);
         assert_eq!(cache.at(20.0), 0.5);
+    }
+
+    /// Runs `f` on a fresh thread marked as a real-time reader.
+    fn on_realtime_thread<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
+        std::thread::spawn(move || {
+            aura_render::mark_realtime_reader();
+            f()
+        })
+        .join()
+        .expect("real-time thread")
+    }
+
+    fn wait_until(mut done: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !done() {
+            assert!(std::time::Instant::now() < deadline, "timed out");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    #[test]
+    fn realtime_reads_never_render_and_count_underruns() {
+        let cache = RenderCache::new("counter", counter(0), score_events(), None, RATE);
+        let reader = cache.clone();
+        let value = on_realtime_thread(move || at_frame(&reader, 30_000));
+        assert_eq!(value, 0.0, "nothing prepared reads as silence");
+        assert_eq!(cache.rendered_frames(), 0, "the real-time reader rendered nothing");
+        assert_eq!(cache.underruns(), 1);
+        // Any other reader still renders inline.
+        assert_eq!(at_frame(&cache, 30_000), 1.0);
+    }
+
+    #[test]
+    fn prepare_renders_ahead_and_the_worker_follows_the_playhead() {
+        let reference = RenderCache::new("counter", counter(64), score_events(), None, RATE);
+        let expected: Vec<f32> = (0..60_000).map(|f| at_frame(&reference, f)).collect();
+
+        let cache = RenderCache::new("counter", counter(64), score_events(), None, RATE);
+        // Prepare 0.2 s from 0.5 s: frames up to 30_870 render now, on this thread.
+        cache.prepare(0.5, 0.2);
+        assert!(cache.rendered_frames() >= 30_870);
+        assert!(cache.has_worker());
+        let reader = cache.clone();
+        let (prepared, underruns) = on_realtime_thread(move || {
+            let values: Vec<f32> = (22_000..30_000).map(|f| at_frame(&reader, f)).collect();
+            (values, reader.underruns())
+        });
+        assert_eq!(underruns, 0);
+        assert_eq!(prepared, expected[22_000..30_000]);
+
+        // A real-time read further on moves the playhead; the worker renders past it.
+        let reader = cache.clone();
+        on_realtime_thread(move || at_frame(&reader, 40_000));
+        wait_until(|| cache.rendered_frames() >= 40_000 + 8_820);
+        let reader = cache.clone();
+        let later = on_realtime_thread(move || {
+            (40_000..48_000).map(|f| at_frame(&reader, f)).collect::<Vec<f32>>()
+        });
+        assert_eq!(later, expected[40_000..48_000]);
+    }
+
+    /// A processor that reports when it is dropped.
+    struct Dropped(Arc<AtomicBool>, Counter);
+
+    impl Drop for Dropped {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl Processor for Dropped {
+        fn layout(&self) -> ChannelLayout {
+            self.1.layout()
+        }
+        fn latency_frames(&self) -> u32 {
+            0
+        }
+        fn tail(&mut self) -> Tail {
+            Tail::Frames(0)
+        }
+        fn process(
+            &mut self,
+            inputs: &[&[f32]],
+            outputs: &mut [&mut [f32]],
+            events: &[Event],
+        ) -> Result<(), PluginHostError> {
+            self.1.process(inputs, outputs, events)
+        }
+    }
+
+    #[test]
+    fn dropping_a_prepared_cache_stops_its_worker_and_frees_the_plugin() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let processor = Dropped(
+            Arc::clone(&dropped),
+            Counter {
+                held: 0,
+                latency: 0,
+                line: Vec::new(),
+            },
+        );
+        // An effect never finishes, so its worker would run forever if it held the cache.
+        let cache = RenderCache::new(
+            "counter",
+            MonoStage::new(Box::new(processor), BLOCK_FRAMES as usize),
+            EventSource::None,
+            Some(Box::new(ConstantInput)),
+            RATE,
+        );
+        cache.prepare(0.0, 0.1);
+        assert!(cache.has_worker());
+        drop(cache);
+        wait_until(|| dropped.load(Ordering::SeqCst));
     }
 
     #[test]

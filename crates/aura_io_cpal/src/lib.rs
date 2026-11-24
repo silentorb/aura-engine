@@ -32,9 +32,14 @@ pub enum PlaybackError {
 /// Real-time playback via CPAL, sampling the same `Sampler::at(t)` path as offline render.
 pub struct PlaybackEngine {
     stream: Option<Stream>,
+    sampler: Option<Arc<dyn Sampler>>,
     sample_clock: Arc<AtomicU64>,
     sample_rate_hz: f64,
 }
+
+/// How far ahead of the playhead stateful samplers (plugins) keep prepared during transport
+/// playback; [`PlaybackEngine::start_at`] prepares this much before the stream opens.
+pub const PREPARE_AHEAD_SECS: f64 = 2.0;
 
 impl std::fmt::Debug for PlaybackEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -49,6 +54,7 @@ impl PlaybackEngine {
     pub fn new() -> Self {
         Self {
             stream: None,
+            sampler: None,
             sample_clock: Arc::new(AtomicU64::new(0)),
             sample_rate_hz: 0.0,
         }
@@ -96,10 +102,16 @@ impl PlaybackEngine {
         } else {
             (start_secs * rate).round().max(0.0) as u64
         };
+        // Stateful samplers (plugins) render up to here now, on this thread, and keep ahead of
+        // the playhead in the background, so the audio thread only reads.
+        sampler.prepare(start_secs.max(0.0), PREPARE_AHEAD_SECS);
         let sample_clock = Arc::new(AtomicU64::new(start_sample));
         let clock = Arc::clone(&sample_clock);
+        let reader = Arc::clone(&sampler);
 
         let stream = open_output(sample_rate, move |block: &mut [f32]| {
+            aura_render::mark_realtime_reader();
+            let sampler = &reader;
             for out in block.iter_mut() {
                 let frame = clock.fetch_add(1, Ordering::Relaxed);
                 *out = sampler.at(frame as f64 / rate);
@@ -109,12 +121,19 @@ impl PlaybackEngine {
         self.sample_clock = sample_clock;
         self.sample_rate_hz = rate;
         self.stream = Some(stream);
+        self.sampler = Some(sampler);
         Ok(())
+    }
+
+    /// Real-time reads during this playback that found nothing prepared (silence instead).
+    pub fn underruns(&self) -> u64 {
+        self.sampler.as_ref().map_or(0, |s| s.underruns())
     }
 
     /// Stops playback if running. No-op when idle.
     pub fn stop(&mut self) {
         self.stream = None;
+        self.sampler = None;
         self.sample_clock.store(0, Ordering::Relaxed);
         self.sample_rate_hz = 0.0;
     }

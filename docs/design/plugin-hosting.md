@@ -45,6 +45,17 @@ A plugin node's deterministic implementation is a `RenderCache`: a `Sampler` tha
 - A plugin that fails while processing stops its cache; the rest of that node's output is silence and the failure is reported (`RenderCache::failure`, and on stderr). Errors at creation fail translation.
 - Reproducibility is **as strong as the plugins in the graph**. Aura adds no nondeterminism of its own: the same graph, state, and plugin build render bit-identical output.
 
+## Transport playback: render-ahead
+
+Transport playback (`PlaybackEngine`) reads the deterministic graph in real time, so plugin caches are prepared before the device opens and kept ahead while it plays.
+
+- `Sampler::prepare(start, ahead)` readies a sampler for real-time reading; `Sampler::underruns()` counts real-time reads that found nothing prepared. Both default to nothing for pure samplers. Translation wraps the root of a graph with plugin nodes so both reach every plugin cache (upstream caches first).
+- `PlaybackEngine::start_at` calls `prepare(start, PREPARE_AHEAD_SECS)` (2 s) on the calling thread before opening the stream. That call renders every plugin from the start to `start + 2 s`, so a late start in a long song waits for the render.
+- After preparing, each cache runs one background worker that keeps 2 s rendered past the furthest real-time read. The worker exits when the cache finishes or is dropped.
+- The transport audio callback marks its thread a **real-time reader**. A cache read from it never renders or waits: rendered output is published through lock-free append-only storage, and a frame not rendered yet reads as silence and counts as an underrun (`PlaybackEngine::underruns`). Every other reader (offline export, a worker reading an upstream plugin, streaming voices) renders inline as before.
+- Output is identical to offline rendering: the same frames render in the same order whichever thread renders them. Caches render in the offline render mode in transport too, so a plugin slower than real time underruns instead of changing its sound.
+- A cache holds at most about 3.4 hours (at 44.1 kHz); past that it reads as silence.
+
 ## Streaming mode: shared instances
 
 Streaming is plugins' native model; Aura supplies the graph split, decided once by `StreamingProgram`:
@@ -75,7 +86,7 @@ Aura is mono end to end. A mono input is copied to every channel of the plugin's
 ## Non-goals / avoided approaches
 
 - One plugin instance per note in streaming, except as the documented per-voice fallback
-- Catching a plugin up on the audio thread during real-time transport playback (phase 3 adds render-ahead; until then transport playback of plugin graphs may glitch at start)
+- Rendering or waiting on a plugin from the transport audio thread
 - Depending on VST3 → CLAP adapters for other protocols; they are backends behind `Processor`
 - Protocol-specific code in `aura_plugin_host`, `aura_imp`, or the translator
 - Interpreting plugin state blobs
@@ -84,7 +95,8 @@ Aura is mono end to end. A mono input is copied to every channel of the plugin's
 ## Open questions
 
 - Parameter ports driven by signals (automation, plain values), per-note parameters (`NoteParams` → per-note modulation), and generated per-plugin node types; deferred while plugins are configured only by embedded data
-- Render-ahead and preparation for transport playback (phase 3)
+- Reusing renders across plays (each play translates afresh and renders from the start)
+- A "preparing" state in Imp Lab while a late start renders
 - Plugin GUIs and capturing state into the node on edit (phase 4)
 - Out-of-process sandboxing
 - Multichannel Aura audio

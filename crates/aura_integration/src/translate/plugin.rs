@@ -16,6 +16,7 @@ use aura_plugin_host::{
     EventSource, MonoStage, NoteEventSource, ParamSetting, PluginSettings, ProcessorConfig,
     ProcessorFactory, RenderCache, RenderMode, BLOCK_FRAMES,
 };
+use aura_render::Sampler;
 use aura_sample::SampleRate;
 use base64::Engine;
 use std::sync::Arc;
@@ -156,13 +157,43 @@ pub(super) fn translate_plugin(
         (EventSource::None, Some(ctx.signal("audio")?))
     };
     let stage = plugin_stage(node, factory.as_ref(), ctx.sample_rate, mode)?;
-    Ok(NodeValue::Signal(Box::new(RenderCache::new(
-        factory.plugin_id(),
-        stage,
-        events,
-        input,
-        ctx.sample_rate,
-    ))))
+    let cache = RenderCache::new(factory.plugin_id(), stage, events, input, ctx.sample_rate);
+    ctx.bindings.caches.borrow_mut().push(cache.clone());
+    Ok(NodeValue::Signal(Box::new(cache)))
+}
+
+/// A translated graph whose plugin caches are reachable for real-time preparation; samples
+/// exactly like its root.
+struct PreparedRoot {
+    root: Box<dyn Sampler>,
+    caches: Vec<RenderCache>,
+}
+
+impl Sampler for PreparedRoot {
+    fn at(&self, time_secs: f64) -> f32 {
+        self.root.at(time_secs)
+    }
+
+    /// Prepares upstream caches first (translation builds inputs before their consumers), so
+    /// a downstream plugin reads upstream output that is already rendered.
+    fn prepare(&self, start_secs: f64, ahead_secs: f64) {
+        for cache in &self.caches {
+            cache.prepare(start_secs, ahead_secs);
+        }
+    }
+
+    fn underruns(&self) -> u64 {
+        self.caches.iter().map(Sampler::underruns).sum()
+    }
+}
+
+/// Wraps a translated root so preparing it prepares its plugin caches; unchanged without any.
+pub(super) fn prepared_root(root: Box<dyn Sampler>, caches: Vec<RenderCache>) -> Box<dyn Sampler> {
+    if caches.is_empty() {
+        root
+    } else {
+        Box::new(PreparedRoot { root, caches })
+    }
 }
 
 #[cfg(test)]
@@ -306,6 +337,37 @@ mod tests {
             let t = f as f64 / 44100.0;
             assert_eq!(sampler.at(t).to_bits(), again.at(t).to_bits());
         }
+    }
+
+    #[test]
+    fn preparing_a_translated_graph_readies_its_plugins_for_realtime_reading() {
+        let host = fixture_host();
+        let graph = sine_then_gain(0.5);
+        let reference = translate(&graph, Some(host.as_ref())).expect("translate");
+        let expected: Vec<u32> = (22_050..26_000u64)
+            .map(|f| reference.at(f as f64 / 44100.0).to_bits())
+            .collect();
+
+        let sampler: Arc<dyn Sampler> =
+            Arc::from(translate(&graph, Some(host.as_ref())).expect("translate"));
+        let realtime = |sampler: &Arc<dyn Sampler>, frames: std::ops::Range<u64>| {
+            let sampler = Arc::clone(sampler);
+            std::thread::spawn(move || {
+                aura_render::mark_realtime_reader();
+                frames
+                    .map(|f| sampler.at(f as f64 / 44100.0).to_bits())
+                    .collect::<Vec<u32>>()
+            })
+            .join()
+            .expect("real-time reader")
+        };
+        let unprepared = realtime(&sampler, 22_100..22_101);
+        assert_eq!(unprepared, vec![0.0f32.to_bits()], "nothing prepared yet: silence");
+        assert_eq!(sampler.underruns(), 1);
+
+        sampler.prepare(0.5, 0.5);
+        assert_eq!(realtime(&sampler, 22_050..26_000), expected, "same output as offline");
+        assert_eq!(sampler.underruns(), 1, "no new underruns once prepared");
     }
 
     #[test]

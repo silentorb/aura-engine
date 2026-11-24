@@ -87,7 +87,7 @@ Music nodes (`arpeggio`, `epic_minor_progression`, `note_at_time`, …) delegate
 
 ### Real-time playback
 
-Transport playback is deterministic: `aura_io_cpal::PlaybackEngine` opens the default output device and calls the same `Sampler::at(t)` functions as offline rendering, advancing `t` from a start time until stopped. Live note audition is streaming: `StreamingOutput` pulls blocks from a `VoiceMixer` whose voices are per-note instances of a voice graph translated for streaming mode. Missing devices return a clear error. See [`playback-modes.md`](playback-modes.md).
+Transport playback is deterministic: `aura_io_cpal::PlaybackEngine` opens the default output device and calls the same `Sampler::at(t)` functions as offline rendering, advancing `t` from a start time until stopped. Plugin caches are prepared before the device opens and rendered ahead in the background, so the audio thread only reads ([`plugin-hosting.md`](plugin-hosting.md#transport-playback-render-ahead)). Live note audition is streaming: `StreamingOutput` pulls blocks from a `VoiceMixer` whose voices are per-note instances of a voice graph translated for streaming mode. Missing devices return a clear error. See [`playback-modes.md`](playback-modes.md).
 
 ## Constraints
 

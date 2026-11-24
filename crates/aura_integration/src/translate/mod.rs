@@ -156,8 +156,10 @@ pub fn translate_graph_with_options<'a>(
         scores: options.score_bindings,
         mode: TranslateMode::Deterministic,
         plugins: options.plugins,
+        caches: Default::default(),
     };
-    prepared.translate(registry, sample_rate, &bindings)
+    let root = prepared.translate(registry, sample_rate, &bindings)?;
+    Ok(plugin::prepared_root(root, bindings.caches.take()))
 }
 
 /// The execution mode a graph is translated for (see `docs/design/playback-modes.md`).
@@ -179,6 +181,8 @@ pub(crate) struct Bindings<'a> {
     pub(crate) scores: &'a BTreeMap<NodeId, ScoreSignal>,
     pub(crate) mode: TranslateMode,
     pub(crate) plugins: Option<&'a dyn PluginResolver>,
+    /// Plugin render caches built so far, so the root can prepare them for real-time reading.
+    pub(crate) caches: std::cell::RefCell<Vec<aura_plugin_host::RenderCache>>,
 }
 
 impl Bindings<'_> {
@@ -2016,6 +2020,7 @@ pub fn infer_score_duration_secs(graph: &Graph, sample_rate: SampleRate) -> Opti
             scores: &BTreeMap::new(),
             mode: TranslateMode::Deterministic,
             plugins: None,
+            caches: Default::default(),
         },
         score_node,
     )

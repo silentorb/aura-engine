@@ -14,6 +14,34 @@ use thiserror::Error;
 /// Pure function of time in seconds.
 pub trait Sampler: Send + Sync {
     fn at(&self, time_secs: f64) -> f32;
+
+    /// Gets ready to be read by a [real-time reader](is_realtime_reader) from `start_secs`,
+    /// keeping `ahead_secs` prepared past the furthest point read. Called on a control thread
+    /// before real-time playback starts; it may block while it prepares. Pure samplers have
+    /// nothing to prepare.
+    fn prepare(&self, start_secs: f64, ahead_secs: f64) {
+        let _ = (start_secs, ahead_secs);
+    }
+
+    /// Real-time reads that found nothing prepared and returned silence instead.
+    fn underruns(&self) -> u64 {
+        0
+    }
+}
+
+thread_local! {
+    static REALTIME_READER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Marks the current thread as a real-time reader (a device callback). A stateful sampler
+/// read from such a thread never blocks: it returns silence for anything not yet prepared.
+pub fn mark_realtime_reader() {
+    REALTIME_READER.with(|flag| flag.set(true));
+}
+
+/// Whether the current thread is a [real-time reader](mark_realtime_reader).
+pub fn is_realtime_reader() -> bool {
+    REALTIME_READER.with(std::cell::Cell::get)
 }
 
 /// Parameters for an offline render pass.

@@ -463,6 +463,7 @@ impl StreamingProgram {
             scores: &scores,
             mode: TranslateMode::Streaming { live },
             plugins: self.plugins.as_deref(),
+            caches: Default::default(),
         };
         match root {
             None => self
