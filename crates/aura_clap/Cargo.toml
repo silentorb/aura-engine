@@ -1,0 +1,18 @@
+[package]
+name = "aura_clap"
+description = "CLAP backend for Aura's plugin host: discovery, loading, and processing of CLAP plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+aura_plugin_host = { path = "../aura_plugin_host" }
+aura_sample = { path = "../aura_sample" }
+clack-host = { workspace = true }
+clack-extensions = { workspace = true, features = ["clack-host", "audio-ports", "latency", "tail", "state", "render", "log"] }
+
+[dev-dependencies]
+aura_render = { path = "../aura_render" }
+aura_sequencing = { path = "../aura_sequencing" }
+aura_clap_fixture = { path = "../aura_clap_fixture" }
+clack-host = { workspace = true, features = ["clack-plugin"] }

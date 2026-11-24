@@ -8,7 +8,8 @@ Surface integration library: load Imp graphs, `translate_graph` to `Sampler`, sa
 
 - Implement Aura’s custom Time → Sample translator (not stock `imp_execution`).
 - Compose `Sampler` closures once at translate time; apply `f(t)` per frame for sampling.
-- Translate for both playback modes ([playback modes](../../../design/playback-modes.md)): every node type has a deterministic implementation and may have a streaming one, chosen once at translation (streaming falls back to the deterministic implementation and never fails because of the mode). `StreamingProgram` prepares a voice graph once and instantiates it per live note.
+- Translate for both playback modes ([playback modes](../../../design/playback-modes.md)): every node type has a deterministic implementation and may have a streaming one, chosen once at translation (streaming falls back to the deterministic implementation and never fails because of the mode). `StreamingProgram` prepares a voice graph once and instantiates it per live note. `StreamingProgram::open` builds the streaming pipeline, sharing one instance per plugin where the output is a plugin chain.
+- Translate plugin nodes through the host-supplied `PluginResolver` (`TranslateOptions::plugins`, `StreamingProgram::prepare_with_plugins`); never depend on a plugin protocol crate ([plugin hosting](../../../design/plugin-hosting.md)).
 - Declare direct dependencies on every domain crate it wires — no hidden transitive orchestration.
 - Expose duration/`SampleSpec` parsing used by the CLI.
 - Host Miro sessions through **`imp_mir`**: Aura JSON kind mapping and `pull_graph` only — do not own Mir fabric.

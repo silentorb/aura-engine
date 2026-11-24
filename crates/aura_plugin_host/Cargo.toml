@@ -1,0 +1,12 @@
+[package]
+name = "aura_plugin_host"
+description = "Protocol-neutral hosting of third-party audio plugins in Aura's playback modes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+aura_render = { path = "../aura_render" }
+aura_sample = { path = "../aura_sample" }
+aura_sequencing = { path = "../aura_sequencing" }
+thiserror = { workspace = true }

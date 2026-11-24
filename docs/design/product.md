@@ -10,6 +10,7 @@ Declarative product requirements for Aura. Motivation and goals: [`../scoping/pr
 | Composition | Procedural generators (`aura_composition`) |
 | Instrumentation | Per-note sampling and mix-down (`aura_instrumentation`) |
 | Synthesis | Imp graphs (`aura_imp`) and pure DSP (`aura_dsp`) |
+| Plugin hosting | Third-party instruments and effects (`aura_plugin_host`, `aura_clap`) |
 | Integration | Graph translation and sampling (`aura_integration`) |
 | Rendering | Offline WAV export via thin CLI and demo scripts |
 
@@ -18,6 +19,7 @@ Declarative product requirements for Aura. Motivation and goals: [`../scoping/pr
 - Load Imp JSON graphs; translate to `Sampler`; sample over a specified duration.
 - Write 32-bit float WAV files to untracked `output/` via `aura_cli` or [`demos/render-all.sh`](../../demos/render-all.sh).
 - Real-time playback via CPAL (`aura_io_cpal::PlaybackEngine`) streams the same `Sampler::at(t)` path from `t = 0`; device absence (e.g. some WSL hosts) is an environment limit.
+- Third-party plugins (CLAP) render as Imp nodes in both modes; the CLI resolves them from `--plugin-path` and the standard CLAP locations ([`plugin-hosting.md`](plugin-hosting.md)).
 
 ## Integration requirements
 

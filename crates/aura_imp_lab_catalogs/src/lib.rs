@@ -1,6 +1,6 @@
 //! Imp Lab `imp-catalog` extension: register Aura Imp libraries into the Lab host.
 
-use aura_imp::{constraints, dsp, envelope, music, time, GraphLibrary, NodeLibrary};
+use aura_imp::{constraints, dsp, envelope, music, plugin, time, GraphLibrary, NodeLibrary};
 use imp_core_types::TypeConstraintLibrary;
 use imp_lab_extensions::{host_add_json, ImpLabHostV0};
 use std::ffi::CStr;
@@ -119,6 +119,9 @@ pub unsafe extern "C" fn imp_lab_extension_register(host: *const ImpLabHostV0) -
         return -1;
     }
     if push_node_library(host, music::music_node_library()) != 0 {
+        return -1;
+    }
+    if push_node_library(host, plugin::plugin_node_library()) != 0 {
         return -1;
     }
     // Optional demo instruments; failure to find is not fatal.

@@ -1,9 +1,10 @@
 //! Imp graph → Sampler translation.
 
 mod note_schedule;
+mod plugin;
 mod streaming;
 
-pub use streaming::StreamingProgram;
+pub use streaming::{StreamingControl, StreamingError, StreamingProgram};
 
 use note_schedule::NoteSchedule;
 use aura_composition::{
@@ -24,6 +25,7 @@ use aura_imp::{
     NOTATION_NODE_TYPE,
 };
 use aura_instrumentation::LinearAdsr;
+use aura_plugin_host::PluginResolver;
 use aura_render::Sampler;
 use aura_sample::SampleRate;
 use imp_typecheck::check_graph;
@@ -71,14 +73,28 @@ pub enum TranslateError {
     Resolve { message: String },
     #[error("notation node `{node}` has no bound ScoreSignal")]
     MissingScoreBinding { node: NodeId },
+    #[error("plugin node `{node}` names no plugin")]
+    MissingPluginId { node: NodeId },
+    #[error("plugin node `{node}` needs a plugin host to resolve `{plugin}`")]
+    NoPluginHost { node: NodeId, plugin: String },
+    #[error("plugin node `{node}` state is not valid base64")]
+    InvalidPluginState { node: NodeId },
+    #[error("plugin node `{node}`: {source}")]
+    Plugin {
+        node: NodeId,
+        source: aura_plugin_host::PluginHostError,
+    },
 }
 
 /// Options for Imp graph translation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct TranslateOptions<'a> {
     /// Scores for notation nodes (`NOTATION_NODE_TYPE`), by NodeId. Hosts read them from the
     /// notation records that the graph source resolved.
     pub score_bindings: &'a BTreeMap<NodeId, ScoreSignal>,
+    /// Resolves `plugin_instrument` / `plugin_effect` nodes. Translating a graph with plugin
+    /// nodes and no resolver fails with [`TranslateError::NoPluginHost`].
+    pub plugins: Option<&'a dyn PluginResolver>,
 }
 
 enum NodeValue {
@@ -118,7 +134,10 @@ pub fn translate_graph_with_bindings(
         graph,
         registry,
         sample_rate,
-        TranslateOptions { score_bindings },
+        TranslateOptions {
+            score_bindings,
+            plugins: None,
+        },
     )
 }
 
@@ -134,6 +153,7 @@ pub fn translate_graph_with_options<'a>(
     let bindings = Bindings {
         scores: options.score_bindings,
         mode: TranslateMode::Deterministic,
+        plugins: options.plugins,
     };
     prepared.translate(registry, sample_rate, &bindings)
 }
@@ -156,6 +176,7 @@ pub(crate) enum TranslateMode {
 pub(crate) struct Bindings<'a> {
     pub(crate) scores: &'a BTreeMap<NodeId, ScoreSignal>,
     pub(crate) mode: TranslateMode,
+    pub(crate) plugins: Option<&'a dyn PluginResolver>,
 }
 
 impl Bindings<'_> {
@@ -206,6 +227,18 @@ impl PreparedGraph {
         sample_rate: SampleRate,
         bindings: &Bindings<'_>,
     ) -> Result<Box<dyn Sampler>, TranslateError> {
+        self.translate_port(registry, sample_rate, bindings, &self.output_node, "value")
+    }
+
+    /// Translates the signal at one node's output port, as if it were the graph's output.
+    pub(crate) fn translate_port(
+        &self,
+        registry: &Registry,
+        sample_rate: SampleRate,
+        bindings: &Bindings<'_>,
+        node: &str,
+        port: &str,
+    ) -> Result<Box<dyn Sampler>, TranslateError> {
         let mut visiting = BTreeSet::new();
         match translate_node(
             &self.graph,
@@ -214,16 +247,16 @@ impl PreparedGraph {
             &self.edges_by_target,
             &mut visiting,
             bindings,
-            &self.output_node,
-            "value",
+            node,
+            port,
         )? {
             NodeValue::Signal(sampler) => Ok(sampler),
             NodeValue::ScoreSignal(_)
             | NodeValue::ProgressionSignal(_)
             | NodeValue::Tempo(_)
             | NodeValue::TimeSignature(_) => Err(TranslateError::MissingOutputPort {
-                node: self.output_node.clone(),
-                port: "value".into(),
+                node: node.into(),
+                port: port.into(),
             }),
         }
     }
@@ -814,6 +847,19 @@ fn translate_deterministic(
                 adsr: LinearAdsr::default(),
             })))
         }
+        node_type if plugin::is_plugin_node(node_type) => plugin::translate_plugin(
+            &mut streaming::NodeCtx {
+                graph,
+                registry,
+                sample_rate,
+                edges_by_target,
+                visiting,
+                bindings,
+                node,
+                output_port,
+            },
+            false,
+        ),
         "poly_sine_score" => {
             let _ = output_port;
             let score_signal = resolve_score_signal_input(
@@ -1967,6 +2013,7 @@ pub fn infer_score_duration_secs(graph: &Graph, sample_rate: SampleRate) -> Opti
         &Bindings {
             scores: &BTreeMap::new(),
             mode: TranslateMode::Deterministic,
+            plugins: None,
         },
         score_node,
     )
@@ -2414,6 +2461,7 @@ mod tests {
             SampleRate::RATE_44100,
             TranslateOptions {
                 score_bindings: &bindings,
+                plugins: None,
             },
         )
         .expect("translate");

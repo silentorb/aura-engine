@@ -1,5 +1,6 @@
 //! Aura command-line interface — graph-driven audio rendering and Miro-profile sync helpers.
 
+use aura_clap::ClapHost;
 use aura_integration::{
     sync_content_root, parse_duration_spec, render_graph_file_to_pcm, write_pcm_to_wav,
     DurationSpec, HostError, IntegrationError, SampleSpec,
@@ -46,6 +47,8 @@ pub struct RenderGraphConfig {
     pub output: PathBuf,
     pub duration: DurationSpec,
     pub sample_rate: SampleRate,
+    /// Extra CLAP search paths, searched before the standard locations.
+    pub plugin_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +62,8 @@ pub struct SyncConfig {
 pub enum CliCommand {
     Render(RenderGraphConfig),
     Sync(SyncConfig),
+    /// List installed CLAP plugins.
+    Plugins { plugin_paths: Vec<PathBuf> },
 }
 
 fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliCommand, CliError> {
@@ -72,6 +77,8 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
     let mut sync_db = None;
     let mut sync_pull = None;
     let mut sync_mode = false;
+    let mut plugins_mode = false;
+    let mut plugin_paths = Vec::new();
 
     let mut iter = args.into_iter().peekable();
     while let Some(arg) = iter.next() {
@@ -82,6 +89,12 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
             }
             "sync" => {
                 sync_mode = true;
+            }
+            "plugins" => {
+                plugins_mode = true;
+            }
+            "--plugin-path" => {
+                plugin_paths.push(PathBuf::from(next_value(&mut iter, "plugin-path")?));
             }
             "--sync-root" => {
                 sync_mode = true;
@@ -134,6 +147,10 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
         }
     }
 
+    if plugins_mode {
+        return Ok(CliCommand::Plugins { plugin_paths });
+    }
+
     if sync_mode {
         let root = sync_root.ok_or(CliError::MissingSyncRoot)?;
         let db = sync_db.ok_or(CliError::MissingSyncDb)?;
@@ -154,6 +171,7 @@ fn parse_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<CliComm
         output: PathBuf::from(output),
         duration,
         sample_rate,
+        plugin_paths,
     }))
 }
 
@@ -175,14 +193,17 @@ fn print_help() {
         "aura — render an Imp graph to WAV, or sync a content root (Miro profile)\n\n\
          Usage:\n  \
          aura --graph PATH --output PATH [OPTIONS]\n  \
-         aura sync --sync-root PATH --sync-db PATH [--sync-pull REL]\n\n\
+         aura sync --sync-root PATH --sync-db PATH [--sync-pull REL]\n  \
+         aura plugins [--plugin-path PATH]...\n\n\
          Render options:\n  \
          -g, --graph PATH         Imp graph JSON file\n  \
          -p, --project PATH       Tome project config resolving nodes the graph references\n  \
          -o, --output PATH        Output WAV path\n  \
          -d, --duration SPEC      Duration: seconds (10, 10s) or measures (2m)\n  \
          --tempo BPM              Tempo for measure durations (default: 120)\n  \
-         -r, --sample-rate HZ     Sample rate (default: 44100)\n\n\
+         -r, --sample-rate HZ     Sample rate (default: 44100)\n  \
+         --plugin-path PATH       Extra CLAP plugin location (repeatable), searched before\n  \
+                                  CLAP_PATH and the standard locations\n\n\
          Sync options (Mir fabric via imp_mir):\n  \
          --sync-root PATH         Text content root (Aura JSON files)\n  \
          --sync-db PATH           SQLite projection path\n  \
@@ -196,9 +217,40 @@ pub fn render_graph(config: &RenderGraphConfig) -> Result<(), CliError> {
         sample_rate: config.sample_rate,
         duration: config.duration,
     };
-    let pcm = render_graph_file_to_pcm(&config.graph, spec, config.project.as_deref())?;
+    // Bundles load only when a plugin node is translated.
+    let plugins = ClapHost::with_standard_paths(config.plugin_paths.clone());
+    let pcm = render_graph_file_to_pcm(
+        &config.graph,
+        spec,
+        config.project.as_deref(),
+        Some(&plugins),
+    )?;
     write_pcm_to_wav(&config.output, &pcm, config.sample_rate)?;
     Ok(())
+}
+
+fn list_plugins(plugin_paths: &[PathBuf]) {
+    let host = ClapHost::with_standard_paths(plugin_paths.to_vec());
+    let discovery = host.discover();
+    for plugin in &discovery.plugins {
+        println!(
+            "{}\t{} {} ({})\t{}",
+            plugin.id,
+            plugin.name,
+            plugin.version,
+            plugin.vendor,
+            plugin.bundle.display()
+        );
+    }
+    for failure in &discovery.failures {
+        eprintln!("skipped {}: {}", failure.bundle.display(), failure.reason);
+    }
+    if discovery.plugins.is_empty() {
+        eprintln!("No CLAP plugins found in:");
+        for path in host.search_paths() {
+            eprintln!("  {}", path.display());
+        }
+    }
 }
 
 fn run_sync(config: &SyncConfig) -> Result<(), CliError> {
@@ -247,6 +299,7 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        CliCommand::Plugins { plugin_paths } => list_plugins(&plugin_paths),
     }
 }
 
@@ -279,8 +332,36 @@ mod tests {
                 assert_eq!(config.duration, DurationSpec::Seconds(1.0));
                 assert_eq!(config.sample_rate, SampleRate::RATE_44100);
             }
-            CliCommand::Sync(_) => panic!("expected render"),
+            other => panic!("expected render, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_plugin_paths_for_render_and_listing() {
+        let render = parse_args([
+            "--graph",
+            "g.json",
+            "--output",
+            "o.wav",
+            "--plugin-path",
+            "/opt/clap",
+            "--plugin-path",
+            "more",
+        ])
+        .expect("parse");
+        match render {
+            CliCommand::Render(config) => assert_eq!(
+                config.plugin_paths,
+                vec![PathBuf::from("/opt/clap"), PathBuf::from("more")]
+            ),
+            other => panic!("expected render, got {other:?}"),
+        }
+        assert_eq!(
+            parse_args(["plugins", "--plugin-path", "x"]).expect("parse"),
+            CliCommand::Plugins {
+                plugin_paths: vec![PathBuf::from("x")]
+            }
+        );
     }
 
     #[test]
@@ -300,7 +381,7 @@ mod tests {
                 assert_eq!(cfg.root, PathBuf::from("demos"));
                 assert_eq!(cfg.pull.as_deref(), Some("demo-01.json"));
             }
-            CliCommand::Render(_) => panic!("expected sync"),
+            other => panic!("expected sync, got {other:?}"),
         }
     }
 }

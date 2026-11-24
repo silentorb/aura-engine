@@ -7,6 +7,7 @@ pub mod constraints;
 pub mod dsp;
 pub mod envelope;
 pub mod music;
+pub mod plugin;
 mod node_def;
 pub mod registry;
 pub mod signals;

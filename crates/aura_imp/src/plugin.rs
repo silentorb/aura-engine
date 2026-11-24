@@ -1,0 +1,73 @@
+//! Third-party plugin node library (`aura.plugin`).
+//!
+//! A plugin node names an installed plugin by id and carries its stored state. The host
+//! resolves the id when the graph is translated; see `docs/design/plugin-hosting.md`.
+
+use crate::node_def::primitive_node;
+use crate::signals::{signal, AUDIO_MONO, CONTROL, SCORE};
+use imp_core_types::{NodeLibrary, Port, PrimitiveValue};
+use std::collections::BTreeMap;
+
+/// A plugin instrument: plays the notes of its `score` input.
+pub const PLUGIN_INSTRUMENT: &str = "plugin_instrument";
+/// A plugin effect: processes its `audio` input.
+pub const PLUGIN_EFFECT: &str = "plugin_effect";
+
+/// Literal input naming the plugin (for CLAP, its plugin id, such as `org.surge-synth-team.surge-xt`).
+pub const PLUGIN_ID_PORT: &str = "plugin";
+/// Literal input holding the plugin's saved state, base64-encoded. Empty for the plugin's
+/// defaults.
+pub const PLUGIN_STATE_PORT: &str = "state";
+
+fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option<PrimitiveValue>) -> Port {
+    Port {
+        id: id.into(),
+        signal_type,
+        default_value,
+        variadic: false,
+    }
+}
+
+fn literal(id: &str) -> (String, Port) {
+    (
+        id.into(),
+        port(
+            id,
+            signal(CONTROL),
+            Some(PrimitiveValue::String(String::new())),
+        ),
+    )
+}
+
+/// Returns the Aura plugin node library.
+pub fn plugin_node_library() -> NodeLibrary {
+    let audio = signal(AUDIO_MONO);
+    let audio_out = || BTreeMap::from([("audio".into(), port("audio", audio.clone(), None))]);
+    NodeLibrary {
+        id: "aura.plugin".into(),
+        definitions: vec![
+            primitive_node(
+                PLUGIN_INSTRUMENT,
+                Vec::new(),
+                None,
+                BTreeMap::from([
+                    ("score".into(), port("score", signal(SCORE), None)),
+                    literal(PLUGIN_ID_PORT),
+                    literal(PLUGIN_STATE_PORT),
+                ]),
+                audio_out(),
+            ),
+            primitive_node(
+                PLUGIN_EFFECT,
+                Vec::new(),
+                None,
+                BTreeMap::from([
+                    ("audio".into(), port("audio", audio.clone(), None)),
+                    literal(PLUGIN_ID_PORT),
+                    literal(PLUGIN_STATE_PORT),
+                ]),
+                audio_out(),
+            ),
+        ],
+    }
+}

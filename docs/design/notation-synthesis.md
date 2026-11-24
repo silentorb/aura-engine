@@ -51,6 +51,8 @@ flowchart LR
 
 By default, each note is sampled as a **distinct instrument instance**, independent of other notes. Instrument parameter changes are **per note**, not global. Like MIDI velocity, each note may carry custom parameters and its own envelope.
 
+**Exception — plugin instruments:** a `plugin_instrument` node consumes a whole score with one plugin instance that does its own polyphony ([plugin hosting](plugin-hosting.md)). Per-note parameters reach it only through the plugin protocol's per-note mechanisms (later phase).
+
 **Per-note parameters (`NoteParams`):** Each `NoteEvent` carries an extensible `HashMap<String, f64>` of custom parameters (e.g. `cutoff_mult` via [`note_params::CUTOFF_MULT`](../../crates/aura_sequencing/src/lib.rs)). Generators attach params at composition time; [`NoteSchedule`](../../crates/aura_integration/src/translate/note_schedule.rs) preserves velocity and params through the Imp path. Loop repetition wraps **beat time** over each score's measure-aligned `cycle_beats` (from `Score::with_cycle_measures`), then converts to seconds at the wired tempo. Graphs read params at sample time via the `note_param_at_time` node (translate-time `param` literal names the key) or the `velocity` output on `note_at_time`.
 
 ### Rule 2: Future-aware sampling

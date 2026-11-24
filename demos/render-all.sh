@@ -23,3 +23,20 @@ cargo run -p aura_cli --quiet -- \
   --sample-rate 44100
 
 echo "Wrote output/demo-02.wav"
+
+# Plugin demo: the arpeggio through Aura's fixture CLAP plugins (sine synth → gain), loaded as a
+# real `.clap` bundle from the build directory.
+cargo build -p aura_clap_fixture --quiet
+plugin_dir="${CARGO_TARGET_DIR:-target}/clap-fixture"
+mkdir -p "$plugin_dir"
+cp "${CARGO_TARGET_DIR:-target}/debug/libaura_clap_fixture.so" "$plugin_dir/aura_clap_fixture.clap"
+
+cargo run -p aura_cli --quiet -- \
+  --graph demos/demo-03-plugin.json \
+  --plugin-path "$plugin_dir" \
+  --output output/demo-03-plugin.wav \
+  --duration 4m \
+  --tempo 120 \
+  --sample-rate 44100
+
+echo "Wrote output/demo-03-plugin.wav"

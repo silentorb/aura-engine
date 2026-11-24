@@ -8,6 +8,7 @@ pub mod audition;
 pub mod midi_input;
 pub mod recording;
 
+use aura_clap::ClapHost;
 use aura_imp::{
     aura_registry_with_libraries, discover_graph_libraries, graph_from_json_str,
     graph_library_from_json_path, Graph, GraphLibrary, Registry,
@@ -155,6 +156,13 @@ fn pack_libraries() -> Result<Vec<GraphLibrary>, PlaybackServiceError> {
         .collect()
 }
 
+/// The CLAP host that resolves plugin nodes, searching the platform's standard CLAP locations
+/// (and `CLAP_PATH`). Bundles load on first use and stay loaded for the process.
+pub fn plugin_host() -> &'static Arc<ClapHost> {
+    static HOST: OnceLock<Arc<ClapHost>> = OnceLock::new();
+    HOST.get_or_init(|| Arc::new(ClapHost::with_standard_paths(Vec::new())))
+}
+
 /// Builds a registry for playback. A legacy graph-file hint discovers graph libraries next to
 /// the file; a project config (or no hint) uses the Lab pack's libraries.
 pub fn playback_registry(neighbor_hint: Option<&Path>) -> Result<Registry, PlaybackServiceError> {
@@ -202,8 +210,9 @@ pub fn prepare_graph_playback(
     let node_id =
         find_output_node(&graph).map_err(|e| PlaybackServiceError::Output(e.to_string()))?;
     let registry = playback_registry(neighbor_hint)?;
-    let sampler = translate_graph_with_project(&graph, &registry, SAMPLE_RATE, project)
-    .map_err(|e| PlaybackServiceError::Translate(e.to_string()))?;
+    let sampler =
+        translate_graph_with_project(&graph, &registry, SAMPLE_RATE, project, Some(plugin_host().as_ref()))
+            .map_err(|e| PlaybackServiceError::Translate(e.to_string()))?;
     Ok((node_id, sampler))
 }
 

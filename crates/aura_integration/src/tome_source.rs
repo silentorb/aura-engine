@@ -10,6 +10,7 @@ use aura_imp::{
     get_node_definitions, graph_source, Graph, GraphSource, LayeredNodes, NodeId, NodeProvider,
     Registry, NOTATION_COLUMN, NOTATION_NODE_TYPE,
 };
+use aura_plugin_host::PluginResolver;
 use aura_render::Sampler;
 use aura_sample::SampleRate;
 use aura_sequencing::ScoreSignal;
@@ -115,6 +116,7 @@ pub fn translate_graph_with_project(
     registry: &Registry,
     sample_rate: SampleRate,
     project: Option<&Path>,
+    plugins: Option<&dyn PluginResolver>,
 ) -> Result<Box<dyn Sampler>, ProjectSourceError> {
     let project = match project {
         Some(path) => open_project_nodes(path, registry)?,
@@ -134,6 +136,7 @@ pub fn translate_graph_with_project(
         sample_rate,
         TranslateOptions {
             score_bindings: &score_bindings,
+            plugins,
         },
     )?)
 }
@@ -165,7 +168,7 @@ mod tests {
         );
 
         let sampler =
-            translate_graph_with_project(&graph, &registry, SampleRate::RATE_44100, Some(&project))
+            translate_graph_with_project(&graph, &registry, SampleRate::RATE_44100, Some(&project), None)
                 .expect("translate");
         assert_eq!(sampler.at(0.25), sampler.at(0.25));
     }
@@ -177,7 +180,7 @@ mod tests {
         let libraries = discover_graph_libraries(&graph_path).expect("libraries");
         let registry = aura_registry_with_libraries(&libraries).expect("registry");
         let err =
-            match translate_graph_with_project(&graph, &registry, SampleRate::RATE_44100, None) {
+            match translate_graph_with_project(&graph, &registry, SampleRate::RATE_44100, None, None) {
                 Ok(_) => panic!("expected an unresolved notation"),
                 Err(error) => error,
             };

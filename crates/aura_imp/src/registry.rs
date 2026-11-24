@@ -1,6 +1,6 @@
 //! Aura Imp registry and JSON helpers.
 
-use crate::{constraints, dsp, envelope, music, time};
+use crate::{constraints, dsp, envelope, music, plugin, time};
 use imp_core_types::{Graph, GraphLibrary};
 use imp_graph_library::{parse_graph_library_json, GraphLibraryParseError};
 use imp_registry::{
@@ -30,6 +30,7 @@ pub fn aura_registry_with_libraries(
     let registry = load_library(registry, dsp::dsp_node_library())?;
     let registry = load_library(registry, envelope::envelope_node_library())?;
     let registry = load_library(registry, music::music_node_library())?;
+    let registry = load_library(registry, plugin::plugin_node_library())?;
 
     let mut registry = registry;
     for library in graph_libraries {

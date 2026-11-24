@@ -19,6 +19,8 @@ Cross-cutting product motivation and architecture live in [`../scoping/`](../sco
 | `aura_imp` | [design/overview.md](aura_imp/design/overview.md) | [scoping/motivation.md](aura_imp/scoping/motivation.md) |
 | `aura_dsp` | [design/overview.md](aura_dsp/design/overview.md) | [scoping/motivation.md](aura_dsp/scoping/motivation.md) |
 | `aura_render` | [design/overview.md](aura_render/design/overview.md) | [scoping/](aura_render/scoping/) |
+| `aura_plugin_host` | [design/overview.md](aura_plugin_host/design/overview.md) | [scoping/motivation.md](aura_plugin_host/scoping/motivation.md) |
+| `aura_clap` | [design/overview.md](aura_clap/design/overview.md) | [scoping/motivation.md](aura_clap/scoping/motivation.md) |
 | `aura_io_wav` | [design/overview.md](aura_io_wav/design/overview.md) | [scoping/motivation.md](aura_io_wav/scoping/motivation.md) |
 | `aura_io_cpal` | [design/overview.md](aura_io_cpal/design/overview.md) | [scoping/motivation.md](aura_io_cpal/scoping/motivation.md) |
 | `aura_io_midi` | [design/overview.md](aura_io_midi/design/overview.md) | — |

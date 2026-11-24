@@ -1,14 +1,16 @@
 //! Live note audition: streaming-mode voices started and released by Lab service events.
 //!
-//! Each `note_on` instantiates the audition instrument (`sine_note_voice` from the Lab pack)
-//! for one live note; `note_off` releases it so its streaming envelope rings out. Voices mix on a
-//! persistent [`StreamingOutput`], independent of deterministic transport playback.
+//! The audition instrument (`sine_note_voice` from the Lab pack) is opened as a streaming
+//! pipeline ([`StreamingProgram::open`]): each `note_on` starts a voice for one live note (or a
+//! note on a shared plugin instance, when the instrument is a plugin chain); `note_off` releases
+//! it so it rings out. The pipeline plays on a persistent [`StreamingOutput`], independent of
+//! deterministic transport playback.
 
 use crate::{playback_registry, PlaybackServiceError, SAMPLE_RATE};
 use aura_imp::{graph_from_json_str, NOTATION_NODE_TYPE};
-use aura_integration::StreamingProgram;
+use aura_integration::{StreamingControl, StreamingProgram};
 use aura_io_cpal::StreamingOutput;
-use aura_render::{voice_channel, StreamVoice, VoiceSender};
+use aura_plugin_host::PluginResolver;
 use aura_sequencing::{LiveNote, NoteParams, Semitone};
 use serde_json::Value;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -89,30 +91,22 @@ pub fn audition_program() -> Result<StreamingProgram, PlaybackServiceError> {
     let graph = graph_from_json_str(&audition_graph_json())
         .map_err(|e| PlaybackServiceError::GraphJson(e.to_string()))?;
     let registry = playback_registry(None)?;
-    StreamingProgram::prepare(&graph, &registry, SAMPLE_RATE)
+    let plugins: Arc<dyn PluginResolver> = crate::plugin_host().clone();
+    StreamingProgram::prepare_with_plugins(&graph, &registry, SAMPLE_RATE, Some(plugins))
         .map_err(|e| PlaybackServiceError::Translate(e.to_string()))
 }
 
-/// A voice of `program` sounding a new live note.
-pub fn audition_voice(
-    program: &StreamingProgram,
-    semitone: i16,
-    velocity: f32,
-) -> Result<StreamVoice, PlaybackServiceError> {
-    let live = Arc::new(LiveNote::new(
+/// A new live note for audition.
+pub fn audition_note(semitone: i16, velocity: f32) -> Arc<LiveNote> {
+    Arc::new(LiveNote::new(
         Semitone(semitone),
         velocity,
         NoteParams::new(),
-    ));
-    let root = program
-        .instantiate(Arc::clone(&live))
-        .map_err(|e| PlaybackServiceError::Translate(e.to_string()))?;
-    Ok(StreamVoice::new(root, live, SAMPLE_RATE))
+    ))
 }
 
 struct Audition {
-    program: StreamingProgram,
-    voices: VoiceSender,
+    control: StreamingControl,
     _output: StreamingOutput,
 }
 
@@ -131,10 +125,9 @@ pub(crate) fn voice_on(id: u64, semitone: i16, velocity: f32) -> Result<(), Play
     let Some(audition) = guard.as_ref() else {
         return Ok(());
     };
-    let voice = audition_voice(&audition.program, semitone, velocity)?;
     audition
-        .voices
-        .note_on(id, voice)
+        .control
+        .note_on(id, audition_note(semitone, velocity))
         .map_err(|e| PlaybackServiceError::Playback(e.to_string()))
 }
 
@@ -145,7 +138,7 @@ pub(crate) fn voice_off(id: u64) -> Result<(), PlaybackServiceError> {
         .map_err(|_| PlaybackServiceError::Poisoned)?;
     match guard.as_ref() {
         Some(audition) => audition
-            .voices
+            .control
             .note_off(id)
             .map_err(|e| PlaybackServiceError::Playback(e.to_string())),
         None => Ok(()),
@@ -156,20 +149,20 @@ pub(crate) fn voice_off(id: u64) -> Result<(), PlaybackServiceError> {
 pub(crate) fn reclaim_voices() {
     if let Ok(guard) = audition().try_lock() {
         if let Some(audition) = guard.as_ref() {
-            audition.voices.reclaim();
+            audition.control.reclaim();
         }
     }
 }
 
 impl Audition {
     fn open() -> Result<Self, PlaybackServiceError> {
-        let program = audition_program()?;
-        let (voices, mixer) = voice_channel();
-        let output = StreamingOutput::open(Box::new(mixer), SAMPLE_RATE)
+        let (control, source) = audition_program()?
+            .open()
+            .map_err(|e| PlaybackServiceError::Translate(e.to_string()))?;
+        let output = StreamingOutput::open(source, SAMPLE_RATE)
             .map_err(|e| PlaybackServiceError::Playback(e.to_string()))?;
         Ok(Self {
-            program,
-            voices,
+            control,
             _output: output,
         })
     }
@@ -198,16 +191,15 @@ pub fn handle_event(json: &str) -> Result<(), PlaybackServiceError> {
             let Some(audition) = guard.as_ref() else {
                 return Ok(());
             };
-            let voice = audition_voice(&audition.program, semitone, velocity)?;
-            audition.voices.note_on(id, voice)
+            audition.control.note_on(id, audition_note(semitone, velocity))
         }
         // Nothing sounds before the first note-on.
         AuditionEvent::NoteOff { id } => match guard.as_ref() {
-            Some(audition) => audition.voices.note_off(id),
+            Some(audition) => audition.control.note_off(id),
             None => Ok(()),
         },
         AuditionEvent::AllNotesOff => match guard.as_ref() {
-            Some(audition) => audition.voices.all_off(),
+            Some(audition) => audition.control.all_off(),
             None => Ok(()),
         },
     };
@@ -217,7 +209,6 @@ pub fn handle_event(json: &str) -> Result<(), PlaybackServiceError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aura_render::BlockSource;
 
     #[test]
     fn parses_note_events() {
@@ -254,19 +245,21 @@ mod tests {
     fn audition_instrument_streams_from_the_pack_without_a_device() {
         crate::tests::use_pack_libraries();
         let program = audition_program().expect("audition program");
-        let (voices, mut mixer) = voice_channel();
-        voices
-            .note_on(1, audition_voice(&program, 69, 1.0).expect("voice"))
-            .unwrap();
+        let (control, mut source) = program.open().expect("open");
+        control.note_on(1, audition_note(69, 1.0)).unwrap();
         let mut block = vec![0.0; 4410];
-        mixer.render_block(&mut block);
+        source.render_block(&mut block);
         let peak = block.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
         assert!(peak > 0.5, "audible while held, peak {peak}");
 
-        voices.note_off(1).unwrap();
+        control.note_off(1).unwrap();
         for _ in 0..4 {
-            mixer.render_block(&mut block);
+            source.render_block(&mut block);
         }
-        assert_eq!(mixer.voice_count(), 0, "voice retires after its release");
+        assert!(
+            block.iter().all(|s| s.abs() < 1e-4),
+            "voice rings out after its release"
+        );
+        assert!(control.reclaim() > 0, "finished voice is handed back");
     }
 }

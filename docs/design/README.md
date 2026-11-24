@@ -34,4 +34,5 @@ See [Silent Orb: Scoping and Design](https://silentorb.com/business/product/scop
 | [`notation-synthesis.md`](notation-synthesis.md) | Notation → audio pipeline and integration rules |
 | [`playback-modes.md`](playback-modes.md) | Deterministic and streaming modes; per-node streaming implementations |
 | [`live-recording.md`](live-recording.md) | Live MIDI input: the adapter boundary, devices, monitoring, and recording takes into notation |
+| [`plugin-hosting.md`](plugin-hosting.md) | Third-party plugins (CLAP first): render caches, shared streaming stages, the protocol-neutral seam |
 | [`../rust-style.md`](../rust-style.md) | Rust crate naming and layout conventions |

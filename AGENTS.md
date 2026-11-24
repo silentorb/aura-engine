@@ -47,7 +47,7 @@ These apply once a Rust crate scaffold exists.
 
 ## Demo artifacts
 
-The listenable output in [`output/`](output/) (`demo-01.wav`, `demo-02.wav`) is the primary artifact for verifying demos by ear. They are gitignored but must stay current in the workspace.
+The listenable output in [`output/`](output/) (`demo-01.wav`, `demo-02.wav`, `demo-03-plugin.wav`) is the primary artifact for verifying demos by ear. They are gitignored but must stay current in the workspace.
 
 After any change to demo graphs (`demos/*.json`), [`demos/render-all.sh`](demos/render-all.sh), or code that affects how those graphs render (composition, integration, imp nodes, CLI, etc.), regenerate them:
 
@@ -80,6 +80,8 @@ This file governs **aura-engine** only. Orchestration (Compose, Dev Container, m
 | `aura_imp` | [`docs/crates/aura_imp/design/overview.md`](docs/crates/aura_imp/design/overview.md) |
 | `aura_dsp` | [`docs/crates/aura_dsp/design/overview.md`](docs/crates/aura_dsp/design/overview.md) |
 | `aura_render` | [`docs/crates/aura_render/design/overview.md`](docs/crates/aura_render/design/overview.md) |
+| `aura_plugin_host` | [`docs/crates/aura_plugin_host/design/overview.md`](docs/crates/aura_plugin_host/design/overview.md) |
+| `aura_clap` | [`docs/crates/aura_clap/design/overview.md`](docs/crates/aura_clap/design/overview.md) |
 | `aura_io_wav` | [`docs/crates/aura_io_wav/design/overview.md`](docs/crates/aura_io_wav/design/overview.md) |
 | `aura_io_cpal` | [`docs/crates/aura_io_cpal/design/overview.md`](docs/crates/aura_io_cpal/design/overview.md) |
 | `aura_io_midi` | [`docs/crates/aura_io_midi/design/overview.md`](docs/crates/aura_io_midi/design/overview.md) |

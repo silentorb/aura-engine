@@ -1,0 +1,14 @@
+[package]
+name = "aura_clap_fixture"
+description = "Deterministic CLAP test plugins (a sine synth and a gain) for Aura's plugin host tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+clack-plugin = { workspace = true }
+clack-extensions = { workspace = true, features = ["clack-plugin", "audio-ports", "note-ports", "latency", "tail", "state"] }

@@ -34,6 +34,8 @@ Translation walks the DAG once and composes nested closures (`Sampler::at(t)`). 
 
 Seekability and purity are testable (`at(t)` twice is identical; sparse `t` matches a sequential pass).
 
+**Plugin nodes** are the exception to statelessness: a third-party plugin is rendered forward into a retained cache, so it keeps these properties *per translation* (repeated and out-of-order `at(t)` return identical values), at the cost of rendering from the start on first access ([plugin hosting](plugin-hosting.md)).
+
 ## Translation modes
 
 Translation targets one of two modes ([`playback-modes.md`](playback-modes.md)). **Deterministic** is the default and has the properties above. **Streaming** translates a voice graph once per live note; `t` only moves forward and is voice-local. Every node type has a deterministic implementation and may have a streaming one; streaming builds the streaming implementation when it exists and the deterministic one otherwise. The runtime form is the same `Sampler::at(t)` graph in both modes, and nodes never check the mode while sampling.

@@ -46,19 +46,20 @@ In streaming mode the live note is carried inside the ordinary score value (`Sco
 | `linear_adsr` | **Gated envelope** from the same attack / decay / sustain / release: attack → decay → sustain while held; at note-off, a linear release from the current level that rings past note-off. `note_duration` is not read. Applies when the envelope's `elapsed` or `note_duration` input depends on a notation node; an envelope timed by a fixed score keeps its deterministic implementation. |
 | `note_envelope` | Gated envelope (default ADSR) |
 | `poly_sine_score` | The live note's sine × gated envelope × velocity |
+| `plugin_instrument`, `plugin_effect` | Per-voice fallback: the voice's own plugin instance (an instrument plays the live note). Where the output is a plugin chain, `StreamingProgram::open` shares one instance per plugin across all voices instead ([plugin hosting](plugin-hosting.md#streaming-mode-shared-instances)). |
 
 The gated envelope is the archetypal fallback. Deterministically, `LinearAdsr` places the release inside the note's known length, so the envelope ends with the note. In streaming the length is unknown, so the same parameters are evaluated against the note-off time instead (`LinearAdsr::gated_value_at`).
 
 ## Streaming runtime
 
-- **Program** — `StreamingProgram` type-checks and flattens a voice graph once, then instantiates a fresh runtime graph per note, bound to that note's `LiveNote` (voice-local time, onset `t = 0`).
+- **Program** — `StreamingProgram` type-checks and flattens a voice graph once, then instantiates a fresh runtime graph per note, bound to that note's `LiveNote` (voice-local time, onset `t = 0`). `StreamingProgram::open` builds the whole pipeline: a `StreamingControl` for notes and the `BlockSource` to play, sharing plugin instances where the graph allows.
 - **Voice** — `StreamVoice` (`aura_render`) runs one instance on its own clock. Note-off stamps the release on the live note. A released voice retires once it has been silent briefly, or after a hard tail limit.
 - **Mixer** — `VoiceMixer` (`aura_render`) is a `BlockSource`. It takes note-on / note-off / all-off commands from a control thread without blocking, caps polyphony (starting another voice releases the oldest), and sums voices block by block. It neither allocates nor frees on the audio thread: voices sit in preallocated slots, and finished voices are handed back to the control thread to be dropped.
 - **Output** — `StreamingOutput` (`aura_io_cpal`) is a persistent device stream that pulls from a `BlockSource`. It runs independently of deterministic `PlaybackEngine` transport playback; both may sound at once.
 
 ## Uses
 
-- **Note audition** in Imp Lab's notation view: the Lab playback extension (`aura_imp_lab_playback`) turns `note_on` / `note_off` service events into voices of the pack's `sine_note_voice`.
+- **Note audition** in Imp Lab's notation view: the Lab playback extension (`aura_imp_lab_playback`) opens the pack's `sine_note_voice` as a streaming pipeline and turns `note_on` / `note_off` service events into its notes.
 - **Live MIDI recording** ([live recording](live-recording.md)): a MIDI input plays through streaming mode (the same voices as audition) while a take is captured; the take is translated into deterministic notation, not stored as MIDI.
 
 ## Non-goals / avoided approaches

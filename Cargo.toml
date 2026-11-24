@@ -11,6 +11,9 @@ members = [
     "crates/aura_imp_lab_playback",
     "crates/aura_dsp",
     "crates/aura_render",
+    "crates/aura_plugin_host",
+    "crates/aura_clap",
+    "crates/aura_clap_fixture",
     "crates/aura_io_wav",
     "crates/aura_io_cpal",
     "crates/aura_io_midi",
@@ -47,3 +50,7 @@ cpal = "0.18"
 midir = "0.11"
 thiserror = "2"
 tempfile = "3"
+base64 = "0.23"
+clack-host = "0.2"
+clack-plugin = "0.2"
+clack-extensions = "0.2"

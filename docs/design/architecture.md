@@ -18,6 +18,7 @@ This repository is **aura-engine**. Day-to-day development attaches through **au
 | Instrumentation | Per-note sampling and mix-down (`aura_instrumentation`) |
 | Rendering | Deterministic `Sampler` sampling; streaming voices and mixing (`aura_render`) |
 | I/O | Offline WAV export (`aura_io_wav`); CPAL transport and streaming outputs (`aura_io_cpal`) |
+| Plugin hosting | Third-party plugins as nodes: protocol-neutral seam (`aura_plugin_host`), CLAP backend (`aura_clap`); see [`plugin-hosting.md`](plugin-hosting.md) |
 
 ## Crate layout
 
@@ -33,9 +34,11 @@ Organize Rust source as a Cargo workspace of small crates under `crates/`. New f
 | [`aura_imp`](../../crates/aura_imp) | Imp node libraries and JSON helpers | imp_core_types, imp_registry |
 | [`aura_dsp`](../../crates/aura_dsp) | Pure Time → Sample DSP functions | — |
 | [`aura_render`](../../crates/aura_render) | Deterministic sampling via `Sampler`; streaming voices, mixer, `BlockSource` | aura_dsp, aura_sample, aura_sequencing |
+| [`aura_plugin_host`](../../crates/aura_plugin_host) | Plugin seam (`Processor`, `PluginResolver`); deterministic `RenderCache`; streaming `PluginStage` | aura_render, aura_sample, aura_sequencing |
+| [`aura_clap`](../../crates/aura_clap) | CLAP backend: discovery, loading, shared CLAP main thread, processing | aura_plugin_host, clack-host |
 | [`aura_io_wav`](../../crates/aura_io_wav) | 32-bit float WAV write/read verification | aura_render, aura_sample |
 | [`aura_io_cpal`](../../crates/aura_io_cpal) | Real-time output: `PlaybackEngine` (deterministic transport) and `StreamingOutput` (streaming) | CPAL, DASP, aura_render |
-| [`aura_integration`](../../crates/aura_integration) | Imp graph translation, render glue, thin Miro host helpers | aura_imp, composition stack, render, io-wav, `imp_mir` |
+| [`aura_integration`](../../crates/aura_integration) | Imp graph translation (incl. plugin nodes), render glue, thin Miro host helpers | aura_imp, composition stack, render, aura_plugin_host, io-wav, `imp_mir` |
 | [`aura_cli`](../../crates/aura_cli) | Thin graph-driven CLI (+ `sync`) | aura_integration |
 
 Mir sync fabric is **`imp_mir`** (hosted in tome-rust-server), not an Aura crate. See [`miro.md`](miro.md).
@@ -56,8 +59,10 @@ An indirect dependency is a hidden direct dependency. Orchestration lives in `au
 | **CPAL** | Cross-platform real-time audio I/O (device may be absent under workbench/WSL) |
 | **`aura_dsp`** | Pure `Time → Sample` functions |
 | **`aura_io_wav`** | Offline 32-bit float WAV I/O |
+| **`clack-host`** | CLAP hosting (via `aura_clap`); plugins run in-process |
 
-Both playback modes share the same `Sampler::at(t)` runtime form and the same node implementations, except where a node type supplies a streaming implementation ([`playback-modes.md`](playback-modes.md)).
+Both playback modes share the same `Sampler::at(t)` runtime form and the same node implementations, except where a node type supplies a streaming implementation ([`playback-modes.md`](playback-modes.md)). Plugin nodes are the one stateful exception: a plugin is rendered forward into a cache and read by `at(t)` ([`plugin-hosting.md`](plugin-hosting.md)).
+
 
 ## Data flow
 

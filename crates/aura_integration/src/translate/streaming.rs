@@ -15,13 +15,19 @@ use super::{
     PreparedGraph, TargetKey, TranslateError, TranslateMode,
 };
 use aura_dsp::sine;
+use aura_imp::plugin::{PLUGIN_EFFECT, PLUGIN_INSTRUMENT};
 use aura_imp::{Graph, GraphSource, Node, NodeId, PortReference, Registry, NOTATION_NODE_TYPE};
 use aura_instrumentation::LinearAdsr;
-use aura_render::Sampler;
+use super::plugin::{plugin_factory, plugin_stage};
+use aura_plugin_host::{
+    PluginResolver, PluginStage, RenderMode, StageCommand, StageSendError, StageSender,
+};
+use aura_render::{voice_channel, BlockSource, Sampler, StreamVoice, VoiceSendError, VoiceSender};
 use aura_sample::SampleRate;
 use aura_sequencing::{LiveNote, ScoreSignal};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use thiserror::Error;
 
 /// Everything a node implementation needs to translate one node.
 pub(super) struct NodeCtx<'a, 'b> {
@@ -36,7 +42,7 @@ pub(super) struct NodeCtx<'a, 'b> {
 }
 
 impl NodeCtx<'_, '_> {
-    fn signal(&mut self, port: &str) -> Result<Box<dyn Sampler>, TranslateError> {
+    pub(super) fn signal(&mut self, port: &str) -> Result<Box<dyn Sampler>, TranslateError> {
         signal_input(
             self.graph,
             self.registry,
@@ -49,7 +55,7 @@ impl NodeCtx<'_, '_> {
         )
     }
 
-    fn score(&mut self, port: &str) -> Result<ScoreSignal, TranslateError> {
+    pub(super) fn score(&mut self, port: &str) -> Result<ScoreSignal, TranslateError> {
         resolve_score_signal_input(
             self.graph,
             self.registry,
@@ -80,7 +86,7 @@ impl NodeCtx<'_, '_> {
         )
     }
 
-    fn missing_port(&self) -> TranslateError {
+    pub(super) fn missing_port(&self) -> TranslateError {
         TranslateError::MissingOutputPort {
             node: self.node.id.clone(),
             port: self.output_port.into(),
@@ -99,8 +105,15 @@ pub(super) fn streaming_implementation(node_type: &str) -> Option<StreamingImpl>
         "linear_adsr" => stream_linear_adsr,
         "note_envelope" => stream_note_envelope,
         "poly_sine_score" => stream_poly_sine_score,
+        PLUGIN_INSTRUMENT | PLUGIN_EFFECT => stream_plugin,
         _ => return None,
     })
+}
+
+/// A plugin in one voice instance: an instrument plays the voice's live note. This is the
+/// per-voice fallback; [`StreamingProgram::open`] shares one instance where the graph allows.
+fn stream_plugin(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
+    super::plugin::translate_plugin(ctx, true)
 }
 
 /// A notation node is the voice's live note.
@@ -306,16 +319,96 @@ impl Sampler for LiveSineSampler {
     }
 }
 
-/// A voice graph prepared once for streaming mode, instantiated once per live note.
+/// A voice graph prepared once for streaming mode.
 ///
-/// The graph is type-checked and flattened at [`prepare`](Self::prepare); each
+/// The graph is type-checked and flattened at [`prepare`](Self::prepare). Each
 /// [`instantiate`](Self::instantiate) builds a fresh runtime graph bound to one live note, whose
-/// notation nodes resolve to that note.
-#[derive(Debug, Clone)]
+/// notation nodes resolve to that note; [`open`](Self::open) builds the whole streaming
+/// pipeline, sharing one plugin instance where the graph allows.
+#[derive(Clone)]
 pub struct StreamingProgram {
     prepared: PreparedGraph,
     registry: Registry,
     sample_rate: SampleRate,
+    plugins: Option<Arc<dyn PluginResolver>>,
+    layout: Layout,
+}
+
+impl std::fmt::Debug for StreamingProgram {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamingProgram")
+            .field("prepared", &self.prepared)
+            .field("sample_rate", &self.sample_rate)
+            .field("plugins", &self.plugins.is_some())
+            .field("layout", &self.layout)
+            .finish()
+    }
+}
+
+/// How a streaming program runs its notes.
+#[derive(Debug, Clone, PartialEq)]
+enum Layout {
+    /// Every note is a full instance of the graph.
+    Voices,
+    /// The output is a plugin instrument playing the notation score, then plugin effects: one
+    /// shared instance of each, driven by note commands.
+    SharedInstrument {
+        instrument: NodeId,
+        effects: Vec<NodeId>,
+    },
+    /// The output is a chain of plugin effects over per-note voices of `voice`: voices are
+    /// mixed, then each effect runs once over the mix.
+    SharedEffects {
+        voice: PortReference,
+        effects: Vec<NodeId>,
+    },
+}
+
+impl Layout {
+    /// Finds the plugin chain at the graph's output, if any.
+    fn of(prepared: &PreparedGraph) -> Self {
+        let source_of = |node: &str, port: &str| -> Option<PortReference> {
+            match prepared
+                .edges_by_target
+                .get(&(node.to_string(), port.to_string()))?
+                .as_slice()
+            {
+                [one] => Some(one.clone()),
+                _ => None,
+            }
+        };
+        let node_type = |id: &str| prepared.graph.nodes.get(id).map(|n| n.node_type.as_str());
+        let Some(mut source) = source_of(&prepared.output_node, "value") else {
+            return Layout::Voices;
+        };
+        let mut effects = Vec::new();
+        while node_type(&source.node) == Some(PLUGIN_EFFECT) && source.port == "audio" {
+            effects.push(source.node.clone());
+            match source_of(&source.node, "audio") {
+                Some(next) => source = next,
+                None => return Layout::Voices,
+            }
+        }
+        effects.reverse();
+        if node_type(&source.node) == Some(PLUGIN_INSTRUMENT) && source.port == "audio" {
+            let plays_notation = source_of(&source.node, "score")
+                .is_some_and(|score| node_type(&score.node) == Some(NOTATION_NODE_TYPE));
+            if plays_notation {
+                return Layout::SharedInstrument {
+                    instrument: source.node,
+                    effects,
+                };
+            }
+        }
+        if effects.is_empty() {
+            Layout::Voices
+        } else {
+            Layout::SharedEffects {
+                voice: source,
+                effects,
+            }
+        }
+    }
 }
 
 impl StreamingProgram {
@@ -326,10 +419,24 @@ impl StreamingProgram {
         registry: &Registry,
         sample_rate: SampleRate,
     ) -> Result<Self, TranslateError> {
+        Self::prepare_with_plugins(source, registry, sample_rate, None)
+    }
+
+    /// Prepares `source` for streaming, resolving its plugin nodes through `plugins`.
+    pub fn prepare_with_plugins<'a>(
+        source: impl Into<GraphSource<'a>>,
+        registry: &Registry,
+        sample_rate: SampleRate,
+        plugins: Option<Arc<dyn PluginResolver>>,
+    ) -> Result<Self, TranslateError> {
+        let prepared = PreparedGraph::prepare(source, registry)?;
+        let layout = Layout::of(&prepared);
         let program = Self {
-            prepared: PreparedGraph::prepare(source, registry)?,
+            prepared,
             registry: registry.clone(),
             sample_rate,
+            plugins,
+            layout,
         };
         let trial = Arc::new(LiveNote::new(
             aura_sequencing::Semitone(60),
@@ -340,15 +447,184 @@ impl StreamingProgram {
         Ok(program)
     }
 
-    /// A runtime graph for one voice sounding `live` (onset at `t = 0`).
+    /// A runtime graph for one voice sounding `live` (onset at `t = 0`). Plugins in it are
+    /// instantiated for this voice alone.
     pub fn instantiate(&self, live: Arc<LiveNote>) -> Result<Box<dyn Sampler>, TranslateError> {
+        self.instantiate_port(live, None)
+    }
+
+    fn instantiate_port(
+        &self,
+        live: Arc<LiveNote>,
+        root: Option<&PortReference>,
+    ) -> Result<Box<dyn Sampler>, TranslateError> {
         let scores = BTreeMap::new();
         let bindings = Bindings {
             scores: &scores,
             mode: TranslateMode::Streaming { live },
+            plugins: self.plugins.as_deref(),
         };
-        self.prepared
-            .translate(&self.registry, self.sample_rate, &bindings)
+        match root {
+            None => self
+                .prepared
+                .translate(&self.registry, self.sample_rate, &bindings),
+            Some(root) => self.prepared.translate_port(
+                &self.registry,
+                self.sample_rate,
+                &bindings,
+                &root.node,
+                &root.port,
+            ),
+        }
+    }
+
+    /// Whether [`open`](Self::open) shares plugin instances across notes.
+    pub fn shares_plugins(&self) -> bool {
+        self.layout != Layout::Voices
+    }
+
+    /// The streaming pipeline: a control handle for notes and the block source to play.
+    pub fn open(&self) -> Result<(StreamingControl, Box<dyn BlockSource>), TranslateError> {
+        match &self.layout {
+            Layout::Voices => {
+                let (voices, mixer) = voice_channel();
+                Ok((
+                    self.control(ControlTarget::Voices { voices, root: None }),
+                    Box::new(mixer),
+                ))
+            }
+            Layout::SharedInstrument {
+                instrument,
+                effects,
+            } => {
+                let (stage, source) = self.shared_stage(instrument, None)?;
+                let source = self.effect_chain(effects, Box::new(source))?;
+                Ok((self.control(ControlTarget::Stage(stage)), source))
+            }
+            Layout::SharedEffects { voice, effects } => {
+                let (voices, mixer) = voice_channel();
+                let source = self.effect_chain(effects, Box::new(mixer))?;
+                Ok((
+                    self.control(ControlTarget::Voices {
+                        voices,
+                        root: Some(voice.clone()),
+                    }),
+                    source,
+                ))
+            }
+        }
+    }
+
+    fn control(&self, target: ControlTarget) -> StreamingControl {
+        StreamingControl {
+            program: self.clone(),
+            target,
+        }
+    }
+
+    fn shared_stage(
+        &self,
+        node_id: &str,
+        input: Option<Box<dyn BlockSource>>,
+    ) -> Result<(StageSender, PluginStage), TranslateError> {
+        let node = self
+            .prepared
+            .graph
+            .nodes
+            .get(node_id)
+            .ok_or_else(|| TranslateError::UnknownNode {
+                node: node_id.into(),
+            })?;
+        let factory = plugin_factory(node, self.plugins.as_deref())?;
+        let stage = plugin_stage(node, factory.as_ref(), self.sample_rate, RenderMode::Realtime)?;
+        Ok(aura_plugin_host::plugin_stage(
+            factory.plugin_id(),
+            stage,
+            input,
+        ))
+    }
+
+    fn effect_chain(
+        &self,
+        effects: &[NodeId],
+        mut source: Box<dyn BlockSource>,
+    ) -> Result<Box<dyn BlockSource>, TranslateError> {
+        for effect in effects {
+            let (_, stage) = self.shared_stage(effect, Some(source))?;
+            source = Box::new(stage);
+        }
+        Ok(source)
+    }
+}
+
+enum ControlTarget {
+    /// Per-note voice instances of the graph (or of `root`, feeding shared effects).
+    Voices {
+        voices: VoiceSender,
+        root: Option<PortReference>,
+    },
+    /// A shared plugin instrument.
+    Stage(StageSender),
+}
+
+#[derive(Debug, Error)]
+pub enum StreamingError {
+    #[error("{0}")]
+    Translate(#[from] TranslateError),
+    #[error("{0}")]
+    Voice(#[from] VoiceSendError),
+    #[error("{0}")]
+    Stage(#[from] StageSendError),
+}
+
+/// Control-thread handle for a streaming pipeline opened by [`StreamingProgram::open`].
+/// Never blocks the audio thread.
+pub struct StreamingControl {
+    program: StreamingProgram,
+    target: ControlTarget,
+}
+
+impl StreamingControl {
+    /// Starts `live` sounding under `id` (releasing any note already under `id`).
+    pub fn note_on(&self, id: u64, live: Arc<LiveNote>) -> Result<(), StreamingError> {
+        match &self.target {
+            ControlTarget::Voices { voices, root } => {
+                let sampler = self
+                    .program
+                    .instantiate_port(Arc::clone(&live), root.as_ref())?;
+                voices.note_on(id, StreamVoice::new(sampler, live, self.program.sample_rate))?;
+            }
+            ControlTarget::Stage(stage) => stage.send(StageCommand::NoteOn {
+                id,
+                key: live.semitone.0,
+                velocity: live.velocity,
+            })?,
+        }
+        Ok(())
+    }
+
+    pub fn note_off(&self, id: u64) -> Result<(), StreamingError> {
+        match &self.target {
+            ControlTarget::Voices { voices, .. } => voices.note_off(id)?,
+            ControlTarget::Stage(stage) => stage.send(StageCommand::NoteOff { id })?,
+        }
+        Ok(())
+    }
+
+    pub fn all_off(&self) -> Result<(), StreamingError> {
+        match &self.target {
+            ControlTarget::Voices { voices, .. } => voices.all_off()?,
+            ControlTarget::Stage(stage) => stage.send(StageCommand::AllOff)?,
+        }
+        Ok(())
+    }
+
+    /// Drops finished voices off the audio thread. Returns how many.
+    pub fn reclaim(&self) -> usize {
+        match &self.target {
+            ControlTarget::Voices { voices, .. } => voices.reclaim(),
+            ControlTarget::Stage(_) => 0,
+        }
     }
 }
 

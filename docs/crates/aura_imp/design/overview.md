@@ -6,7 +6,7 @@ Aura-specific Imp node libraries, registries, and JSON helpers. Graphs denote pu
 
 ## Requirements
 
-- Provide node libraries: `aura.time`, `aura.dsp`, `aura.envelope`, `aura.music`.
+- Provide node libraries: `aura.time`, `aura.dsp`, `aura.envelope`, `aura.music`, `aura.plugin` (`plugin_instrument`, `plugin_effect`: plugin id and base64 state literals; see [plugin hosting](../../../design/plugin-hosting.md)).
 - Depend on `imp_core_types` and `imp_registry` (and related Imp crates as needed for flatten/JSON); do not own the audio sampler runtime.
 - Music nodes prepare translate-time data for composition crates; they do not interpret per sample.
 - Every node type has a deterministic implementation and may have a streaming one; node types from extensions follow the same rule ([playback modes](../../../design/playback-modes.md)).

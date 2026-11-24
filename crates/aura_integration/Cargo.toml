@@ -11,6 +11,7 @@ aura_sequencing = { path = "../aura_sequencing" }
 aura_dsp = { path = "../aura_dsp" }
 aura_imp = { path = "../aura_imp" }
 aura_instrumentation = { path = "../aura_instrumentation" }
+aura_plugin_host = { path = "../aura_plugin_host" }
 aura_io_wav = { path = "../aura_io_wav" }
 aura_render = { path = "../aura_render" }
 aura_sample = { path = "../aura_sample" }
@@ -20,9 +21,13 @@ imp_mir = { workspace = true }
 imp_typecheck = { workspace = true }
 imp_core_types = { workspace = true }
 tome_imp = { path = "../../.mnt/tome-rust-server/crates/tome_imp" }
+base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+aura_clap = { path = "../aura_clap" }
+aura_clap_fixture = { path = "../aura_clap_fixture" }
+clack-host = { workspace = true, features = ["clack-plugin"] }
 tempfile = { workspace = true }

@@ -7,6 +7,7 @@ Thin graph-driven CLI over `aura_integration`: load graph, render duration, writ
 ## Requirements
 
 - Accept Imp graph path, output path, duration (seconds or measures), tempo, and sample rate.
+- Resolve plugin nodes through `aura_clap::ClapHost`: repeatable `--plugin-path` locations, then `CLAP_PATH` and the standard CLAP locations. `aura plugins` lists installed CLAP plugins.
 - Default duration/tempo behavior suitable for demos; write to caller-specified paths (typically gitignored `output/`).
 - Remain thin — business logic lives in `aura_integration` and domain crates.
 

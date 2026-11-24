@@ -12,6 +12,7 @@ use aura_imp::{
     GraphJsonError, Registry, RegistryError,
 };
 use aura_io_wav::{write_wav32, WavError};
+use aura_plugin_host::PluginResolver;
 use aura_render::{sample_offline, RenderError, RenderSpec, Sampler};
 use aura_sample::SampleRate;
 use std::collections::BTreeMap;
@@ -33,7 +34,8 @@ pub use tome_source::{
 };
 pub use translate::{
     find_output_node, sampler_from_score, translate_graph_with_bindings,
-    translate_graph_with_options, StreamingProgram, TranslateError, TranslateOptions,
+    translate_graph_with_options, StreamingControl, StreamingError, StreamingProgram,
+    TranslateError, TranslateOptions,
 };
 
 #[derive(Debug, Error)]
@@ -140,14 +142,21 @@ pub fn sample_graph(sampler: &dyn Sampler, spec: SampleSpec) -> Result<Vec<f32>,
 
 /// Loads, translates, and samples a graph to mono PCM.
 ///
-/// `project` is a Tome project config whose records supply nodes the graph references.
+/// `project` is a Tome project config whose records supply nodes the graph references;
+/// `plugins` resolves the graph's plugin nodes.
 pub fn render_graph_to_pcm(
     loaded: &LoadedGraph,
     spec: SampleSpec,
     project: Option<&Path>,
+    plugins: Option<&dyn PluginResolver>,
 ) -> Result<Vec<f32>, IntegrationError> {
-    let sampler =
-        translate_graph_with_project(&loaded.graph, &loaded.registry, spec.sample_rate, project)?;
+    let sampler = translate_graph_with_project(
+        &loaded.graph,
+        &loaded.registry,
+        spec.sample_rate,
+        project,
+        plugins,
+    )?;
     sample_graph(sampler.as_ref(), spec)
 }
 
@@ -156,9 +165,10 @@ pub fn render_graph_file_to_pcm(
     path: &Path,
     spec: SampleSpec,
     project: Option<&Path>,
+    plugins: Option<&dyn PluginResolver>,
 ) -> Result<Vec<f32>, IntegrationError> {
     let loaded = load_graph(path)?;
-    render_graph_to_pcm(&loaded, spec, project)
+    render_graph_to_pcm(&loaded, spec, project, plugins)
 }
 
 /// Writes mono PCM samples to a 32-bit float WAV file.
@@ -230,7 +240,7 @@ mod tests {
             sample_rate: SampleRate::RATE_44100,
             duration: DurationSpec::Seconds(10.0),
         };
-        let pcm = render_graph_to_pcm(&loaded, spec, None).expect("render");
+        let pcm = render_graph_to_pcm(&loaded, spec, None, None).expect("render");
         assert_eq!(pcm.len(), 441_000);
     }
 
@@ -241,7 +251,7 @@ mod tests {
             sample_rate: SampleRate::RATE_44100,
             duration: DurationSpec::measures_4_4(8.0, aura_sequencing::Tempo::default()),
         };
-        let pcm = render_graph_to_pcm(&loaded, spec, None).expect("render");
+        let pcm = render_graph_to_pcm(&loaded, spec, None, None).expect("render");
         assert_eq!(pcm.len(), 705_600);
     }
 
@@ -255,7 +265,7 @@ mod tests {
             sample_rate: SampleRate::RATE_44100,
             duration: DurationSpec::measures_4_4(8.0, aura_sequencing::Tempo::default()),
         };
-        let pcm = render_graph_to_pcm(&loaded, spec, Some(&demo_project)).expect("render");
+        let pcm = render_graph_to_pcm(&loaded, spec, Some(&demo_project), None).expect("render");
         assert_eq!(pcm.len(), 705_600);
     }
 
