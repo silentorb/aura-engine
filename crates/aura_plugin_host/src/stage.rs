@@ -1,7 +1,7 @@
 //! A shared plugin instance in streaming mode.
 
-use crate::{sort_events, Event, MonoStage, BLOCK_FRAMES};
-use aura_render::BlockSource;
+use crate::{sort_events, Event, LayoutStage, BLOCK_FRAMES};
+use aura_render::{BlockSource, Layout};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 
 const COMMAND_CAPACITY: usize = 256;
@@ -48,24 +48,29 @@ impl StageSender {
 /// allocated on the audio thread.
 pub struct PluginStage {
     plugin_id: String,
-    stage: MonoStage,
+    stage: LayoutStage,
     commands: Receiver<StageCommand>,
     input: Option<Box<dyn BlockSource>>,
     /// `(id, note_id, key)` of held notes, oldest first.
     held: Vec<(u64, i32, i16)>,
     next_note_id: i32,
     events: Vec<Event>,
-    in_buf: Vec<f32>,
+    in_frames: Vec<[f32; 2]>,
+    /// Left and right input, then left and right output, one block each.
+    channels: [Vec<f32>; 4],
     failed: bool,
 }
 
-/// A connected control handle and stage. `input` makes it an effect over that source.
+/// A connected control handle and stage. `input` makes it an effect over that source. Streaming
+/// runs in stereo, so `stage` must have the stereo layout.
 pub fn plugin_stage(
     plugin_id: impl Into<String>,
-    stage: MonoStage,
+    stage: LayoutStage,
     input: Option<Box<dyn BlockSource>>,
 ) -> (StageSender, PluginStage) {
+    assert_eq!(stage.layout(), Layout::Stereo, "streaming plugin stages are stereo");
     let (commands, receiver) = sync_channel(COMMAND_CAPACITY);
+    let block = BLOCK_FRAMES as usize;
     (
         StageSender { commands },
         PluginStage {
@@ -76,7 +81,8 @@ pub fn plugin_stage(
             held: Vec::with_capacity(MAX_HELD),
             next_note_id: 0,
             events: Vec::with_capacity(COMMAND_CAPACITY * 2),
-            in_buf: vec![0.0; BLOCK_FRAMES as usize],
+            in_frames: vec![[0.0; 2]; block],
+            channels: std::array::from_fn(|_| vec![0.0; block]),
             failed: false,
         },
     )
@@ -132,30 +138,43 @@ impl PluginStage {
 }
 
 impl BlockSource for PluginStage {
-    fn render_block(&mut self, out: &mut [f32]) {
+    fn render_block(&mut self, out: &mut [[f32; 2]]) {
         self.events.clear();
         while let Ok(command) = self.commands.try_recv() {
             self.apply(command);
         }
         sort_events(&mut self.events);
         if self.failed {
-            out.fill(0.0);
+            out.fill([0.0; 2]);
             return;
         }
         for (index, chunk) in out.chunks_mut(BLOCK_FRAMES as usize).enumerate() {
-            let input = match &mut self.input {
+            let frames = chunk.len();
+            let [in_left, in_right, out_left, out_right] = &mut self.channels;
+            let has_input = match &mut self.input {
                 Some(source) => {
-                    let buf = &mut self.in_buf[..chunk.len()];
+                    let buf = &mut self.in_frames[..frames];
                     source.render_block(buf);
-                    Some(&*buf)
+                    for (k, [left, right]) in buf.iter().enumerate() {
+                        in_left[k] = *left;
+                        in_right[k] = *right;
+                    }
+                    true
                 }
-                None => None,
+                None => false,
             };
+            let inputs: [&[f32]; 2] = [&in_left[..frames], &in_right[..frames]];
+            let mut outputs: [&mut [f32]; 2] = [&mut out_left[..frames], &mut out_right[..frames]];
             let events: &[Event] = if index == 0 { &self.events } else { &[] };
-            if let Err(error) = self.stage.process(input, chunk, events) {
+            let input = has_input.then_some(&inputs[..]);
+            if let Err(error) = self.stage.process(input, &mut outputs, frames, events) {
                 eprintln!("aura: plugin `{}` stopped: {error}", self.plugin_id);
                 self.failed = true;
-                chunk.fill(0.0);
+                chunk.fill([0.0; 2]);
+                continue;
+            }
+            for (k, frame) in chunk.iter_mut().enumerate() {
+                *frame = [out_left[k], out_right[k]];
             }
         }
     }
@@ -206,7 +225,11 @@ mod tests {
     fn stage(input: Option<Box<dyn BlockSource>>) -> (StageSender, PluginStage) {
         plugin_stage(
             "counter",
-            MonoStage::new(Box::new(Counter { held: 0 }), BLOCK_FRAMES as usize),
+            LayoutStage::new(
+                Box::new(Counter { held: 0 }),
+                BLOCK_FRAMES as usize,
+                Layout::Stereo,
+            ),
             input,
         )
     }
@@ -214,7 +237,7 @@ mod tests {
     #[test]
     fn notes_are_shared_by_one_instance() {
         let (sender, mut stage) = stage(None);
-        let mut block = vec![0.0; 1000];
+        let mut block = vec![[0.0; 2]; 1000];
         sender
             .send(StageCommand::NoteOn {
                 id: 1,
@@ -230,22 +253,22 @@ mod tests {
             })
             .unwrap();
         stage.render_block(&mut block);
-        assert!(block.iter().all(|s| *s == 2.0));
+        assert!(block.iter().all(|s| *s == [2.0, 2.0]));
 
         sender.send(StageCommand::NoteOff { id: 1 }).unwrap();
         stage.render_block(&mut block);
-        assert!(block.iter().all(|s| *s == 1.0));
+        assert!(block.iter().all(|s| *s == [1.0, 1.0]));
 
         sender.send(StageCommand::AllOff).unwrap();
         stage.render_block(&mut block);
-        assert!(block.iter().all(|s| *s == 0.0));
+        assert!(block.iter().all(|s| *s == [0.0, 0.0]));
         assert_eq!(stage.held_count(), 0);
     }
 
     #[test]
     fn retriggering_an_id_releases_it_first() {
         let (sender, mut stage) = stage(None);
-        let mut block = vec![0.0; 10];
+        let mut block = vec![[0.0; 2]; 10];
         for _ in 0..2 {
             sender
                 .send(StageCommand::NoteOn {
@@ -256,21 +279,21 @@ mod tests {
                 .unwrap();
         }
         stage.render_block(&mut block);
-        assert_eq!(block[0], 1.0);
+        assert_eq!(block[0], [1.0, 1.0]);
     }
 
     struct Half;
     impl BlockSource for Half {
-        fn render_block(&mut self, out: &mut [f32]) {
-            out.fill(0.5);
+        fn render_block(&mut self, out: &mut [[f32; 2]]) {
+            out.fill([0.5; 2]);
         }
     }
 
     #[test]
     fn effect_stage_processes_its_input_source() {
         let (_sender, mut stage) = stage(Some(Box::new(Half)));
-        let mut block = vec![0.0; 600];
+        let mut block = vec![[0.0; 2]; 600];
         stage.render_block(&mut block);
-        assert!(block.iter().all(|s| *s == 0.5));
+        assert!(block.iter().all(|s| *s == [0.5, 0.5]));
     }
 }

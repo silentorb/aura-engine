@@ -85,9 +85,13 @@ flowchart LR
 
 Music nodes (`arpeggio`, `epic_minor_progression`, `note_at_time`, …) delegate to composition crates at **translate time**. Sample-time evaluation uses precomputed schedule tables — timing remains explicit via the `time` signal. Chord progressions are **data signals** (`chord_progression` port type) composed at translate time and sampleable per frame via `ChordSignal`. Tempo and time signature are separate **data signals** (`tempo`, `time_signature` port types) wired between producer nodes (`constant_tempo`, `constant_time_signature`) and consumers.
 
+### Audio layouts
+
+Audio is mono (`audio_mono`) or stereo (`audio_stereo`). Most DSP node types are generic over `A: Audio`, so the input layout decides the output layout and Imp rejects mismatched inputs; converters (`pan`, `stereo_to_mono`, `stereo_join`, `stereo_split`) mix layouts explicitly. Translation yields an `AudioSampler`, and the output layout decides WAV channels and device mapping. See [`audio-layouts.md`](audio-layouts.md).
+
 ### Real-time playback
 
-Transport playback is deterministic: `aura_io_cpal::PlaybackEngine` opens the default output device and calls the same `Sampler::at(t)` functions as offline rendering, advancing `t` from a start time until stopped. Plugin caches are prepared before the device opens and rendered ahead in the background, so the audio thread only reads ([`plugin-hosting.md`](plugin-hosting.md#transport-playback-render-ahead)). Live note audition is streaming: `StreamingOutput` pulls blocks from a `VoiceMixer` whose voices are per-note instances of a voice graph translated for streaming mode. Missing devices return a clear error. See [`playback-modes.md`](playback-modes.md).
+Transport playback is deterministic: `aura_io_cpal::PlaybackEngine` opens the default output device and calls the same `frame(t)` functions as offline rendering (mono or stereo), advancing `t` from a start time until stopped. Plugin caches are prepared before the device opens and rendered ahead in the background, so the audio thread only reads ([`plugin-hosting.md`](plugin-hosting.md#transport-playback-render-ahead)). Live note audition is streaming: `StreamingOutput` pulls blocks from a `VoiceMixer` whose voices are per-note instances of a voice graph translated for streaming mode. Missing devices return a clear error. See [`playback-modes.md`](playback-modes.md).
 
 ## Constraints
 

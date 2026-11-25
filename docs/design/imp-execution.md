@@ -13,7 +13,7 @@ f : Time → Sample
 ```
 
 - **Time** — seconds from render start (`f64`).
-- **Sample** — mono amplitude (`f32`).
+- **Sample** — a mono amplitude (`f32`) or a stereo frame (`[left, right]`), by the output's [audio layout](audio-layouts.md). Graphs denote `Time → Sample` (mono) or `Time → Frame` (stereo).
 - The **`time`** signal is wired explicitly in graphs (see demo JSON under [`demos/`](../../demos/)).
 
 ## Three layers
@@ -24,7 +24,7 @@ f : Time → Sample
 | `translate_graph` | Compiler — builds `Box<dyn Sampler>` once |
 | `sample_graph` | Applicator — calls `f(t)` per frame over a duration |
 
-Translation walks the DAG once and composes nested closures (`Sampler::at(t)`). Imp nodes are not interpreted per sample. The custom Aura sampler lives in `aura_integration`.
+Translation walks the DAG once and composes nested closures (`Sampler::at(t)`). Each node type's code comes from its registered [implementation matrix](audio-layouts.md#implementation-matrix): one cell per layout × mode. Imp nodes are not interpreted per sample. The custom Aura sampler lives in `aura_integration`.
 
 ## Functional properties (v1)
 

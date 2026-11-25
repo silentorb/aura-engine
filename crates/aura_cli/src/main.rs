@@ -4,7 +4,7 @@ use aura_clap::ClapHost;
 use aura_plugin_host::{PluginResolver, PluginSettings};
 use aura_integration::{
     sync_content_root, parse_duration_spec, render_graph_file_to_pcm, write_pcm_to_wav,
-    DurationSpec, HostError, IntegrationError, SampleSpec,
+    DurationSpec, HostError, IntegrationError, Layout, SampleSpec,
 };
 use aura_sample::{SampleRate, SampleRateError};
 use std::env;
@@ -232,7 +232,8 @@ fn print_help() {
     );
 }
 
-pub fn render_graph(config: &RenderGraphConfig) -> Result<(), CliError> {
+/// Renders the graph to the configured WAV; returns the output layout.
+pub fn render_graph(config: &RenderGraphConfig) -> Result<Layout, CliError> {
     let spec = SampleSpec {
         sample_rate: config.sample_rate,
         duration: config.duration,
@@ -246,7 +247,7 @@ pub fn render_graph(config: &RenderGraphConfig) -> Result<(), CliError> {
         Some(&plugins),
     )?;
     write_pcm_to_wav(&config.output, &pcm, config.sample_rate)?;
-    Ok(())
+    Ok(pcm.layout)
 }
 
 fn list_plugins(plugin_paths: &[PathBuf]) {
@@ -331,12 +332,16 @@ fn main() {
 
     match command {
         CliCommand::Render(config) => {
-            if let Err(error) = render_graph(&config) {
-                eprintln!("error: {error}");
-                std::process::exit(1);
-            }
+            let layout = match render_graph(&config) {
+                Ok(Layout::Mono) => "mono",
+                Ok(Layout::Stereo) => "stereo",
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    std::process::exit(1);
+                }
+            };
             eprintln!(
-                "Wrote {} from {}",
+                "Wrote {} ({layout}) from {}",
                 config.output.display(),
                 config.graph.display()
             );

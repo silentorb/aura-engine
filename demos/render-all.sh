@@ -40,3 +40,14 @@ cargo run -p aura_cli --quiet -- \
   --sample-rate 44100
 
 echo "Wrote output/demo-03-plugin.wav"
+
+# Stereo demo: demo-01 with each part panned before the mix, so the generic `add` (and the
+# instruments' generic nodes downstream of each pan) resolve to stereo.
+cargo run -p aura_cli --quiet -- \
+  --graph demos/demo-04-stereo.json \
+  --output output/demo-04-stereo.wav \
+  --duration 8m \
+  --tempo 120 \
+  --sample-rate 44100
+
+echo "Wrote output/demo-04-stereo.wav"

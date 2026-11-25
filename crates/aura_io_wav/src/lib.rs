@@ -32,16 +32,30 @@ pub enum WavError {
 
 /// Writes mono 32-bit float PCM as a WAV file.
 pub fn write_wav32(path: &Path, samples: &[f32], sample_rate: SampleRate) -> Result<(), WavError> {
+    write_wav32_channels(path, samples, 1, sample_rate)
+}
+
+/// Writes interleaved 32-bit float PCM with `channels` channels as a WAV file.
+pub fn write_wav32_channels(
+    path: &Path,
+    samples: &[f32],
+    channels: u16,
+    sample_rate: SampleRate,
+) -> Result<(), WavError> {
     let path_str = path.to_string_lossy().into_owned();
-    write_wav32_inner(&path_str, samples, sample_rate).map_err(|source| WavError::Write {
+    write_wav32_inner(&path_str, samples, channels, sample_rate).map_err(|source| WavError::Write {
         path: path_str,
         source,
     })
 }
 
-fn write_wav32_inner(path: &str, samples: &[f32], sample_rate: SampleRate) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+fn write_wav32_inner(
+    path: &str,
+    samples: &[f32],
+    channels: u16,
+    sample_rate: SampleRate,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut file = File::create(path)?;
-    let channels: u16 = 1;
     let bits_per_sample: u16 = 32;
     let byte_rate = sample_rate.get() * u32::from(channels) * u32::from(bits_per_sample) / 8;
     let block_align = channels * bits_per_sample / 8;

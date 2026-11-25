@@ -12,7 +12,7 @@ use aura_imp::{graph_from_json_str, NodeId, NOTATION_NODE_TYPE};
 use aura_integration::{
     sampler_from_score, score_from_notation_str, translate_graph_with_bindings,
 };
-use aura_render::Sampler;
+use aura_render::{AudioSampler, Sampler};
 use aura_sequencing::capture::{notes_from_capture, take_snapshot, CapturedEvent, CapturedKind};
 use aura_sequencing::{
     beats_to_seconds, NoteEvent, Score, ScoreSignal, Semitone, Tempo, TimeSignature,
@@ -86,7 +86,9 @@ pub fn click_sampler(
         ScoreSignal::finite(click_bar(time_signature, tempo)),
     )]);
     translate_graph_with_bindings(&graph, &registry, SAMPLE_RATE, &bindings)
-        .map_err(|e| PlaybackServiceError::Translate(e.to_string()))
+        .map_err(|e| PlaybackServiceError::Translate(e.to_string()))?
+        .into_mono()
+        .ok_or_else(|| PlaybackServiceError::Translate("the click graph must be mono".into()))
 }
 
 /// The recording transport for `score` from `start_beats`; one bar of count-in with the click.
@@ -274,7 +276,10 @@ pub fn record_start(
     if guard.take.is_some() {
         return Err(PlaybackServiceError::Recording("already recording".into()));
     }
-    crate::start_transport(Arc::new(transport), origin_secs)?;
+    crate::start_transport(
+        Arc::new(AudioSampler::Mono(Box::new(transport))),
+        origin_secs,
+    )?;
     guard.generation += 1;
     let mut take = Take::new(tempo, playhead_secs);
     take.generation = guard.generation;

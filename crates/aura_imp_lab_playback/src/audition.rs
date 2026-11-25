@@ -247,9 +247,9 @@ mod tests {
         let program = audition_program().expect("audition program");
         let (control, mut source) = program.open().expect("open");
         control.note_on(1, audition_note(69, 1.0)).unwrap();
-        let mut block = vec![0.0; 4410];
+        let mut block = vec![[0.0; 2]; 4410];
         source.render_block(&mut block);
-        let peak = block.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+        let peak = block.iter().flatten().fold(0.0_f32, |m, s| m.max(s.abs()));
         assert!(peak > 0.5, "audible while held, peak {peak}");
 
         control.note_off(1).unwrap();
@@ -257,7 +257,7 @@ mod tests {
             source.render_block(&mut block);
         }
         assert!(
-            block.iter().all(|s| s.abs() < 1e-4),
+            block.iter().flatten().all(|s| s.abs() < 1e-4),
             "voice rings out after its release"
         );
         assert!(control.reclaim() > 0, "finished voice is handed back");

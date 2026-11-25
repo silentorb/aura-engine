@@ -2,7 +2,7 @@
 
 ## Summary
 
-Aura-specific Imp node libraries, registries, and JSON helpers. Graphs denote pure **Time → Sample** functions; translation and sampling live in `aura_integration`.
+Aura-specific Imp node libraries, registries, and JSON helpers. Graphs denote pure **Time → Sample** (mono) or **Time → Frame** (stereo) functions; translation and sampling live in `aura_integration`. Audio signal types and the `Audio` constraint: [audio layouts](../../../design/audio-layouts.md).
 
 ## Requirements
 

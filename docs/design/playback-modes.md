@@ -25,7 +25,8 @@ An Imp graph is translated once into a runtime form that executes: a graph of `S
 - Translating for streaming never fails because of the mode. A graph that translates deterministically also translates for streaming.
 - Nodes in the Imp graph never check a mode flag while sampling. The mode is applied once, at translation, by choosing which implementation to build.
 - Mode-agnostic node types (`sine`, `add`, `multiply`, noise, `bandlimited_saw`, `semitone_to_hz`, constants, `time`, …) have one implementation, used in both modes. DSP is not duplicated per mode.
-- A node type supplied by an extension follows the same rule: it brings its deterministic implementation and, optionally, its streaming one. Aura's own node types' implementations currently live in `aura_integration`'s translator. Streaming implementations are one function per node type there, so they can move into node-type registrations without a redesign.
+- Node types **register** their implementations (`aura_integration`, `translate/nodes.rs`). When the registry is built, a missing streaming implementation is filled with the deterministic one, so translation picks a ready cell instead of falling back. Layout adds a second dimension: see the [implementation matrix](audio-layouts.md#implementation-matrix) (mono/stereo × deterministic/streaming).
+- A node type supplied by an extension follows the same rule: it registers its deterministic implementation and, optionally, its streaming (and stereo) ones.
 
 ### Live notes travel as scores
 
@@ -54,7 +55,7 @@ The gated envelope is the archetypal fallback. Deterministically, `LinearAdsr` p
 
 - **Program** — `StreamingProgram` type-checks and flattens a voice graph once, then instantiates a fresh runtime graph per note, bound to that note's `LiveNote` (voice-local time, onset `t = 0`). `StreamingProgram::open` builds the whole pipeline: a `StreamingControl` for notes and the `BlockSource` to play, sharing plugin instances where the graph allows.
 - **Voice** — `StreamVoice` (`aura_render`) runs one instance on its own clock. Note-off stamps the release on the live note. A released voice retires once it has been silent briefly, or after a hard tail limit.
-- **Mixer** — `VoiceMixer` (`aura_render`) is a `BlockSource`. It takes note-on / note-off / all-off commands from a control thread without blocking, caps polyphony (starting another voice releases the oldest), and sums voices block by block. It neither allocates nor frees on the audio thread: voices sit in preallocated slots, and finished voices are handed back to the control thread to be dropped.
+- **Mixer** — `VoiceMixer` (`aura_render`) is a `BlockSource`. Blocks are stereo frames; a mono voice sounds on both channels, a stereo voice keeps its channels. It takes note-on / note-off / all-off commands from a control thread without blocking, caps polyphony (starting another voice releases the oldest), and sums voices block by block. It neither allocates nor frees on the audio thread: voices sit in preallocated slots, and finished voices are handed back to the control thread to be dropped.
 - **Output** — `StreamingOutput` (`aura_io_cpal`) is a persistent device stream that pulls from a `BlockSource`. It runs independently of deterministic `PlaybackEngine` transport playback; both may sound at once.
 
 ## Uses

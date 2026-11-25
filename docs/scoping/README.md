@@ -28,3 +28,4 @@ Optimize for **capture** over perfect organization. Prefer adding a short note t
 | [`background.md`](background.md) | Cross-cutting background, multi-repo/env context, avoided directions |
 | [`playback-modes.md`](playback-modes.md) | Why deterministic is primary and streaming degrades from it |
 | [`plugin-hosting.md`](plugin-hosting.md) | Why Aura hosts third-party plugins, the model mismatch, CLAP first |
+| [`stereo.md`](stereo.md) | Why Aura carries stereo, polymorphic node types, and dual mono prepared at load |

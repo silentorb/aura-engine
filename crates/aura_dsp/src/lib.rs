@@ -101,9 +101,27 @@ fn splitmix64(mut x: u64) -> u64 {
     z ^ (z >> 31)
 }
 
+/// Equal-power pan gains `(left, right)` for `position` in `[-1, 1]` (-1 left, 0 center, 1
+/// right; clamped). The center is -3 dB on each side, so a centered mono signal keeps its power.
+#[must_use]
+pub fn pan_gains(position: f32) -> (f32, f32) {
+    let angle = (position.clamp(-1.0, 1.0) + 1.0) * std::f32::consts::FRAC_PI_4;
+    (angle.cos(), angle.sin())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pan_is_equal_power() {
+        let (left, right) = pan_gains(0.0);
+        assert!((left - right).abs() < 1e-6);
+        assert!((left * left + right * right - 1.0).abs() < 1e-6);
+        let (left, right) = pan_gains(-1.0);
+        assert!((left - 1.0).abs() < 1e-6 && right.abs() < 1e-6);
+        assert_eq!(pan_gains(5.0), pan_gains(1.0));
+    }
 
     #[test]
     fn sine_is_pure_in_time() {

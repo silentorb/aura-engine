@@ -14,12 +14,12 @@
 //! and [`PluginResolver`]. Design: `docs/design/plugin-hosting.md`.
 
 mod cache;
-mod mono;
+mod layout;
 mod notes;
 mod stage;
 
 pub use cache::{EventSource, RenderCache};
-pub use mono::MonoStage;
+pub use layout::LayoutStage;
 pub use notes::NoteEventSource;
 pub use stage::{plugin_stage, PluginStage, StageCommand, StageSendError, StageSender};
 

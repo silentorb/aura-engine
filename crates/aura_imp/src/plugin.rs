@@ -5,13 +5,16 @@
 //! The host resolves the id when the graph is translated; see `docs/design/plugin-hosting.md`.
 
 use crate::node_def::primitive_node;
-use crate::signals::{signal, AUDIO_MONO, CONTROL, SCORE};
-use imp_core_types::{NodeLibrary, Port, PrimitiveValue};
+use crate::constraints::AUDIO;
+use crate::signals::{signal, AUDIO_STEREO, CONTROL, SCORE};
+use imp_core_types::{type_var, NodeLibrary, Port, PrimitiveValue, TypeParam};
 use std::collections::BTreeMap;
 
-/// A plugin instrument: plays the notes of its `score` input.
+/// A plugin instrument: plays the notes of its `score` input. Its output is stereo (a mono
+/// plugin's output is duplicated).
 pub const PLUGIN_INSTRUMENT: &str = "plugin_instrument";
-/// A plugin effect: processes its `audio` input.
+/// A plugin effect: processes its `audio` input, mono or stereo (`A: Audio`); its output has the
+/// same layout.
 pub const PLUGIN_EFFECT: &str = "plugin_effect";
 
 /// Literal input naming the plugin (for CLAP, its plugin id, such as `org.surge-synth-team.surge-xt`).
@@ -45,8 +48,8 @@ fn literal(id: &str) -> (String, Port) {
 
 /// Returns the Aura plugin node library.
 pub fn plugin_node_library() -> NodeLibrary {
-    let audio = signal(AUDIO_MONO);
-    let audio_out = || BTreeMap::from([("audio".into(), port("audio", audio.clone(), None))]);
+    let stereo = signal(AUDIO_STEREO);
+    let audio = type_var("A");
     NodeLibrary {
         id: "aura.plugin".into(),
         definitions: vec![
@@ -60,11 +63,14 @@ pub fn plugin_node_library() -> NodeLibrary {
                     literal(PLUGIN_STATE_PORT),
                     literal(PLUGIN_PARAMS_PORT),
                 ]),
-                audio_out(),
+                BTreeMap::from([("audio".into(), port("audio", stereo, None))]),
             ),
             primitive_node(
                 PLUGIN_EFFECT,
-                Vec::new(),
+                vec![TypeParam {
+                    id: "A".into(),
+                    bounds: vec![AUDIO.into()],
+                }],
                 None,
                 BTreeMap::from([
                     ("audio".into(), port("audio", audio.clone(), None)),
@@ -72,7 +78,7 @@ pub fn plugin_node_library() -> NodeLibrary {
                     literal(PLUGIN_STATE_PORT),
                     literal(PLUGIN_PARAMS_PORT),
                 ]),
-                audio_out(),
+                BTreeMap::from([("audio".into(), port("audio", audio, None))]),
             ),
         ],
     }

@@ -1,9 +1,8 @@
 //! Streaming implementations of Aura node types, and streaming programs.
 //!
-//! Every node type has a deterministic implementation (`translate_deterministic`); a node type
-//! listed in [`streaming_implementation`] also has a streaming one. In streaming mode the
-//! translator builds the streaming implementation when there is one, and the deterministic one
-//! otherwise. Both build the same runtime form (`Sampler::at(t)`); in streaming mode `t` only
+//! Every node type has a deterministic implementation and may register a streaming one
+//! (`super::nodes::registrations`); the implementation matrix (`super::impls`) fills a missing
+//! streaming cell with the deterministic implementation when the registry is built. Both build the same runtime form (`Sampler::at(t)`); in streaming mode `t` only
 //! moves forward and is voice-local (the live note's onset is `t = 0`).
 //!
 //! Note-reading implementations act on the live note only when their score input carries it
@@ -11,9 +10,10 @@
 //! so those nodes then use their deterministic implementation unchanged.
 
 use super::{
-    resolve_score_signal_input, signal_input, translate_deterministic, Bindings, NodeValue,
-    PreparedGraph, TargetKey, TranslateError, TranslateMode,
+    resolve_score_signal_input, signal_input, signal_inputs_variadic, stereo_signal_input,
+    Bindings, NodeValue, PreparedGraph, TargetKey, TranslateError, TranslateMode,
 };
+use super::impls::{node_impls, Mode};
 use aura_dsp::sine;
 use aura_imp::plugin::{PLUGIN_EFFECT, PLUGIN_INSTRUMENT};
 use aura_imp::{Graph, GraphSource, Node, NodeId, PortReference, Registry, NOTATION_NODE_TYPE};
@@ -22,7 +22,10 @@ use super::plugin::{plugin_factory, plugin_stage};
 use aura_plugin_host::{
     PluginResolver, PluginStage, RenderMode, StageCommand, StageSendError, StageSender,
 };
-use aura_render::{voice_channel, BlockSource, Sampler, StreamVoice, VoiceSendError, VoiceSender};
+use aura_render::{
+    voice_channel, AudioSampler, BlockSource, Layout as AudioLayout, Sampler, StereoSampler,
+    StreamVoice, VoiceSendError, VoiceSender,
+};
 use aura_sample::SampleRate;
 use aura_sequencing::{LiveNote, ScoreSignal};
 use std::collections::{BTreeMap, BTreeSet};
@@ -39,6 +42,8 @@ pub(super) struct NodeCtx<'a, 'b> {
     pub(super) bindings: &'a Bindings<'a>,
     pub(super) node: &'a Node,
     pub(super) output_port: &'a str,
+    /// The node's resolved layout (mono inside a dual-mono channel pass).
+    pub(super) layout: AudioLayout,
 }
 
 impl NodeCtx<'_, '_> {
@@ -73,16 +78,44 @@ impl NodeCtx<'_, '_> {
         Ok(self.score("score")?.live)
     }
 
-    fn deterministic(&mut self) -> Result<NodeValue, TranslateError> {
-        translate_deterministic(
+    /// The node type's deterministic implementation for the same layout. Streaming
+    /// implementations use it when their input carries no live note.
+    pub(super) fn deterministic(&mut self) -> Result<NodeValue, TranslateError> {
+        let matrix = node_impls()
+            .get(self.node.node_type.as_str())
+            .expect("a streaming implementation belongs to a registered node type");
+        let build = std::sync::Arc::clone(matrix.cell(self.layout, Mode::Deterministic));
+        build(self)
+    }
+
+    /// Every signal into variadic input `port`, in edge order.
+    pub(super) fn signals(&mut self, port: &str) -> Result<Vec<Box<dyn Sampler>>, TranslateError> {
+        signal_inputs_variadic(
             self.graph,
             self.registry,
             self.sample_rate,
             self.edges_by_target,
             self.visiting,
             self.bindings,
-            self.node,
-            self.output_port,
+            &self.node.id,
+            port,
+        )
+    }
+
+    /// The stereo signal into `port` (for a true stereo implementation).
+    pub(super) fn stereo_signal(
+        &mut self,
+        port: &str,
+    ) -> Result<Box<dyn StereoSampler>, TranslateError> {
+        stereo_signal_input(
+            self.graph,
+            self.registry,
+            self.sample_rate,
+            self.edges_by_target,
+            self.visiting,
+            self.bindings,
+            &self.node.id,
+            port,
         )
     }
 
@@ -94,30 +127,14 @@ impl NodeCtx<'_, '_> {
     }
 }
 
-type StreamingImpl = fn(&mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError>;
-
-/// The streaming implementation of a node type, when it has one.
-pub(super) fn streaming_implementation(node_type: &str) -> Option<StreamingImpl> {
-    Some(match node_type {
-        NOTATION_NODE_TYPE => stream_notation,
-        "note_at_time" => stream_note_at_time,
-        "note_param_at_time" => stream_note_param_at_time,
-        "linear_adsr" => stream_linear_adsr,
-        "note_envelope" => stream_note_envelope,
-        "poly_sine_score" => stream_poly_sine_score,
-        PLUGIN_INSTRUMENT | PLUGIN_EFFECT => stream_plugin,
-        _ => return None,
-    })
-}
-
 /// A plugin in one voice instance: an instrument plays the voice's live note. This is the
 /// per-voice fallback; [`StreamingProgram::open`] shares one instance where the graph allows.
-fn stream_plugin(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
+pub(super) fn stream_plugin(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
     super::plugin::translate_plugin(ctx, true)
 }
 
 /// A notation node is the voice's live note.
-fn stream_notation(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
+pub(super) fn stream_notation(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
     if ctx.output_port != "score" {
         return Err(ctx.missing_port());
     }
@@ -128,7 +145,7 @@ fn stream_notation(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateErro
 }
 
 /// Note facts from the live note; `note_duration` is the duration so far.
-fn stream_note_at_time(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
+pub(super) fn stream_note_at_time(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
     let Some(live) = ctx.live_score()? else {
         return ctx.deterministic();
     };
@@ -146,7 +163,7 @@ fn stream_note_at_time(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, Translate
     })))
 }
 
-fn stream_note_param_at_time(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
+pub(super) fn stream_note_param_at_time(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
     if ctx.output_port != "value" {
         return Err(ctx.missing_port());
     }
@@ -165,7 +182,7 @@ fn stream_note_param_at_time(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, Tra
 /// Applies only when the envelope times a live note (its `elapsed` or `note_duration` input
 /// depends on a notation node). An envelope timed by a fixed score keeps its deterministic
 /// implementation, whose note lengths are known.
-fn stream_linear_adsr(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
+pub(super) fn stream_linear_adsr(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
     let live = ctx.bindings.live().cloned().filter(|_| {
         ["elapsed", "note_duration"]
             .iter()
@@ -184,7 +201,7 @@ fn stream_linear_adsr(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateE
     })))
 }
 
-fn stream_note_envelope(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
+pub(super) fn stream_note_envelope(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
     let Some(live) = ctx.live_score()? else {
         return ctx.deterministic();
     };
@@ -194,7 +211,7 @@ fn stream_note_envelope(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, Translat
     })))
 }
 
-fn stream_poly_sine_score(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
+pub(super) fn stream_poly_sine_score(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
     let Some(live) = ctx.live_score()? else {
         return ctx.deterministic();
     };
@@ -449,7 +466,7 @@ impl StreamingProgram {
 
     /// A runtime graph for one voice sounding `live` (onset at `t = 0`). Plugins in it are
     /// instantiated for this voice alone.
-    pub fn instantiate(&self, live: Arc<LiveNote>) -> Result<Box<dyn Sampler>, TranslateError> {
+    pub fn instantiate(&self, live: Arc<LiveNote>) -> Result<AudioSampler, TranslateError> {
         self.instantiate_port(live, None)
     }
 
@@ -457,14 +474,13 @@ impl StreamingProgram {
         &self,
         live: Arc<LiveNote>,
         root: Option<&PortReference>,
-    ) -> Result<Box<dyn Sampler>, TranslateError> {
+    ) -> Result<AudioSampler, TranslateError> {
         let scores = BTreeMap::new();
-        let bindings = Bindings {
-            scores: &scores,
-            mode: TranslateMode::Streaming { live },
-            plugins: self.plugins.as_deref(),
-            caches: Default::default(),
-        };
+        let bindings = Bindings::new(
+            &scores,
+            TranslateMode::Streaming { live },
+            self.plugins.as_deref(),
+        );
         match root {
             None => self
                 .prepared
@@ -537,7 +553,14 @@ impl StreamingProgram {
                 node: node_id.into(),
             })?;
         let factory = plugin_factory(node, self.plugins.as_deref())?;
-        let stage = plugin_stage(node, factory.as_ref(), self.sample_rate, RenderMode::Realtime)?;
+        // Streaming runs in stereo; a shared stage adapts the plugin to it.
+        let stage = plugin_stage(
+            node,
+            factory.as_ref(),
+            self.sample_rate,
+            RenderMode::Realtime,
+            AudioLayout::Stereo,
+        )?;
         Ok(aura_plugin_host::plugin_stage(
             factory.plugin_id(),
             stage,
@@ -693,7 +716,9 @@ mod tests {
         let program = StreamingProgram::prepare(&voice_graph("sine_note_voice"), &registry, RATE)
             .expect("sine_note_voice streams");
         let note = live(69);
-        let voice = program.instantiate(Arc::clone(&note)).expect("instance");
+        let voice = program.instantiate(Arc::clone(&note)).expect("instance")
+            .into_mono()
+            .expect("mono");
 
         // Held far longer than any note length the voice could know about.
         assert!(peak(voice.as_ref(), 1.9, 2.0) > 0.5, "sustains while held");
@@ -715,7 +740,9 @@ mod tests {
         let program = StreamingProgram::prepare(&voice_graph("kick_drum"), &registry, RATE)
             .expect("kick_drum streams");
         let note = live(36);
-        let voice = program.instantiate(Arc::clone(&note)).expect("instance");
+        let voice = program.instantiate(Arc::clone(&note)).expect("instance")
+            .into_mono()
+            .expect("mono");
         assert!(peak(voice.as_ref(), 0.0, 0.05) > 1e-3, "audible attack");
         note.release(0.1);
         assert_eq!(peak(voice.as_ref(), 2.0, 2.1), 0.0);
@@ -741,7 +768,9 @@ mod tests {
         let loaded = crate::load_graph(&workspace("demos/demo-01.json")).expect("demo-01");
         let deterministic =
             translate_graph_with_bindings(&loaded.graph, &loaded.registry, RATE, &BTreeMap::new())
-                .expect("deterministic");
+                .expect("deterministic")
+                .into_mono()
+                .expect("mono");
         assert!(
             peak(deterministic.as_ref(), 0.0, 2.0) > 1e-3,
             "demo-01 is audible"
@@ -749,7 +778,9 @@ mod tests {
         let streaming = StreamingProgram::prepare(&loaded.graph, &loaded.registry, RATE)
             .expect("streams")
             .instantiate(live(60))
-            .expect("instance");
+            .expect("instance")
+            .into_mono()
+            .expect("mono");
         for frame in 0..8000 {
             let t = frame as f64 / 2000.0;
             assert_eq!(deterministic.at(t), streaming.at(t), "t={t}");
@@ -761,11 +792,16 @@ mod tests {
         let json = std::fs::read_to_string(workspace("demos/sine.json")).expect("sine.json");
         let graph = graph_from_json_str(&json).expect("graph");
         let registry = aura_registry_with_libraries(&[]).expect("registry");
-        let deterministic = translate_graph(&graph, &registry, RATE).expect("deterministic");
+        let deterministic = translate_graph(&graph, &registry, RATE)
+            .expect("deterministic")
+            .into_mono()
+            .expect("mono");
         let streaming = StreamingProgram::prepare(&graph, &registry, RATE)
             .expect("streaming")
             .instantiate(live(60))
-            .expect("instance");
+            .expect("instance")
+            .into_mono()
+            .expect("mono");
         for frame in 0..4410 {
             let t = frame as f64 / f64::from(RATE.get());
             assert_eq!(deterministic.at(t), streaming.at(t));

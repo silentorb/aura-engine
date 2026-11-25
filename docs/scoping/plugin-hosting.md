@@ -36,7 +36,7 @@ Mature adapters that load VST3 plugins *into* a CLAP host do not appear to exist
 ## Known limits accepted for now
 
 - **Determinism weakens** to "as reproducible as the plugins in the graph": unseeded randomness, threading, or a different installed version change output.
-- **Mono**: stereo plugins are folded to mono until Aura has multichannel audio. Stereo effects (reverb, chorus) lose their width; this is expected to be the first limit that matters.
+- **Mono**: stereo plugins are folded to mono until Aura has multichannel audio. Stereo effects (reverb, chorus) lose their width; this is expected to be the first limit that matters. (Resolved: Aura now carries stereo; see [stereo](stereo.md).)
 - **In-process**: a crashing plugin takes the host with it; sandboxing is deferred.
 - **Seeking cost**: a plugin region renders from the start; a late start in a long song with heavy plugins waits for the render.
 

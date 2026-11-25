@@ -1,7 +1,7 @@
 //! A plugin as a seekable sampler: render forward once, keep the result.
 
-use crate::{sort_events, Event, MonoStage, NoteEventSource, PluginHostError, Tail, BLOCK_FRAMES};
-use aura_render::{is_realtime_reader, Sampler};
+use crate::{sort_events, Event, LayoutStage, NoteEventSource, PluginHostError, Tail, BLOCK_FRAMES};
+use aura_render::{is_realtime_reader, AudioSampler, Layout, Sampler, StereoSampler};
 use aura_sample::SampleRate;
 use aura_sequencing::LiveNote;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -24,8 +24,8 @@ const QUIET_LEVEL: f32 = 1e-6;
 const QUIET_SECS: f64 = 0.25;
 const MAX_TAIL_SECS: f64 = 30.0;
 
-/// Frames per output chunk, and the most chunks a cache holds: about 3.4 hours at 44.1 kHz.
-/// Rendering stops (and the rest is silence) past that.
+/// Samples per output chunk, and the most chunks a cache holds: about 3.4 hours of mono (1.7 of
+/// stereo) at 44.1 kHz. Rendering stops (and the rest is silence) past that.
 const CHUNK_FRAMES: usize = 1 << 16;
 const MAX_CHUNKS: usize = 8192;
 /// Blocks the render-ahead worker renders before letting go of the plugin, so inline readers
@@ -89,7 +89,8 @@ impl Output {
     }
 }
 
-/// A plugin instance rendered forward into a retained buffer and read as a [`Sampler`].
+/// A plugin instance rendered forward into a retained buffer and read as a [`Sampler`] (mono
+/// layout) or [`StereoSampler`] (stereo layout; frames are stored interleaved).
 ///
 /// `at(t)` renders blocks until `t` is covered, then reads (with linear interpolation off the
 /// frame grid). Everything rendered is kept for the life of the cache, so sampling out of order
@@ -113,6 +114,8 @@ pub struct RenderCache {
 
 struct CacheInner {
     rate: f64,
+    /// Channels per stored frame (the stage's layout).
+    channels: usize,
     output: Output,
     state: Mutex<CacheState>,
     /// Furthest frame a real-time reader has asked for.
@@ -125,9 +128,9 @@ struct CacheInner {
 
 struct CacheState {
     plugin_id: String,
-    stage: MonoStage,
+    stage: LayoutStage,
     events: EventSource,
-    input: Option<Box<dyn Sampler>>,
+    input: Option<AudioSampler>,
     /// Frames the plugin has processed (its own clock, which runs `latency` ahead of output).
     plugin_frame: u64,
     latency: u64,
@@ -138,23 +141,30 @@ struct CacheState {
     finished: bool,
     failure: Option<PluginHostError>,
     block_events: Vec<Event>,
-    in_buf: Vec<f32>,
-    out_buf: Vec<f32>,
+    /// One buffer per input channel.
+    in_buf: Vec<Vec<f32>>,
+    /// One buffer per output channel.
+    out_buf: Vec<Vec<f32>>,
+    /// Output frames interleaved for storage.
+    interleaved: Vec<f32>,
 }
 
 impl RenderCache {
     pub fn new(
         plugin_id: impl Into<String>,
-        stage: MonoStage,
+        stage: LayoutStage,
         events: EventSource,
-        input: Option<Box<dyn Sampler>>,
+        input: Option<AudioSampler>,
         sample_rate: SampleRate,
     ) -> Self {
         let latency = u64::from(stage.latency_frames());
         let block = BLOCK_FRAMES as usize;
+        let channels = stage.layout().channels();
+        let input_channels = input.as_ref().map_or(0, |input| input.layout().channels());
         Self {
             inner: Arc::new(CacheInner {
                 rate: f64::from(sample_rate.get()),
+                channels,
                 output: Output::new(),
                 state: Mutex::new(CacheState {
                     plugin_id: plugin_id.into(),
@@ -169,8 +179,9 @@ impl RenderCache {
                     finished: false,
                     failure: None,
                     block_events: Vec::with_capacity(64),
-                    in_buf: vec![0.0; block],
-                    out_buf: vec![0.0; block],
+                    in_buf: vec![vec![0.0; block]; input_channels],
+                    out_buf: vec![vec![0.0; block]; channels],
+                    interleaved: Vec::with_capacity(block * channels),
                 }),
                 playhead: AtomicU64::new(0),
                 ahead: AtomicU64::new(0),
@@ -191,7 +202,16 @@ impl RenderCache {
 
     /// Frames rendered so far.
     pub fn rendered_frames(&self) -> usize {
-        self.inner.output.len()
+        self.inner.output.len() / self.inner.channels
+    }
+
+    /// The layout the cache renders.
+    pub fn layout(&self) -> Layout {
+        if self.inner.channels == 2 {
+            Layout::Stereo
+        } else {
+            Layout::Mono
+        }
     }
 
     /// Whether the render-ahead worker has been started (by [`Sampler::prepare`]).
@@ -207,16 +227,39 @@ impl CacheInner {
 
     /// Renders until `frames` frames exist or the plugin has finished.
     fn render_until(&self, frames: usize) {
-        if self.output.len() >= frames || self.output.is_finished() {
+        let samples = frames * self.channels;
+        if self.output.len() >= samples || self.output.is_finished() {
             return;
         }
         if let Ok(mut state) = self.state.lock() {
-            state.ensure(frames, self.rate, &self.output);
+            state.ensure(samples, self.rate, &self.output);
         }
     }
 
-    /// The sample at `index`: rendered inline when needed, except for real-time readers.
-    fn sample(&self, index: usize, realtime: bool) -> f32 {
+    /// Both channels of stereo frame `frame`, like [`CacheInner::sample`].
+    fn stereo_frame(&self, frame: usize, realtime: bool) -> [f32; 2] {
+        let index = frame * 2;
+        if let (Some(left), Some(right)) = (self.output.get(index), self.output.get(index + 1)) {
+            return [left, right];
+        }
+        if self.output.is_finished() {
+            return [0.0; 2];
+        }
+        if realtime {
+            self.underruns.fetch_add(1, Ordering::Relaxed);
+            return [0.0; 2];
+        }
+        self.render_until(frame + 1);
+        [
+            self.output.get(index).unwrap_or(0.0),
+            self.output.get(index + 1).unwrap_or(0.0),
+        ]
+    }
+
+    /// Channel `channel` of frame `frame`: rendered inline when needed, except for real-time
+    /// readers.
+    fn sample(&self, frame: usize, channel: usize, realtime: bool) -> f32 {
+        let index = frame * self.channels + channel;
         if let Some(value) = self.output.get(index) {
             return value;
         }
@@ -227,7 +270,7 @@ impl CacheInner {
             self.underruns.fetch_add(1, Ordering::Relaxed);
             return 0.0;
         }
-        self.render_until(index + 1);
+        self.render_until(frame + 1);
         self.output.get(index).unwrap_or(0.0)
     }
 }
@@ -245,7 +288,7 @@ fn render_ahead(cache: Weak<CacheInner>) {
             .playhead
             .load(Ordering::Relaxed)
             .saturating_add(inner.ahead.load(Ordering::Relaxed));
-        let rendered = inner.output.len() as u64;
+        let rendered = (inner.output.len() / inner.channels) as u64;
         if rendered < target {
             let batch = rendered + WORKER_BATCH_BLOCKS * u64::from(BLOCK_FRAMES);
             inner.render_until(target.min(batch) as usize);
@@ -256,8 +299,31 @@ fn render_ahead(cache: Weak<CacheInner>) {
     }
 }
 
-impl Sampler for RenderCache {
-    fn at(&self, time_secs: f64) -> f32 {
+impl RenderCache {
+    /// Both channels of a stereo cache at `time_secs`; a miss counts as one underrun.
+    fn read_frame(&self, time_secs: f64) -> [f32; 2] {
+        if time_secs.is_nan() || time_secs < 0.0 {
+            return [0.0; 2];
+        }
+        let inner = &self.inner;
+        let position = time_secs * inner.rate;
+        let index = position.floor() as usize;
+        let frac = (position - index as f64) as f32;
+        let realtime = is_realtime_reader();
+        if realtime {
+            inner.playhead.fetch_max(index as u64, Ordering::Relaxed);
+        }
+        let a = inner.stereo_frame(index, realtime);
+        if frac > 0.0 {
+            let b = inner.stereo_frame(index + 1, realtime);
+            [a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac]
+        } else {
+            a
+        }
+    }
+
+    /// Channel `channel` at `time_secs`, linearly interpolated off the frame grid.
+    fn read(&self, channel: usize, time_secs: f64) -> f32 {
         if time_secs.is_nan() || time_secs < 0.0 {
             return 0.0;
         }
@@ -269,16 +335,61 @@ impl Sampler for RenderCache {
         if realtime {
             inner.playhead.fetch_max(index as u64, Ordering::Relaxed);
         }
-        let a = inner.sample(index, realtime);
+        let a = inner.sample(index, channel, realtime);
         if frac > 0.0 {
-            let b = inner.sample(index + 1, realtime);
+            let b = inner.sample(index + 1, channel, realtime);
             a + (b - a) * frac
         } else {
             a
         }
     }
+}
+
+impl StereoSampler for RenderCache {
+    fn frame(&self, time_secs: f64) -> [f32; 2] {
+        if self.inner.channels == 1 {
+            let value = self.read(0, time_secs);
+            return [value, value];
+        }
+        self.read_frame(time_secs)
+    }
+
+    fn channel(&self, channel: usize, time_secs: f64) -> f32 {
+        self.read(channel.min(self.inner.channels - 1), time_secs)
+    }
 
     fn prepare(&self, start_secs: f64, ahead_secs: f64) {
+        RenderCache::prepare(self, start_secs, ahead_secs);
+    }
+
+    fn underruns(&self) -> u64 {
+        RenderCache::underruns(self)
+    }
+}
+
+impl Sampler for RenderCache {
+    /// The mono signal; a stereo cache reads as the average of its channels.
+    fn at(&self, time_secs: f64) -> f32 {
+        if self.inner.channels == 1 {
+            self.read(0, time_secs)
+        } else {
+            (self.read(0, time_secs) + self.read(1, time_secs)) * 0.5
+        }
+    }
+
+    fn prepare(&self, start_secs: f64, ahead_secs: f64) {
+        RenderCache::prepare(self, start_secs, ahead_secs);
+    }
+
+    fn underruns(&self) -> u64 {
+        RenderCache::underruns(self)
+    }
+}
+
+impl RenderCache {
+    /// Renders `ahead_secs` past `start_secs` now and starts the render-ahead worker (see
+    /// [`Sampler::prepare`]).
+    pub fn prepare(&self, start_secs: f64, ahead_secs: f64) {
         let inner = &self.inner;
         let start = inner.frame_of(start_secs);
         let ahead = inner.frame_of(ahead_secs);
@@ -300,7 +411,8 @@ impl Sampler for RenderCache {
         }
     }
 
-    fn underruns(&self) -> u64 {
+    /// Real-time reads that found nothing rendered (see [`Sampler::underruns`]).
+    pub fn underruns(&self) -> u64 {
         self.inner.underruns.load(Ordering::Relaxed)
     }
 }
@@ -344,18 +456,29 @@ impl CacheState {
         }
         sort_events(&mut self.block_events);
 
-        let input = match &self.input {
-            Some(sampler) => {
-                for (k, sample) in self.in_buf.iter_mut().enumerate() {
+        let block = frames as usize;
+        match &self.input {
+            Some(AudioSampler::Mono(sampler)) => {
+                for (k, sample) in self.in_buf[0].iter_mut().enumerate() {
                     *sample = sampler.at((start + k as u64) as f64 / rate);
                 }
-                Some(&self.in_buf[..])
             }
-            None => None,
-        };
+            Some(AudioSampler::Stereo(sampler)) => {
+                for k in 0..block {
+                    let [left, right] = sampler.frame((start + k as u64) as f64 / rate);
+                    self.in_buf[0][k] = left;
+                    self.in_buf[1][k] = right;
+                }
+            }
+            None => {}
+        }
+        let inputs: Vec<&[f32]> = self.in_buf.iter().map(Vec::as_slice).collect();
+        let input = self.input.as_ref().map(|_| inputs.as_slice());
+        let mut outputs: Vec<&mut [f32]> =
+            self.out_buf.iter_mut().map(Vec::as_mut_slice).collect();
         if let Err(error) = self
             .stage
-            .process(input, &mut self.out_buf, &self.block_events)
+            .process(input, &mut outputs, block, &self.block_events)
         {
             eprintln!("aura: plugin `{}` stopped: {error}", self.plugin_id);
             self.failure = Some(error);
@@ -367,13 +490,23 @@ impl CacheState {
 
         // Plugin frame p is output frame p - latency.
         let skip = self.latency.saturating_sub(start).min(u64::from(frames)) as usize;
-        if !output.push(&self.out_buf[skip..]) {
+        self.interleaved.clear();
+        for frame in skip..block {
+            for channel in &self.out_buf {
+                self.interleaved.push(channel[frame]);
+            }
+        }
+        if !output.push(&self.interleaved) {
             self.finished = true;
             output.finish();
             return;
         }
 
-        let peak = self.out_buf.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+        let peak = self
+            .out_buf
+            .iter()
+            .flatten()
+            .fold(0.0_f32, |m, s| m.max(s.abs()));
         if peak >= QUIET_LEVEL {
             self.quiet_frames = 0;
         } else {
@@ -470,14 +603,15 @@ mod tests {
         }
     }
 
-    fn counter(latency: usize) -> MonoStage {
-        MonoStage::new(
+    fn counter(latency: usize) -> LayoutStage {
+        LayoutStage::new(
             Box::new(Counter {
                 held: 0,
                 latency,
                 line: Vec::new(),
             }),
             BLOCK_FRAMES as usize,
+            Layout::Mono,
         )
     }
 
@@ -544,7 +678,7 @@ mod tests {
             "counter",
             counter(10),
             EventSource::None,
-            Some(Box::new(ConstantInput)),
+            Some(AudioSampler::Mono(Box::new(ConstantInput))),
             RATE,
         );
         assert_eq!(at_frame(&cache, 0), 0.5);
@@ -653,9 +787,9 @@ mod tests {
         // An effect never finishes, so its worker would run forever if it held the cache.
         let cache = RenderCache::new(
             "counter",
-            MonoStage::new(Box::new(processor), BLOCK_FRAMES as usize),
+            LayoutStage::new(Box::new(processor), BLOCK_FRAMES as usize, Layout::Mono),
             EventSource::None,
-            Some(Box::new(ConstantInput)),
+            Some(AudioSampler::Mono(Box::new(ConstantInput))),
             RATE,
         );
         cache.prepare(0.0, 0.1);

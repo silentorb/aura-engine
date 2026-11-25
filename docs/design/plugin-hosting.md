@@ -6,7 +6,7 @@ Aura hosts third-party audio plugins as Imp nodes in both playback modes. Motiva
 
 | Crate | Owns |
 |---|---|
-| [`aura_plugin_host`](../crates/aura_plugin_host/design/overview.md) | Protocol-neutral seam: `Processor`, `ProcessorFactory`, `PluginResolver`; `RenderCache` (deterministic); `PluginStage` (streaming); score → note events; mono adaptation |
+| [`aura_plugin_host`](../crates/aura_plugin_host/design/overview.md) | Protocol-neutral seam: `Processor`, `ProcessorFactory`, `PluginResolver`; `RenderCache` (deterministic); `PluginStage` (streaming); score → note events; layout adaptation (`LayoutStage`) |
 | [`aura_clap`](../crates/aura_clap/design/overview.md) | CLAP backend: discovery, loading, the shared CLAP main thread, instance lifecycle, process, state, latency, tail, render mode |
 | `aura_imp` | `aura.plugin` node library |
 | `aura_integration` | Translating plugin nodes in both modes; `StreamingProgram::open` |
@@ -85,7 +85,12 @@ Editors (`aura_clap::ClapHost::open_editor`) embed the plugin GUI in a host wind
 
 ## Channels
 
-Aura is mono end to end. A mono input is copied to every channel of the plugin's main input port; the output is the average of the main output port's channels. Other ports receive silence and are ignored.
+Plugins are adapted to the node's [audio layout](audio-layouts.md) (`LayoutStage`):
+
+- `plugin_instrument` is stereo: the plugin's first two outputs, or a single output duplicated.
+- `plugin_effect` is layout-polymorphic (`A: Audio`). Mono: the input feeds every plugin input channel and the output is the average of the plugin's outputs. Stereo: left/right feed the first two inputs (averaged into a single-input plugin) and the first two outputs are left/right.
+- One plugin instance always processes every channel; plugin nodes never run as dual mono.
+- Streaming stages run in stereo. Other ports receive silence and are ignored.
 
 ## CLAP backend
 
@@ -112,5 +117,5 @@ Aura is mono end to end. A mono input is copied to every channel of the plugin's
 - Out-of-process sandboxing
 - Hearing GUI edits immediately (the editor would have to drive the sounding instance)
 - Linux plugin GUIs that need the host's timer or file-descriptor support (JUCE on Linux); Windows is the verified path
-- Multichannel Aura audio
+- Aura audio beyond stereo
 - Bounding cache memory for long renders (currently about 10.6 MB per plugin node per minute at 44.1 kHz)

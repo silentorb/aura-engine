@@ -11,6 +11,9 @@ pub const CONTROL: &str = "control";
 /// Mono audio sample amplitude.
 pub const AUDIO_MONO: &str = "audio_mono";
 
+/// Stereo audio frame (left, right).
+pub const AUDIO_STEREO: &str = "audio_stereo";
+
 /// Musical score (translate-time only).
 pub const SCORE: &str = "score";
 

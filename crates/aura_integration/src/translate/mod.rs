@@ -1,8 +1,12 @@
 //! Imp graph → Sampler translation.
 
+mod impls;
+mod nodes;
 mod note_schedule;
 mod plugin;
 mod streaming;
+#[cfg(test)]
+mod stereo_tests;
 
 pub use plugin::plugin_node_settings;
 pub use streaming::{StreamingControl, StreamingError, StreamingProgram};
@@ -27,9 +31,12 @@ use aura_imp::{
 };
 use aura_instrumentation::LinearAdsr;
 use aura_plugin_host::PluginResolver;
-use aura_render::Sampler;
+use aura_render::{AudioSampler, Layout, Sampler, StereoSampler};
 use aura_sample::SampleRate;
-use imp_typecheck::check_graph;
+use aura_imp::constraints::AUDIO;
+use aura_imp::signals::AUDIO_STEREO;
+use aura_imp::{get_node_definition, SignalType};
+use imp_typecheck::{check_graph, resolve_type_args};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use thiserror::Error;
@@ -74,6 +81,10 @@ pub enum TranslateError {
     Resolve { message: String },
     #[error("notation node `{node}` has no bound ScoreSignal")]
     MissingScoreBinding { node: NodeId },
+    #[error("node `{node}` input `{port}` is stereo, but the node resolved to mono")]
+    UnexpectedStereo { node: NodeId, port: String },
+    #[error("node `{node}` input `{port}` must be stereo")]
+    ExpectedStereo { node: NodeId, port: String },
     #[error("plugin node `{node}` names no plugin")]
     MissingPluginId { node: NodeId },
     #[error("plugin node `{node}` needs a plugin host to resolve `{plugin}`")]
@@ -102,6 +113,7 @@ pub struct TranslateOptions<'a> {
 
 enum NodeValue {
     Signal(Box<dyn Sampler>),
+    Stereo(Box<dyn StereoSampler>),
     ScoreSignal(ScoreSignal),
     ProgressionSignal(ProgressionSignal),
     Tempo(Tempo),
@@ -117,12 +129,12 @@ pub fn sampler_from_score(score: Score, sample_rate: SampleRate) -> Box<dyn Samp
     })
 }
 
-/// Translates an Imp graph into a pure Time → Sample function.
+/// Translates an Imp graph into a pure Time → Sample (mono) or Time → Frame (stereo) function.
 pub fn translate_graph(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-) -> Result<Box<dyn Sampler>, TranslateError> {
+) -> Result<AudioSampler, TranslateError> {
     translate_graph_with_bindings(graph, registry, sample_rate, &BTreeMap::new())
 }
 
@@ -132,7 +144,7 @@ pub fn translate_graph_with_bindings(
     registry: &Registry,
     sample_rate: SampleRate,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
-) -> Result<Box<dyn Sampler>, TranslateError> {
+) -> Result<AudioSampler, TranslateError> {
     translate_graph_with_options(
         graph,
         registry,
@@ -151,14 +163,13 @@ pub fn translate_graph_with_options<'a>(
     registry: &Registry,
     sample_rate: SampleRate,
     options: TranslateOptions<'_>,
-) -> Result<Box<dyn Sampler>, TranslateError> {
+) -> Result<AudioSampler, TranslateError> {
     let prepared = PreparedGraph::prepare(source, registry)?;
-    let bindings = Bindings {
-        scores: options.score_bindings,
-        mode: TranslateMode::Deterministic,
-        plugins: options.plugins,
-        caches: Default::default(),
-    };
+    let bindings = Bindings::new(
+        options.score_bindings,
+        TranslateMode::Deterministic,
+        options.plugins,
+    );
     let root = prepared.translate(registry, sample_rate, &bindings)?;
     Ok(plugin::prepared_root(root, bindings.caches.take()))
 }
@@ -184,6 +195,40 @@ pub(crate) struct Bindings<'a> {
     pub(crate) plugins: Option<&'a dyn PluginResolver>,
     /// Plugin render caches built so far, so the root can prepare them for real-time reading.
     pub(crate) caches: std::cell::RefCell<Vec<aura_plugin_host::RenderCache>>,
+    /// Resolved layout of each layout-polymorphic node, set by the graph being translated.
+    pub(crate) layouts: std::cell::RefCell<Arc<BTreeMap<NodeId, Layout>>>,
+    /// Dual-mono channel passes in progress, innermost last.
+    pub(crate) channel_passes: std::cell::RefCell<Vec<impls::ChannelPass>>,
+}
+
+impl<'a> Bindings<'a> {
+    pub(crate) fn new(
+        scores: &'a BTreeMap<NodeId, ScoreSignal>,
+        mode: TranslateMode,
+        plugins: Option<&'a dyn PluginResolver>,
+    ) -> Self {
+        Self {
+            scores,
+            mode,
+            plugins,
+            caches: Default::default(),
+            layouts: Default::default(),
+            channel_passes: Default::default(),
+        }
+    }
+
+    /// The channel pass of a dual-mono `consumer` whose inputs are being translated, if any.
+    pub(crate) fn channel_pass(&self, consumer: &str) -> Option<impls::ChannelPass> {
+        self.channel_passes
+            .borrow()
+            .last()
+            .filter(|pass| pass.consumer == consumer)
+            .cloned()
+    }
+
+    fn layout_of(&self, node: &str) -> Layout {
+        self.layouts.borrow().get(node).copied().unwrap_or_default()
+    }
 }
 
 impl Bindings<'_> {
@@ -203,6 +248,8 @@ pub(crate) struct PreparedGraph {
     graph: Graph,
     output_node: NodeId,
     edges_by_target: BTreeMap<TargetKey, Vec<PortReference>>,
+    /// Resolved layout of each layout-polymorphic node.
+    layouts: Arc<BTreeMap<NodeId, Layout>>,
 }
 
 impl PreparedGraph {
@@ -221,10 +268,12 @@ impl PreparedGraph {
             .map_err(|message| TranslateError::Resolve { message })?;
         let output_node = find_output_node(&graph)?;
         let edges_by_target = index_edges_by_target(&graph);
+        let layouts = Arc::new(resolve_layouts(&graph, registry));
         Ok(Self {
             graph,
             output_node,
             edges_by_target,
+            layouts,
         })
     }
 
@@ -233,7 +282,7 @@ impl PreparedGraph {
         registry: &Registry,
         sample_rate: SampleRate,
         bindings: &Bindings<'_>,
-    ) -> Result<Box<dyn Sampler>, TranslateError> {
+    ) -> Result<AudioSampler, TranslateError> {
         self.translate_port(registry, sample_rate, bindings, &self.output_node, "value")
     }
 
@@ -245,7 +294,8 @@ impl PreparedGraph {
         bindings: &Bindings<'_>,
         node: &str,
         port: &str,
-    ) -> Result<Box<dyn Sampler>, TranslateError> {
+    ) -> Result<AudioSampler, TranslateError> {
+        *bindings.layouts.borrow_mut() = Arc::clone(&self.layouts);
         let mut visiting = BTreeSet::new();
         match translate_node(
             &self.graph,
@@ -257,7 +307,8 @@ impl PreparedGraph {
             node,
             port,
         )? {
-            NodeValue::Signal(sampler) => Ok(sampler),
+            NodeValue::Signal(sampler) => Ok(AudioSampler::Mono(sampler)),
+            NodeValue::Stereo(sampler) => Ok(AudioSampler::Stereo(sampler)),
             NodeValue::ScoreSignal(_)
             | NodeValue::ProgressionSignal(_)
             | NodeValue::Tempo(_)
@@ -337,572 +388,32 @@ fn translate_node(
         });
     };
 
-    // Streaming mode builds a node type's streaming implementation when it has one; otherwise,
-    // and always in deterministic mode, its deterministic implementation below.
-    let streaming_impl = bindings
-        .live()
-        .and_then(|_| streaming::streaming_implementation(&node.node_type));
-    let result = if let Some(build) = streaming_impl {
-        build(&mut streaming::NodeCtx {
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node,
-            output_port,
-        })
-    } else {
-        translate_deterministic(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node,
-            output_port,
-        )
+    // One cell of the node type's implementation matrix: its resolved layout × the mode.
+    let Some(matrix) = impls::node_impls().get(node.node_type.as_str()) else {
+        visiting.remove(node_id);
+        return Err(TranslateError::UnknownNodeType {
+            node: node_id.into(),
+            node_type: node.node_type.clone(),
+        });
     };
+    let layout = bindings.layout_of(node_id);
+    let mode = match bindings.mode {
+        TranslateMode::Deterministic => impls::Mode::Deterministic,
+        TranslateMode::Streaming { .. } => impls::Mode::Streaming,
+    };
+    let result = matrix.cell(layout, mode)(&mut streaming::NodeCtx {
+        graph,
+        registry,
+        sample_rate,
+        edges_by_target,
+        visiting,
+        bindings,
+        node,
+        output_port,
+        layout,
+    });
     visiting.remove(node_id);
     result
-}
-
-/// Deterministic implementations of every Aura node type.
-#[allow(clippy::too_many_arguments)]
-fn translate_deterministic(
-    graph: &Graph,
-    registry: &Registry,
-    sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
-    visiting: &mut BTreeSet<NodeId>,
-    bindings: &Bindings<'_>,
-    node: &Node,
-    output_port: &str,
-) -> Result<NodeValue, TranslateError> {
-    let node_id = node.id.as_str();
-    match node.node_type.as_str() {
-        NOTATION_NODE_TYPE => match bindings.scores.get(node_id) {
-            Some(signal) if output_port == "score" => Ok(NodeValue::ScoreSignal(signal.clone())),
-            Some(_) => Err(TranslateError::MissingOutputPort {
-                node: node_id.into(),
-                port: output_port.into(),
-            }),
-            None => Err(TranslateError::MissingScoreBinding {
-                node: node_id.into(),
-            }),
-        },
-        "output" => {
-            let source = wired_source(edges_by_target, node_id, "value")?;
-            translate_node(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                &source.node,
-                &source.port,
-            )
-        }
-        "parameter" => {
-            let value = node
-                .inputs
-                .get("value")
-                .ok_or_else(|| TranslateError::UnwiredInput {
-                    node: node_id.into(),
-                    port: "value".into(),
-                })?;
-            let number = primitive_to_f64(node_id, "value", value)?;
-            Ok(NodeValue::Signal(Box::new(ConstantSampler(number as f32))))
-        }
-        "time" => Ok(NodeValue::Signal(Box::new(TimeSampler))),
-        "time_elapsed" => {
-            let start = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "start",
-            )?;
-            let _time = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "time",
-            )?;
-            Ok(NodeValue::Signal(Box::new(TimeElapsedSampler { start })))
-        }
-        "sine" => {
-            let frequency = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "frequency",
-            )?;
-            let time = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "time",
-            )?;
-            Ok(NodeValue::Signal(Box::new(SineSampler { frequency, time })))
-        }
-        "multiply" => {
-            let a = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "a",
-            )?;
-            let b = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "b",
-            )?;
-            Ok(NodeValue::Signal(Box::new(MultiplySampler { a, b })))
-        }
-        "multiply_control" => {
-            let a = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "a",
-            )?;
-            let b = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "b",
-            )?;
-            Ok(NodeValue::Signal(Box::new(MultiplyControlSampler { a, b })))
-        }
-        "add" => {
-            let inputs = signal_inputs_variadic(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "inputs",
-            )?;
-            Ok(NodeValue::Signal(Box::new(AddSampler { inputs })))
-        }
-        "exponential_sweep_sine" => {
-            let start_hz = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "start_hz",
-            )?;
-            let decay_rate = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "decay_rate",
-            )?;
-            let elapsed = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "elapsed",
-            )?;
-            Ok(NodeValue::Signal(Box::new(ExponentialSweepSineSampler {
-                start_hz,
-                decay_rate,
-                elapsed,
-            })))
-        }
-        "deterministic_noise" => {
-            let seed = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "seed",
-            )?;
-            let time = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "time",
-            )?;
-            Ok(NodeValue::Signal(Box::new(DeterministicNoiseSampler { seed, time })))
-        }
-        "highpass_noise" => {
-            let seed = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "seed",
-            )?;
-            let time = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "time",
-            )?;
-            let dt = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "dt",
-            )?;
-            Ok(NodeValue::Signal(Box::new(HighpassNoiseSampler { seed, time, dt })))
-        }
-        "bandlimited_saw" => {
-            let frequency = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "frequency",
-            )?;
-            let elapsed = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "elapsed",
-            )?;
-            let cutoff = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "cutoff",
-            )?;
-            Ok(NodeValue::Signal(Box::new(BandlimitedSawSampler {
-                frequency,
-                elapsed,
-                cutoff,
-            })))
-        }
-        "linear_adsr" => {
-            let attack = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "attack",
-            )?;
-            let decay = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "decay",
-            )?;
-            let sustain = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "sustain",
-            )?;
-            let release = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "release",
-            )?;
-            let elapsed = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "elapsed",
-            )?;
-            let note_duration = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "note_duration",
-            )?;
-            Ok(NodeValue::Signal(Box::new(LinearAdsrSampler {
-                attack,
-                decay,
-                sustain,
-                release,
-                elapsed,
-                note_duration,
-            })))
-        }
-        "semitone_to_hz" => {
-            let semitone = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "semitone",
-            )?;
-            Ok(NodeValue::Signal(Box::new(SemitoneToHzSampler { semitone })))
-        }
-        "epic_minor_progression" => Ok(NodeValue::ProgressionSignal(ProgressionSignal::finite(
-            build_epic_minor_progression(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node,
-            )?,
-        ))),
-        "constant_tempo" => Ok(NodeValue::Tempo(build_constant_tempo(node)?)),
-        "constant_time_signature" => Ok(NodeValue::TimeSignature(
-            build_constant_time_signature(node)?,
-        )),
-        "tempo_at_time" => translate_tempo_at_time_port(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node_id,
-            output_port,
-        ),
-        "time_signature_at_time" => translate_time_signature_at_time_port(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node_id,
-            output_port,
-        ),
-        "arpeggio" => Ok(NodeValue::ScoreSignal(ScoreSignal::finite(build_arpeggio_score(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node,
-        )?))),
-        "bass_line" => Ok(NodeValue::ScoreSignal(ScoreSignal::finite(build_bass_line_score(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node,
-        )?))),
-        "drum_grid" => Ok(NodeValue::ScoreSignal(ScoreSignal::finite(build_drum_grid_score(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node,
-        )?))),
-        "loop" => translate_loop_value(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node_id,
-        ),
-        "note_at_time" => translate_note_at_time_port(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node_id,
-            output_port,
-        ),
-        "note_param_at_time" => translate_note_param_at_time_port(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node,
-            output_port,
-        ),
-        "chord_at_time" => translate_chord_at_time_port(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            node_id,
-            output_port,
-        ),
-        "note_envelope" => {
-            let score_signal = resolve_score_signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "score",
-            )?;
-            let schedule = NoteSchedule::from_score_signal(&score_signal, sample_rate);
-            Ok(NodeValue::Signal(Box::new(NoteEnvelopeSampler {
-                schedule,
-                adsr: LinearAdsr::default(),
-            })))
-        }
-        node_type if plugin::is_plugin_node(node_type) => plugin::translate_plugin(
-            &mut streaming::NodeCtx {
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node,
-                output_port,
-            },
-            false,
-        ),
-        "poly_sine_score" => {
-            let _ = output_port;
-            let score_signal = resolve_score_signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "score",
-            )?;
-            let _time = signal_input(
-                graph,
-                registry,
-                sample_rate,
-                edges_by_target,
-                visiting,
-                bindings,
-                node_id,
-                "time",
-            )?;
-            let schedule = NoteSchedule::from_score_signal(&score_signal, sample_rate);
-            Ok(NodeValue::Signal(Box::new(PolySineScoreSampler {
-                schedule,
-                adsr: LinearAdsr::default(),
-            })))
-        }
-        other => {
-            let _ = registry;
-            Err(TranslateError::UnknownNodeType {
-                node: node_id.into(),
-                node_type: other.into(),
-            })
-        }
-    }
 }
 
 fn translate_note_at_time_port(
@@ -1270,48 +781,6 @@ fn resolve_time_signature_input(
     }
 }
 
-fn signal_input(
-    graph: &Graph,
-    registry: &Registry,
-    sample_rate: SampleRate,
-    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
-    visiting: &mut BTreeSet<NodeId>,
-    bindings: &Bindings<'_>,
-    node_id: &str,
-    port: &str,
-) -> Result<Box<dyn Sampler>, TranslateError> {
-    if let Some(literal) = graph.nodes.get(node_id).and_then(|node| node.inputs.get(port)) {
-        let number = primitive_to_f64(node_id, port, literal)?;
-        return Ok(Box::new(ConstantSampler(number as f32)));
-    }
-
-    let source = wired_source(edges_by_target, node_id, port)?;
-    match translate_node(
-        graph,
-        registry,
-        sample_rate,
-        edges_by_target,
-        visiting,
-        bindings,
-        &source.node,
-        &source.port,
-    )? {
-        NodeValue::Signal(sampler) => Ok(sampler),
-        NodeValue::ScoreSignal(_) => Err(TranslateError::InvalidScoreSource {
-            node: source.node,
-        }),
-        NodeValue::ProgressionSignal(_) => Err(TranslateError::InvalidProgressionSource {
-            node: source.node,
-        }),
-        NodeValue::Tempo(_) => Err(TranslateError::InvalidTempoSource {
-            node: source.node,
-        }),
-        NodeValue::TimeSignature(_) => Err(TranslateError::InvalidTimeSignatureSource {
-            node: source.node,
-        }),
-    }
-}
-
 fn build_constant_tempo(node: &Node) -> Result<Tempo, TranslateError> {
     Tempo::new(read_number_input(node, "bpm", 120.0)?).map_err(|_| TranslateError::ExpectedNumber {
         node: node.id.clone(),
@@ -1561,6 +1030,38 @@ fn wired_source_optional(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn signal_input(
+    graph: &Graph,
+    registry: &Registry,
+    sample_rate: SampleRate,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
+    visiting: &mut BTreeSet<NodeId>,
+    bindings: &Bindings<'_>,
+    node_id: &str,
+    port: &str,
+) -> Result<Box<dyn Sampler>, TranslateError> {
+    if let Some(literal) = graph.nodes.get(node_id).and_then(|node| node.inputs.get(port)) {
+        let number = primitive_to_f64(node_id, port, literal)?;
+        return Ok(Box::new(ConstantSampler(number as f32)));
+    }
+
+    let source = wired_source(edges_by_target, node_id, port)?;
+    signal_from(
+        graph,
+        registry,
+        sample_rate,
+        edges_by_target,
+        visiting,
+        bindings,
+        node_id,
+        port,
+        0,
+        &source,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn signal_inputs_variadic(
     graph: &Graph,
     registry: &Registry,
@@ -1578,42 +1079,149 @@ fn signal_inputs_variadic(
             port: port.into(),
         });
     }
-    let mut inputs = Vec::with_capacity(sources.len());
-    for source in sources {
-        match translate_node(
-            graph,
-            registry,
-            sample_rate,
-            edges_by_target,
-            visiting,
-            bindings,
-            &source.node,
-            &source.port,
-        )? {
-            NodeValue::Signal(sampler) => inputs.push(sampler),
-            NodeValue::ScoreSignal(_) => {
-                return Err(TranslateError::InvalidScoreSource {
-                    node: source.node,
-                })
-            }
-            NodeValue::ProgressionSignal(_) => {
-                return Err(TranslateError::InvalidProgressionSource {
-                    node: source.node,
-                })
-            }
-            NodeValue::Tempo(_) => {
-                return Err(TranslateError::InvalidTempoSource {
-                    node: source.node,
-                })
-            }
-            NodeValue::TimeSignature(_) => {
-                return Err(TranslateError::InvalidTimeSignatureSource {
-                    node: source.node,
-                })
-            }
+    sources
+        .iter()
+        .enumerate()
+        .map(|(index, source)| {
+            signal_from(
+                graph,
+                registry,
+                sample_rate,
+                edges_by_target,
+                visiting,
+                bindings,
+                node_id,
+                port,
+                index,
+                source,
+            )
+        })
+        .collect()
+}
+
+/// The mono signal `consumer` reads from `source` through input `port` (edge `index`).
+///
+/// Inside a dual-mono channel pass of `consumer`, the input is translated once and shared by
+/// both passes, and a stereo input is seen as the pass's channel.
+#[allow(clippy::too_many_arguments)]
+fn signal_from(
+    graph: &Graph,
+    registry: &Registry,
+    sample_rate: SampleRate,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
+    visiting: &mut BTreeSet<NodeId>,
+    bindings: &Bindings<'_>,
+    consumer: &str,
+    port: &str,
+    index: usize,
+    source: &PortReference,
+) -> Result<Box<dyn Sampler>, TranslateError> {
+    let pass = bindings.channel_pass(consumer);
+    if let Some(input) = pass.as_ref().and_then(|pass| pass.remembered(port, index)) {
+        return Ok(pass.expect("pass").view(input));
+    }
+    let value = translate_node(
+        graph,
+        registry,
+        sample_rate,
+        edges_by_target,
+        visiting,
+        bindings,
+        &source.node,
+        &source.port,
+    )?;
+    let input = match (value, &pass) {
+        (NodeValue::Signal(sampler), None) => return Ok(sampler),
+        (NodeValue::Signal(sampler), Some(_)) => impls::SharedInput::Mono(Arc::from(sampler)),
+        (NodeValue::Stereo(sampler), Some(_)) => impls::SharedInput::Stereo(Arc::from(sampler)),
+        (NodeValue::Stereo(_), None) => {
+            return Err(TranslateError::UnexpectedStereo {
+                node: consumer.into(),
+                port: port.into(),
+            })
+        }
+        (other, _) => return Err(invalid_signal_source(other, &source.node)),
+    };
+    let pass = pass.expect("pass");
+    pass.remember(port, index, input.clone());
+    Ok(pass.view(input))
+}
+
+/// A stereo signal into `port` of a stereo implementation.
+#[allow(clippy::too_many_arguments)]
+fn stereo_signal_input(
+    graph: &Graph,
+    registry: &Registry,
+    sample_rate: SampleRate,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
+    visiting: &mut BTreeSet<NodeId>,
+    bindings: &Bindings<'_>,
+    node_id: &str,
+    port: &str,
+) -> Result<Box<dyn StereoSampler>, TranslateError> {
+    let source = wired_source(edges_by_target, node_id, port)?;
+    match translate_node(
+        graph,
+        registry,
+        sample_rate,
+        edges_by_target,
+        visiting,
+        bindings,
+        &source.node,
+        &source.port,
+    )? {
+        NodeValue::Stereo(sampler) => Ok(sampler),
+        NodeValue::Signal(_) => Err(TranslateError::ExpectedStereo {
+            node: node_id.into(),
+            port: port.into(),
+        }),
+        other => Err(invalid_signal_source(other, &source.node)),
+    }
+}
+
+/// The error for a non-signal value wired into a signal input.
+fn invalid_signal_source(value: NodeValue, source: &str) -> TranslateError {
+    let node = source.into();
+    match value {
+        NodeValue::ScoreSignal(_) => TranslateError::InvalidScoreSource { node },
+        NodeValue::ProgressionSignal(_) => TranslateError::InvalidProgressionSource { node },
+        NodeValue::Tempo(_) => TranslateError::InvalidTempoSource { node },
+        NodeValue::TimeSignature(_) => TranslateError::InvalidTimeSignatureSource { node },
+        NodeValue::Signal(_) | NodeValue::Stereo(_) => {
+            unreachable!("signal values are handled by the caller")
         }
     }
-    Ok(inputs)
+}
+
+/// The resolved layout of every layout-polymorphic node (a type parameter bounded by `Audio`).
+/// Nodes left out are mono.
+fn resolve_layouts(graph: &Graph, registry: &Registry) -> BTreeMap<NodeId, Layout> {
+    let mut layouts = BTreeMap::new();
+    for node in graph.nodes.values() {
+        let polymorphic = impls::node_impls()
+            .get(node.node_type.as_str())
+            .is_some_and(impls::Matrix::is_layout_polymorphic);
+        if !polymorphic {
+            continue;
+        }
+        let Some(definition) = get_node_definition(registry, &node.node_type) else {
+            continue;
+        };
+        let Some(index) = definition
+            .type_params
+            .iter()
+            .position(|param| param.bounds.iter().any(|bound| bound == AUDIO))
+        else {
+            continue;
+        };
+        let stereo = resolve_type_args(graph, &node.id, registry, None)
+            .and_then(|args| args.get(index).cloned())
+            .is_some_and(|arg| matches!(arg, SignalType::Concrete { id, .. } if id == AUDIO_STEREO));
+        if stereo {
+            layouts.insert(node.id.clone(), Layout::Stereo);
+        }
+    }
+    layouts
 }
 
 fn primitive_to_f64(
@@ -2017,12 +1625,7 @@ pub fn infer_score_duration_secs(graph: &Graph, sample_rate: SampleRate) -> Opti
         sample_rate,
         &edges_by_target,
         &mut visiting,
-        &Bindings {
-            scores: &BTreeMap::new(),
-            mode: TranslateMode::Deterministic,
-            plugins: None,
-            caches: Default::default(),
-        },
+        &Bindings::new(&BTreeMap::new(), TranslateMode::Deterministic, None),
         score_node,
     )
     .ok()?;
@@ -2043,7 +1646,10 @@ mod tests {
         let json = include_str!("../../../../demos/sine.json");
         let graph = aura_imp::graph_from_json_str(json).expect("graph");
         let registry = aura_registry().expect("registry");
-        let sampler = translate_graph(&graph, &registry, SampleRate::RATE_44100).expect("translate");
+        let sampler = translate_graph(&graph, &registry, SampleRate::RATE_44100)
+            .expect("translate")
+            .into_mono()
+            .expect("mono");
         assert_eq!(sampler.at(0.25), sampler.at(0.25));
     }
 
@@ -2098,7 +1704,8 @@ mod tests {
                         id: "mix".into(),
                         title: None,
                         node_type: "add".into(),
-                        type_args: vec![],
+                        // Constant inputs carry no layout, so the sum states it.
+                        type_args: vec![aura_imp::signals::signal(aura_imp::signals::AUDIO_MONO)],
                         inputs: BTreeMap::new(),
                     },
                 ),
@@ -2173,7 +1780,10 @@ mod tests {
             ]),
         };
         let registry = aura_registry().expect("registry");
-        let sampler = translate_graph(&graph, &registry, SampleRate::RATE_44100).expect("translate");
+        let sampler = translate_graph(&graph, &registry, SampleRate::RATE_44100)
+            .expect("translate")
+            .into_mono()
+            .expect("mono");
         assert!((sampler.at(0.0) - 1.0).abs() < 1e-5);
     }
 
@@ -2472,7 +2082,9 @@ mod tests {
                 plugins: None,
             },
         )
-        .expect("translate");
+        .expect("translate")
+        .into_mono()
+        .expect("mono");
 
         let chord = sampler.at(0.05);
         assert!(

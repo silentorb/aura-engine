@@ -7,12 +7,12 @@ CPAL bridge for real-time output in both playback modes ([playback modes](../../
 ## Requirements
 
 - `PlaybackEngine` samples the same pure `Sampler::at(t)` functions as offline render. Before opening the stream, `start_at` calls `Sampler::prepare(start, PREPARE_AHEAD_SECS)` on the calling thread; the audio callback marks its thread a real-time reader (`aura_render::mark_realtime_reader`), so stateful samplers (plugin caches) never render on it. `underruns()` reports real-time reads that found nothing prepared ([plugin hosting](../../../design/plugin-hosting.md#transport-playback-render-ahead)). `StreamingOutput` does not mark its thread.
-- `StreamingOutput::open(source, sample_rate)` keeps the device stream open until dropped and runs independently of `PlaybackEngine` (both may sound at once). The audio callback never blocks and reuses a preallocated mono buffer.
+- `StreamingOutput::open(source, sample_rate)` keeps the device stream open until dropped and runs independently of `PlaybackEngine` (both may sound at once). The audio callback never blocks and reuses a preallocated frame buffer.
 - Expose `start(sampler, sample_rate)`, `start_at(sampler, sample_rate, start_secs)`, `stop()`, `is_playing()`, `position_secs()`, and `underruns()`.
 - `start` is `start_at(..., 0.0)`.
 - Fail with a clear error when no default output device exists (common under WSL/devcontainer); never panic.
 - Do not block offline WAV workflows or require audio hardware in CI.
-- Mono sampler output is duplicated across output channels.
+- Output is stereo frames (`AudioSampler::frame`; a mono graph is the same on both channels). A mono device gets their average; a device with more channels gets left/right on its first two channels and silence on the rest.
 
 ## Non-goals / avoided approaches
 

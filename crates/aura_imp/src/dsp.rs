@@ -1,8 +1,9 @@
 //! Aura DSP node library.
 
 use crate::node_def::primitive_node;
-use crate::signals::{signal, ANY, AUDIO_MONO, CONTROL, TIME};
-use imp_core_types::{NodeLibrary, Port, PrimitiveValue};
+use crate::constraints::AUDIO;
+use crate::signals::{signal, ANY, AUDIO_MONO, AUDIO_STEREO, CONTROL, TIME};
+use imp_core_types::{type_var, NodeLibrary, Port, PrimitiveValue, TypeParam};
 use std::collections::BTreeMap;
 
 fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option<PrimitiveValue>) -> Port {
@@ -28,6 +29,15 @@ pub fn dsp_node_library() -> NodeLibrary {
     let control = signal(CONTROL);
     let time = signal(TIME);
     let audio_mono = signal(AUDIO_MONO);
+    let audio_stereo = signal(AUDIO_STEREO);
+    // Layout-polymorphic audio: `A: Audio` resolves to the layout of the input signal.
+    let audio = type_var("A");
+    let audio_param = || {
+        vec![TypeParam {
+            id: "A".into(),
+            bounds: vec![AUDIO.into()],
+        }]
+    };
 
     let definitions = vec![
         primitive_node(
@@ -157,29 +167,60 @@ pub fn dsp_node_library() -> NodeLibrary {
         ),
         primitive_node(
             "multiply",
-            Vec::new(),
+            audio_param(),
             None,
             BTreeMap::from([
-                ("a".into(), port("a", audio_mono.clone(), None)),
+                ("a".into(), port("a", audio.clone(), None)),
                 ("b".into(), port("b", control.clone(), None)),
             ]),
-            BTreeMap::from([(
-                "audio".into(),
-                port("audio", audio_mono.clone(), None),
-            )]),
+            BTreeMap::from([("audio".into(), port("audio", audio.clone(), None))]),
         ),
         primitive_node(
             "add",
+            audio_param(),
+            None,
+            BTreeMap::from([("inputs".into(), variadic_port("inputs", audio.clone()))]),
+            BTreeMap::from([("audio".into(), port("audio", audio.clone(), None))]),
+        ),
+        primitive_node(
+            "pan",
             Vec::new(),
             None,
-            BTreeMap::from([(
-                "inputs".into(),
-                variadic_port("inputs", audio_mono),
-            )]),
-            BTreeMap::from([(
-                "audio".into(),
-                port("audio", signal(AUDIO_MONO), None),
-            )]),
+            BTreeMap::from([
+                ("audio".into(), port("audio", audio_mono.clone(), None)),
+                (
+                    "position".into(),
+                    port("position", control.clone(), Some(PrimitiveValue::Number(0.0))),
+                ),
+            ]),
+            BTreeMap::from([("audio".into(), port("audio", audio_stereo.clone(), None))]),
+        ),
+        primitive_node(
+            "stereo_to_mono",
+            Vec::new(),
+            None,
+            BTreeMap::from([("audio".into(), port("audio", audio_stereo.clone(), None))]),
+            BTreeMap::from([("audio".into(), port("audio", audio_mono.clone(), None))]),
+        ),
+        primitive_node(
+            "stereo_join",
+            Vec::new(),
+            None,
+            BTreeMap::from([
+                ("left".into(), port("left", audio_mono.clone(), None)),
+                ("right".into(), port("right", audio_mono.clone(), None)),
+            ]),
+            BTreeMap::from([("audio".into(), port("audio", audio_stereo.clone(), None))]),
+        ),
+        primitive_node(
+            "stereo_split",
+            Vec::new(),
+            None,
+            BTreeMap::from([("audio".into(), port("audio", audio_stereo, None))]),
+            BTreeMap::from([
+                ("left".into(), port("left", audio_mono.clone(), None)),
+                ("right".into(), port("right", audio_mono, None)),
+            ]),
         ),
     ];
 

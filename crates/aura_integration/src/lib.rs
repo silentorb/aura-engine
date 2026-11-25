@@ -11,9 +11,9 @@ use aura_imp::{
     aura_registry_with_libraries, discover_graph_libraries, graph_from_json_path, Graph,
     GraphJsonError, Registry, RegistryError,
 };
-use aura_io_wav::{write_wav32, WavError};
+use aura_io_wav::{write_wav32_channels, WavError};
 use aura_plugin_host::PluginResolver;
-use aura_render::{sample_offline, RenderError, RenderSpec, Sampler};
+use aura_render::{sample_offline_audio, RenderError, RenderSpec};
 use aura_sample::SampleRate;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -32,6 +32,7 @@ pub use tome_source::{
     notation_score_bindings, open_project_nodes, translate_graph_with_project, ProjectSourceError,
     TomeNodeProvider,
 };
+pub use aura_render::{AudioSampler, Layout};
 pub use translate::{
     find_output_node, plugin_node_settings, sampler_from_score, translate_graph_with_bindings,
     translate_graph_with_options, StreamingControl, StreamingError, StreamingProgram,
@@ -79,12 +80,12 @@ pub fn load_graph_only(path: &Path) -> Result<Graph, IntegrationError> {
     Ok(graph_from_json_path(path)?)
 }
 
-/// Translates an Imp graph into a pure Time → Sample function.
+/// Translates an Imp graph into a pure function of time (mono or stereo, by its output).
 pub fn translate_graph_to_sampler(
     graph: &Graph,
     registry: &aura_imp::Registry,
     sample_rate: SampleRate,
-) -> Result<Box<dyn Sampler>, IntegrationError> {
+) -> Result<AudioSampler, IntegrationError> {
     Ok(translate_graph(graph, registry, sample_rate)?)
 }
 
@@ -94,7 +95,7 @@ pub fn translate_graph_to_sampler_with_options<'a>(
     registry: &aura_imp::Registry,
     sample_rate: SampleRate,
     options: TranslateOptions<'_>,
-) -> Result<Box<dyn Sampler>, IntegrationError> {
+) -> Result<AudioSampler, IntegrationError> {
     Ok(translate_graph_with_options(
         source,
         registry,
@@ -109,7 +110,7 @@ pub fn translate_graph_to_sampler_with_bindings(
     registry: &aura_imp::Registry,
     sample_rate: SampleRate,
     score_bindings: &BTreeMap<aura_imp::NodeId, aura_sequencing::ScoreSignal>,
-) -> Result<Box<dyn Sampler>, IntegrationError> {
+) -> Result<AudioSampler, IntegrationError> {
     Ok(translate_graph_with_bindings(
         graph,
         registry,
@@ -129,18 +130,36 @@ pub fn resolve_duration_secs(graph: &Graph, spec: &SampleSpec) -> Result<f64, In
         .map_err(IntegrationError::from)
 }
 
+/// Rendered audio: interleaved samples in the graph's output layout.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pcm {
+    pub layout: Layout,
+    pub samples: Vec<f32>,
+}
+
+impl Pcm {
+    /// Frames (one sample per channel).
+    pub fn frame_count(&self) -> usize {
+        self.samples.len() / self.layout.channels()
+    }
+}
+
 /// Samples a translated graph over the requested interval.
-pub fn sample_graph(sampler: &dyn Sampler, spec: SampleSpec) -> Result<Vec<f32>, IntegrationError> {
+pub fn sample_graph(sampler: &AudioSampler, spec: SampleSpec) -> Result<Pcm, IntegrationError> {
     let duration_secs = resolve_duration_secs_for_render(&spec)?;
+    let layout = sampler.layout();
     let render_spec = RenderSpec {
         sample_rate: spec.sample_rate,
         duration_secs,
-        channels: 1,
+        channels: layout.channels() as u16,
     };
-    Ok(sample_offline(render_spec, sampler)?)
+    Ok(Pcm {
+        layout,
+        samples: sample_offline_audio(render_spec, sampler)?,
+    })
 }
 
-/// Loads, translates, and samples a graph to mono PCM.
+/// Loads, translates, and samples a graph to PCM in its output layout.
 ///
 /// `project` is a Tome project config whose records supply nodes the graph references;
 /// `plugins` resolves the graph's plugin nodes.
@@ -149,7 +168,7 @@ pub fn render_graph_to_pcm(
     spec: SampleSpec,
     project: Option<&Path>,
     plugins: Option<&dyn PluginResolver>,
-) -> Result<Vec<f32>, IntegrationError> {
+) -> Result<Pcm, IntegrationError> {
     let sampler = translate_graph_with_project(
         &loaded.graph,
         &loaded.registry,
@@ -157,32 +176,33 @@ pub fn render_graph_to_pcm(
         project,
         plugins,
     )?;
-    sample_graph(sampler.as_ref(), spec)
+    sample_graph(&sampler, spec)
 }
 
-/// Loads, translates, and samples a graph file to mono PCM.
+/// Loads, translates, and samples a graph file to PCM in its output layout.
 pub fn render_graph_file_to_pcm(
     path: &Path,
     spec: SampleSpec,
     project: Option<&Path>,
     plugins: Option<&dyn PluginResolver>,
-) -> Result<Vec<f32>, IntegrationError> {
+) -> Result<Pcm, IntegrationError> {
     let loaded = load_graph(path)?;
     render_graph_to_pcm(&loaded, spec, project, plugins)
 }
 
-/// Writes mono PCM samples to a 32-bit float WAV file.
-pub fn write_pcm_to_wav(
-    path: &Path,
-    samples: &[f32],
-    sample_rate: SampleRate,
-) -> Result<(), IntegrationError> {
+/// Writes PCM to a 32-bit float WAV file with one channel per layout channel.
+pub fn write_pcm_to_wav(path: &Path, pcm: &Pcm, sample_rate: SampleRate) -> Result<(), IntegrationError> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
         }
     }
-    Ok(write_wav32(path, samples, sample_rate)?)
+    Ok(write_wav32_channels(
+        path,
+        &pcm.samples,
+        pcm.layout.channels() as u16,
+        sample_rate,
+    )?)
 }
 
 fn resolve_duration_secs_for_render(spec: &SampleSpec) -> Result<f64, IntegrationError> {
@@ -241,7 +261,7 @@ mod tests {
             duration: DurationSpec::Seconds(10.0),
         };
         let pcm = render_graph_to_pcm(&loaded, spec, None, None).expect("render");
-        assert_eq!(pcm.len(), 441_000);
+        assert_eq!(pcm.samples.len(), 441_000);
     }
 
     #[test]
@@ -252,7 +272,22 @@ mod tests {
             duration: DurationSpec::measures_4_4(8.0, aura_sequencing::Tempo::default()),
         };
         let pcm = render_graph_to_pcm(&loaded, spec, None, None).expect("render");
-        assert_eq!(pcm.len(), 705_600);
+        assert_eq!(pcm.samples.len(), 705_600);
+    }
+
+    #[test]
+    fn render_stereo_demo_is_stereo() {
+        let loaded = load_graph(&workspace_demo_path("demo-04-stereo.json")).expect("load");
+        let spec = SampleSpec {
+            sample_rate: SampleRate::RATE_44100,
+            duration: DurationSpec::measures_4_4(8.0, aura_sequencing::Tempo::default()),
+        };
+        let pcm = render_graph_to_pcm(&loaded, spec, None, None).expect("render");
+        assert_eq!(pcm.layout, Layout::Stereo);
+        assert_eq!(pcm.frame_count(), 705_600);
+        let (left, right): (Vec<f32>, Vec<f32>) =
+            pcm.samples.chunks(2).map(|frame| (frame[0], frame[1])).unzip();
+        assert_ne!(left, right, "the panned parts differ between channels");
     }
 
     #[test]
@@ -266,7 +301,7 @@ mod tests {
             duration: DurationSpec::measures_4_4(8.0, aura_sequencing::Tempo::default()),
         };
         let pcm = render_graph_to_pcm(&loaded, spec, Some(&demo_project), None).expect("render");
-        assert_eq!(pcm.len(), 705_600);
+        assert_eq!(pcm.samples.len(), 705_600);
     }
 
     #[test]
@@ -274,6 +309,6 @@ mod tests {
         let loaded = load_graph(&workspace_demo_path("sine.json")).expect("load");
         let sampler =
             translate_graph(&loaded.graph, &loaded.registry, SampleRate::RATE_44100).expect("translate");
-        assert_eq!(sampler.at(0.25), sampler.at(0.25));
+        assert_eq!(sampler.frame(0.25), sampler.frame(0.25));
     }
 }

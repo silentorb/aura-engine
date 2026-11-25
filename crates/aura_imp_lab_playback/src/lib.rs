@@ -18,7 +18,7 @@ use aura_integration::{
     find_output_node, sampler_from_score, score_from_notation_str, translate_graph_with_project,
 };
 use aura_io_cpal::PlaybackEngine;
-use aura_render::Sampler;
+use aura_render::{AudioSampler, Sampler};
 use aura_sample::SampleRate;
 use aura_sequencing::beats_to_seconds;
 use imp_lab_extensions::{
@@ -86,7 +86,7 @@ pub(crate) fn publish<T: Serialize + ?Sized>(topic: &str, value: &T) {
 
 /// Starts the transport on `sampler` from its `t = 0`, which is notation time `offset_secs`.
 pub(crate) fn start_transport(
-    sampler: Arc<dyn Sampler>,
+    sampler: Arc<AudioSampler>,
     offset_secs: f64,
 ) -> Result<(), PlaybackServiceError> {
     let mut engine = state()
@@ -203,7 +203,7 @@ pub fn parse_graph_json(json: &str) -> Result<Graph, PlaybackServiceError> {
 pub fn prepare_graph_playback(
     graph_json: &str,
     neighbor_hint: Option<&Path>,
-) -> Result<(String, Box<dyn Sampler>), PlaybackServiceError> {
+) -> Result<(String, AudioSampler), PlaybackServiceError> {
     let graph = parse_graph_json(graph_json)?;
     // Nodes the graph references but does not hold (a notation, a node of another graph) come
     // from the project's Tome stores. A legacy graph-file hint resolves nothing beyond the file.
@@ -288,7 +288,7 @@ pub fn start_playback(
                 .lock()
                 .map_err(|_| PlaybackServiceError::Poisoned)?;
             engine
-                .start_at(Arc::from(sampler), SAMPLE_RATE, start_secs)
+                .start_at(Arc::new(AudioSampler::Mono(sampler)), SAMPLE_RATE, start_secs)
                 .map_err(|e| PlaybackServiceError::Playback(e.to_string()))?;
             drop(engine);
             set_end_secs(Some(end_secs))?;
@@ -301,7 +301,7 @@ pub fn start_playback(
                 .lock()
                 .map_err(|_| PlaybackServiceError::Poisoned)?;
             engine
-                .start(Arc::from(sampler), SAMPLE_RATE)
+                .start(Arc::new(sampler), SAMPLE_RATE)
                 .map_err(|e| PlaybackServiceError::Playback(e.to_string()))?;
             drop(engine);
             set_end_secs(None)?;
@@ -664,7 +664,7 @@ mod tests {
         let json = sine_graph_json();
         let (node_id, sampler) = prepare_graph_playback(&json, None).expect("prepare");
         assert!(!node_id.is_empty());
-        let sample = sampler.at(0.01);
+        let sample = sampler.frame(0.01)[0];
         assert!(sample.abs() > 1e-6, "expected audible sample, got {sample}");
     }
 
@@ -708,7 +708,7 @@ mod tests {
         let (_node, sampler) =
             prepare_graph_playback(&json, Some(&config)).expect("demo-02 plays from the project");
         let peak = (0..200)
-            .map(|i| sampler.at(i as f64 * 0.01).abs())
+            .map(|i| sampler.frame(i as f64 * 0.01)[0].abs())
             .fold(0.0_f32, f32::max);
         assert!(peak > 1e-4, "expected audible output, peak {peak}");
 

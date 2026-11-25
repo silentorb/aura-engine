@@ -6,7 +6,7 @@
 
 ## Requirements
 
-- Write mono `f32` PCM directly (no FunDSP `Wave` types).
+- Write interleaved `f32` PCM with one or two channels directly (no FunDSP `Wave` types).
 - Support read-back verification for tests and tooling.
 - Default demo/CLI output targets the gitignored `output/` directory.
 

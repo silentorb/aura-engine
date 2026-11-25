@@ -1,0 +1,491 @@
+{
+  "edges": {
+    "arp_to_loop_arp": {
+      "from": {
+        "node": "0033AFBG0F004Y6XWVJZTAFGAG",
+        "port": "score"
+      },
+      "to": {
+        "node": "0033AFBG0G00583BRNA5SZ4FB5",
+        "port": "value"
+      }
+    },
+    "arp_voice_to_mix": {
+      "from": {
+        "node": "0033AFBG9000PAN00000000000",
+        "port": "audio"
+      },
+      "order": 0,
+      "to": {
+        "node": "0033AFBG0R007Q6TQ33NQ4C7GD",
+        "port": "inputs"
+      }
+    },
+    "arp_voice_to_pan": {
+      "from": {
+        "node": "0033AFBG0H005HZSMF1BSKSEBT",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG9000PAN00000000000",
+        "port": "audio"
+      }
+    },
+    "bass_to_loop_bass": {
+      "from": {
+        "node": "0033AFBG0S008138JWTVPS16H2",
+        "port": "score"
+      },
+      "to": {
+        "node": "0033AFBG0T008AZPEPJ1PDP5HQ",
+        "port": "value"
+      }
+    },
+    "bass_voice_to_mix": {
+      "from": {
+        "node": "0033AFBG9001PAN00000000000",
+        "port": "audio"
+      },
+      "order": 3,
+      "to": {
+        "node": "0033AFBG0R007Q6TQ33NQ4C7GD",
+        "port": "inputs"
+      }
+    },
+    "bass_voice_to_pan": {
+      "from": {
+        "node": "0033AFBG0V008MW4AG97P2B4JC",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG9001PAN00000000000",
+        "port": "audio"
+      }
+    },
+    "kick_grid_to_loop_kick": {
+      "from": {
+        "node": "0033AFBG0J005VW7G8RHS8EDCF",
+        "port": "score"
+      },
+      "to": {
+        "node": "0033AFBG0K0065RNC2FQRX3CD4",
+        "port": "value"
+      }
+    },
+    "kick_to_mix": {
+      "from": {
+        "node": "0033AFBG9002PAN00000000000",
+        "port": "audio"
+      },
+      "order": 1,
+      "to": {
+        "node": "0033AFBG0R007Q6TQ33NQ4C7GD",
+        "port": "inputs"
+      }
+    },
+    "kick_to_pan": {
+      "from": {
+        "node": "0033AFBG0M006FN37W6XRHRBDS",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG9002PAN00000000000",
+        "port": "audio"
+      }
+    },
+    "loop_arp_to_arp_voice_score": {
+      "from": {
+        "node": "0033AFBG0G00583BRNA5SZ4FB5",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0H005HZSMF1BSKSEBT",
+        "port": "score"
+      }
+    },
+    "loop_bass_to_bass_voice_score": {
+      "from": {
+        "node": "0033AFBG0T008AZPEPJ1PDP5HQ",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0V008MW4AG97P2B4JC",
+        "port": "score"
+      }
+    },
+    "loop_kick_to_kick_score": {
+      "from": {
+        "node": "0033AFBG0K0065RNC2FQRX3CD4",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0M006FN37W6XRHRBDS",
+        "port": "score"
+      }
+    },
+    "loop_prog_to_arp": {
+      "from": {
+        "node": "0033AFBG0E004MAG11VSTNTH9V",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0F004Y6XWVJZTAFGAG",
+        "port": "progression"
+      }
+    },
+    "loop_prog_to_bass": {
+      "from": {
+        "node": "0033AFBG0E004MAG11VSTNTH9V",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0S008138JWTVPS16H2",
+        "port": "progression"
+      }
+    },
+    "loop_snare_to_snare_score": {
+      "from": {
+        "node": "0033AFBG0P0073DYZFN9QV29F3",
+        "port": "value"
+      },
+      "to": {
+        "node": "0033AFBG0Q007DACV9CFQFQ8FR",
+        "port": "score"
+      }
+    },
+    "meter_to_arp": {
+      "from": {
+        "node": "0033AFBG0C0040HM9EDDVCGK8H",
+        "port": "time_signature"
+      },
+      "to": {
+        "node": "0033AFBG0F004Y6XWVJZTAFGAG",
+        "port": "time_signature"
+      }
+    },
+    "meter_to_bass": {
+      "from": {
+        "node": "0033AFBG0C0040HM9EDDVCGK8H",
+        "port": "time_signature"
+      },
+      "to": {
+        "node": "0033AFBG0S008138JWTVPS16H2",
+        "port": "time_signature"
+      }
+    },
+    "meter_to_kick_grid": {
+      "from": {
+        "node": "0033AFBG0C0040HM9EDDVCGK8H",
+        "port": "time_signature"
+      },
+      "to": {
+        "node": "0033AFBG0J005VW7G8RHS8EDCF",
+        "port": "time_signature"
+      }
+    },
+    "meter_to_prog": {
+      "from": {
+        "node": "0033AFBG0C0040HM9EDDVCGK8H",
+        "port": "time_signature"
+      },
+      "to": {
+        "node": "0033AFBG0D004AE2584KV15J96",
+        "port": "time_signature"
+      }
+    },
+    "meter_to_snare_grid": {
+      "from": {
+        "node": "0033AFBG0C0040HM9EDDVCGK8H",
+        "port": "time_signature"
+      },
+      "to": {
+        "node": "0033AFBG0N006SHH3NY3R6DAEE",
+        "port": "time_signature"
+      }
+    },
+    "mix_to_out": {
+      "from": {
+        "node": "0033AFBG0R007Q6TQ33NQ4C7GD",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG0W008YRJ6A0DNQ03K1",
+        "port": "value"
+      }
+    },
+    "prog_to_loop_prog": {
+      "from": {
+        "node": "0033AFBG0D004AE2584KV15J96",
+        "port": "progression"
+      },
+      "to": {
+        "node": "0033AFBG0E004MAG11VSTNTH9V",
+        "port": "value"
+      }
+    },
+    "snare_grid_to_loop_snare": {
+      "from": {
+        "node": "0033AFBG0N006SHH3NY3R6DAEE",
+        "port": "score"
+      },
+      "to": {
+        "node": "0033AFBG0P0073DYZFN9QV29F3",
+        "port": "value"
+      }
+    },
+    "snare_to_mix": {
+      "from": {
+        "node": "0033AFBG9003PAN00000000000",
+        "port": "audio"
+      },
+      "order": 2,
+      "to": {
+        "node": "0033AFBG0R007Q6TQ33NQ4C7GD",
+        "port": "inputs"
+      }
+    },
+    "snare_to_pan": {
+      "from": {
+        "node": "0033AFBG0Q007DACV9CFQFQ8FR",
+        "port": "audio"
+      },
+      "to": {
+        "node": "0033AFBG9003PAN00000000000",
+        "port": "audio"
+      }
+    },
+    "tempo_to_arp": {
+      "from": {
+        "node": "0033AFBG0B003PN6DMP7VQVM7W",
+        "port": "tempo"
+      },
+      "to": {
+        "node": "0033AFBG0F004Y6XWVJZTAFGAG",
+        "port": "tempo"
+      }
+    },
+    "tempo_to_bass": {
+      "from": {
+        "node": "0033AFBG0B003PN6DMP7VQVM7W",
+        "port": "tempo"
+      },
+      "to": {
+        "node": "0033AFBG0S008138JWTVPS16H2",
+        "port": "tempo"
+      }
+    },
+    "tempo_to_kick_grid": {
+      "from": {
+        "node": "0033AFBG0B003PN6DMP7VQVM7W",
+        "port": "tempo"
+      },
+      "to": {
+        "node": "0033AFBG0J005VW7G8RHS8EDCF",
+        "port": "tempo"
+      }
+    },
+    "tempo_to_snare_grid": {
+      "from": {
+        "node": "0033AFBG0B003PN6DMP7VQVM7W",
+        "port": "tempo"
+      },
+      "to": {
+        "node": "0033AFBG0N006SHH3NY3R6DAEE",
+        "port": "tempo"
+      }
+    },
+    "time_to_arp_voice": {
+      "from": {
+        "node": "0033AFBG0A003CRRHTZ1W36N77",
+        "port": "time"
+      },
+      "to": {
+        "node": "0033AFBG0H005HZSMF1BSKSEBT",
+        "port": "time"
+      }
+    },
+    "time_to_bass_voice": {
+      "from": {
+        "node": "0033AFBG0A003CRRHTZ1W36N77",
+        "port": "time"
+      },
+      "to": {
+        "node": "0033AFBG0V008MW4AG97P2B4JC",
+        "port": "time"
+      }
+    },
+    "time_to_kick": {
+      "from": {
+        "node": "0033AFBG0A003CRRHTZ1W36N77",
+        "port": "time"
+      },
+      "to": {
+        "node": "0033AFBG0M006FN37W6XRHRBDS",
+        "port": "time"
+      }
+    },
+    "time_to_snare": {
+      "from": {
+        "node": "0033AFBG0A003CRRHTZ1W36N77",
+        "port": "time"
+      },
+      "to": {
+        "node": "0033AFBG0Q007DACV9CFQFQ8FR",
+        "port": "time"
+      }
+    }
+  },
+  "nodes": {
+    "0033AFBG0A003CRRHTZ1W36N77": {
+      "id": "0033AFBG0A003CRRHTZ1W36N77",
+      "inputs": {},
+      "title": "time",
+      "type": "time"
+    },
+    "0033AFBG0B003PN6DMP7VQVM7W": {
+      "id": "0033AFBG0B003PN6DMP7VQVM7W",
+      "inputs": {},
+      "title": "tempo",
+      "type": "constant_tempo"
+    },
+    "0033AFBG0C0040HM9EDDVCGK8H": {
+      "id": "0033AFBG0C0040HM9EDDVCGK8H",
+      "inputs": {},
+      "title": "meter",
+      "type": "constant_time_signature"
+    },
+    "0033AFBG0D004AE2584KV15J96": {
+      "id": "0033AFBG0D004AE2584KV15J96",
+      "inputs": {},
+      "title": "prog",
+      "type": "epic_minor_progression"
+    },
+    "0033AFBG0E004MAG11VSTNTH9V": {
+      "id": "0033AFBG0E004MAG11VSTNTH9V",
+      "inputs": {},
+      "title": "loop_prog",
+      "type": "loop"
+    },
+    "0033AFBG0F004Y6XWVJZTAFGAG": {
+      "id": "0033AFBG0F004Y6XWVJZTAFGAG",
+      "inputs": {},
+      "title": "arp",
+      "type": "arpeggio"
+    },
+    "0033AFBG0G00583BRNA5SZ4FB5": {
+      "id": "0033AFBG0G00583BRNA5SZ4FB5",
+      "inputs": {},
+      "title": "loop_arp",
+      "type": "loop"
+    },
+    "0033AFBG0H005HZSMF1BSKSEBT": {
+      "id": "0033AFBG0H005HZSMF1BSKSEBT",
+      "inputs": {},
+      "title": "arp_voice",
+      "type": "sine_note_voice"
+    },
+    "0033AFBG0J005VW7G8RHS8EDCF": {
+      "id": "0033AFBG0J005VW7G8RHS8EDCF",
+      "inputs": {
+        "lane": 0
+      },
+      "title": "kick_grid",
+      "type": "drum_grid"
+    },
+    "0033AFBG0K0065RNC2FQRX3CD4": {
+      "id": "0033AFBG0K0065RNC2FQRX3CD4",
+      "inputs": {},
+      "title": "loop_kick",
+      "type": "loop"
+    },
+    "0033AFBG0M006FN37W6XRHRBDS": {
+      "id": "0033AFBG0M006FN37W6XRHRBDS",
+      "inputs": {},
+      "title": "kick",
+      "type": "kick_drum"
+    },
+    "0033AFBG0N006SHH3NY3R6DAEE": {
+      "id": "0033AFBG0N006SHH3NY3R6DAEE",
+      "inputs": {
+        "lane": 1
+      },
+      "title": "snare_grid",
+      "type": "drum_grid"
+    },
+    "0033AFBG0P0073DYZFN9QV29F3": {
+      "id": "0033AFBG0P0073DYZFN9QV29F3",
+      "inputs": {},
+      "title": "loop_snare",
+      "type": "loop"
+    },
+    "0033AFBG0Q007DACV9CFQFQ8FR": {
+      "id": "0033AFBG0Q007DACV9CFQFQ8FR",
+      "inputs": {},
+      "title": "snare",
+      "type": "snare_drum"
+    },
+    "0033AFBG0R007Q6TQ33NQ4C7GD": {
+      "id": "0033AFBG0R007Q6TQ33NQ4C7GD",
+      "inputs": {},
+      "title": "mix",
+      "type": "add"
+    },
+    "0033AFBG0S008138JWTVPS16H2": {
+      "id": "0033AFBG0S008138JWTVPS16H2",
+      "inputs": {},
+      "title": "bass",
+      "type": "bass_line"
+    },
+    "0033AFBG0T008AZPEPJ1PDP5HQ": {
+      "id": "0033AFBG0T008AZPEPJ1PDP5HQ",
+      "inputs": {},
+      "title": "loop_bass",
+      "type": "loop"
+    },
+    "0033AFBG0V008MW4AG97P2B4JC": {
+      "id": "0033AFBG0V008MW4AG97P2B4JC",
+      "inputs": {},
+      "title": "bass_voice",
+      "type": "bass_saw_voice"
+    },
+    "0033AFBG0W008YRJ6A0DNQ03K1": {
+      "id": "0033AFBG0W008YRJ6A0DNQ03K1",
+      "inputs": {},
+      "title": "out",
+      "type": "output"
+    },
+    "0033AFBG9000PAN00000000000": {
+      "id": "0033AFBG9000PAN00000000000",
+      "inputs": {
+        "position": -0.6
+      },
+      "title": "pan_arp_voice",
+      "type": "pan"
+    },
+    "0033AFBG9001PAN00000000000": {
+      "id": "0033AFBG9001PAN00000000000",
+      "inputs": {
+        "position": 0.15
+      },
+      "title": "pan_bass_voice",
+      "type": "pan"
+    },
+    "0033AFBG9002PAN00000000000": {
+      "id": "0033AFBG9002PAN00000000000",
+      "inputs": {
+        "position": 0
+      },
+      "title": "pan_kick",
+      "type": "pan"
+    },
+    "0033AFBG9003PAN00000000000": {
+      "id": "0033AFBG9003PAN00000000000",
+      "inputs": {
+        "position": 0.35
+      },
+      "title": "pan_snare",
+      "type": "pan"
+    }
+  },
+  "type": "imp-graph"
+}

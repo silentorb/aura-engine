@@ -1,7 +1,7 @@
 use super::*;
 use aura_clap_fixture::{gain_state, FixtureEntry, GAIN_ID, SINE_ID, SINE_LEVEL_PARAM};
 use aura_plugin_host::{
-    EventSource, MonoStage, NoteEventSource, ParamSetting, PluginSettings, ProcessorConfig,
+    EventSource, LayoutStage, NoteEventSource, ParamSetting, PluginSettings, ProcessorConfig,
     RenderCache, RenderMode, BLOCK_FRAMES,
 };
 use aura_render::Sampler;
@@ -33,10 +33,10 @@ fn settings(state: Option<&[u8]>) -> PluginSettings {
     }
 }
 
-fn stage(host: &ClapHost, id: &str, settings: &PluginSettings) -> MonoStage {
+fn stage(host: &ClapHost, id: &str, settings: &PluginSettings) -> LayoutStage {
     let factory = host.resolve(id, settings).expect("resolve");
     let processor = factory.create(config(RenderMode::Offline)).expect("create");
-    MonoStage::new(processor, BLOCK_FRAMES as usize)
+    LayoutStage::new(processor, BLOCK_FRAMES as usize, aura_render::Layout::Mono)
 }
 
 /// 120 bpm: A4 from 0.5 s to 1.0 s.
@@ -132,7 +132,7 @@ fn gain_effect_applies_its_stored_state() {
             GAIN_ID,
             stage(&host, GAIN_ID, &settings(state.as_deref())),
             EventSource::None,
-            Some(Box::new(Constant(0.8))),
+            Some(aura_render::AudioSampler::Mono(Box::new(Constant(0.8)))),
             RATE,
         )
     };

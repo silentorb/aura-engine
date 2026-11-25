@@ -9,21 +9,18 @@
 use super::streaming::NodeCtx;
 use super::{NodeValue, TranslateError};
 use aura_imp::plugin::{
-    PLUGIN_EFFECT, PLUGIN_ID_PORT, PLUGIN_INSTRUMENT, PLUGIN_PARAMS_PORT, PLUGIN_STATE_PORT,
+    PLUGIN_ID_PORT, PLUGIN_INSTRUMENT, PLUGIN_PARAMS_PORT, PLUGIN_STATE_PORT,
 };
 use aura_imp::{Node, PrimitiveValue};
 use aura_plugin_host::{
-    EventSource, MonoStage, NoteEventSource, ParamSetting, PluginSettings, ProcessorConfig,
+    EventSource, LayoutStage, NoteEventSource, ParamSetting, PluginSettings, ProcessorConfig,
     ProcessorFactory, RenderCache, RenderMode, BLOCK_FRAMES,
 };
-use aura_render::Sampler;
+use aura_render::{AudioSampler, Layout, Sampler, StereoSampler};
 use aura_sample::SampleRate;
 use base64::Engine;
 use std::sync::Arc;
 
-pub(super) fn is_plugin_node(node_type: &str) -> bool {
-    node_type == PLUGIN_INSTRUMENT || node_type == PLUGIN_EFFECT
-}
 
 fn literal(node: &Node, port: &str) -> Result<String, TranslateError> {
     match node.inputs.get(port) {
@@ -117,13 +114,14 @@ pub(super) fn plugin_factory(
         })
 }
 
-/// An activated, mono-adapted instance of a plugin node's plugin.
+/// An activated instance of a plugin node's plugin, adapted to `layout`.
 pub(super) fn plugin_stage(
     node: &Node,
     factory: &dyn ProcessorFactory,
     sample_rate: SampleRate,
     mode: RenderMode,
-) -> Result<MonoStage, TranslateError> {
+    layout: Layout,
+) -> Result<LayoutStage, TranslateError> {
     let processor = factory
         .create(ProcessorConfig {
             sample_rate,
@@ -134,11 +132,13 @@ pub(super) fn plugin_stage(
             node: node.id.clone(),
             source,
         })?;
-    Ok(MonoStage::new(processor, BLOCK_FRAMES as usize))
+    Ok(LayoutStage::new(processor, BLOCK_FRAMES as usize, layout))
 }
 
 /// Translates a plugin node into a render cache. `live_notes` selects the streaming
-/// implementation: an instrument whose score carries a live note plays that note.
+/// implementation: an instrument whose score carries a live note plays that note. An instrument
+/// is stereo; an effect has its node's resolved layout (`ctx.layout`), never dual mono, so one
+/// plugin instance processes both channels.
 pub(super) fn translate_plugin(
     ctx: &mut NodeCtx<'_, '_>,
     live_notes: bool,
@@ -153,20 +153,27 @@ pub(super) fn translate_plugin(
     } else {
         RenderMode::Offline
     };
-    let (events, input) = if node.node_type == PLUGIN_INSTRUMENT {
+    let (events, input, layout) = if node.node_type == PLUGIN_INSTRUMENT {
         let score = ctx.score("score")?;
         let events = match (&score.live, live_notes) {
             (Some(live), true) => EventSource::Live(Arc::clone(live)),
             _ => EventSource::Score(NoteEventSource::from_score_signal(&score, ctx.sample_rate)),
         };
-        (events, None)
+        (events, None, Layout::Stereo)
     } else {
-        (EventSource::None, Some(ctx.signal("audio")?))
+        let input = match ctx.layout {
+            Layout::Mono => AudioSampler::Mono(ctx.signal("audio")?),
+            Layout::Stereo => AudioSampler::Stereo(ctx.stereo_signal("audio")?),
+        };
+        (EventSource::None, Some(input), ctx.layout)
     };
-    let stage = plugin_stage(node, factory.as_ref(), ctx.sample_rate, mode)?;
+    let stage = plugin_stage(node, factory.as_ref(), ctx.sample_rate, mode, layout)?;
     let cache = RenderCache::new(factory.plugin_id(), stage, events, input, ctx.sample_rate);
     ctx.bindings.caches.borrow_mut().push(cache.clone());
-    Ok(NodeValue::Signal(Box::new(cache)))
+    Ok(match layout {
+        Layout::Mono => NodeValue::Signal(Box::new(cache)),
+        Layout::Stereo => NodeValue::Stereo(Box::new(cache)),
+    })
 }
 
 /// A translated graph whose plugin caches are reachable for real-time preparation; samples
@@ -190,17 +197,54 @@ impl Sampler for PreparedRoot {
     }
 
     fn underruns(&self) -> u64 {
-        self.caches.iter().map(Sampler::underruns).sum()
+        self.caches.iter().map(RenderCache::underruns).sum()
     }
 }
 
 /// Wraps a translated root so preparing it prepares its plugin caches; unchanged without any.
-pub(super) fn prepared_root(root: Box<dyn Sampler>, caches: Vec<RenderCache>) -> Box<dyn Sampler> {
+pub(super) fn prepared_root(root: AudioSampler, caches: Vec<RenderCache>) -> AudioSampler {
     if caches.is_empty() {
-        root
-    } else {
-        Box::new(PreparedRoot { root, caches })
+        return root;
     }
+    match root {
+        AudioSampler::Mono(root) => AudioSampler::Mono(Box::new(PreparedRoot { root, caches })),
+        AudioSampler::Stereo(root) => {
+            AudioSampler::Stereo(Box::new(PreparedStereoRoot { root, caches }))
+        }
+    }
+}
+
+/// [`PreparedRoot`] for a stereo root.
+struct PreparedStereoRoot {
+    root: Box<dyn StereoSampler>,
+    caches: Vec<RenderCache>,
+}
+
+impl StereoSampler for PreparedStereoRoot {
+    fn frame(&self, time_secs: f64) -> [f32; 2] {
+        self.root.frame(time_secs)
+    }
+
+    fn channel(&self, channel: usize, time_secs: f64) -> f32 {
+        self.root.channel(channel, time_secs)
+    }
+
+    fn prepare(&self, start_secs: f64, ahead_secs: f64) {
+        for cache in &self.caches {
+            cache.prepare(start_secs, ahead_secs);
+        }
+    }
+
+    fn underruns(&self) -> u64 {
+        self.caches.iter().map(RenderCache::underruns).sum()
+    }
+}
+
+/// A plugin node's deterministic implementation.
+pub(super) fn translate_plugin_deterministic(
+    ctx: &mut NodeCtx<'_, '_>,
+) -> Result<NodeValue, TranslateError> {
+    translate_plugin(ctx, false)
 }
 
 #[cfg(test)]
@@ -215,7 +259,8 @@ mod tests {
         graph_library_from_json_path, Graph, NodeId, Registry, NOTATION_NODE_TYPE,
     };
     use aura_plugin_host::PluginResolver;
-    use aura_render::{BlockSource, Sampler};
+    use aura_imp::plugin::PLUGIN_EFFECT;
+    use aura_render::BlockSource;
     use aura_sequencing::{LiveNote, NoteEvent, Score, ScoreSignal, Semitone, Tempo, TimeSignature};
     use clack_host::prelude::PluginEntry;
     use std::collections::BTreeMap;
@@ -310,7 +355,7 @@ mod tests {
     fn translate(
         graph: &Graph,
         plugins: Option<&dyn PluginResolver>,
-    ) -> Result<Box<dyn Sampler>, TranslateError> {
+    ) -> Result<AudioSampler, TranslateError> {
         let bindings = bindings();
         translate_graph_with_options(
             graph,
@@ -323,9 +368,13 @@ mod tests {
         )
     }
 
-    fn peak(sampler: &dyn Sampler, frames: std::ops::Range<u64>) -> f32 {
+    /// Peak of either channel over `frames`.
+    fn peak(sampler: &AudioSampler, frames: std::ops::Range<u64>) -> f32 {
         frames
-            .map(|f| sampler.at(f as f64 / 44100.0).abs())
+            .map(|f| {
+                let [left, right] = sampler.frame(f as f64 / 44100.0);
+                left.abs().max(right.abs())
+            })
             .fold(0.0, f32::max)
     }
 
@@ -334,15 +383,15 @@ mod tests {
         let host = fixture_host();
         let graph = sine_then_gain(0.5);
         let sampler = translate(&graph, Some(host.as_ref())).expect("translate");
-        assert_eq!(peak(sampler.as_ref(), 0..22051), 0.0, "silent before the note");
-        let loud = peak(sampler.as_ref(), 22050..44100);
+        assert_eq!(peak(&sampler, 0..22051), 0.0, "silent before the note");
+        let loud = peak(&sampler, 22050..44100);
         assert!((loud - 0.125).abs() < 0.01, "sine 0.25 through gain 0.5: {loud}");
-        assert_eq!(peak(sampler.as_ref(), 49000..60000), 0.0, "released");
+        assert_eq!(peak(&sampler, 49000..60000), 0.0, "released");
 
         let again = translate(&graph, Some(host.as_ref())).expect("translate");
         for f in (0..50_000u64).step_by(97) {
             let t = f as f64 / 44100.0;
-            assert_eq!(sampler.at(t).to_bits(), again.at(t).to_bits());
+            assert_eq!(sampler.frame(t), again.frame(t));
         }
     }
 
@@ -351,25 +400,25 @@ mod tests {
         let host = fixture_host();
         let graph = sine_then_gain(0.5);
         let reference = translate(&graph, Some(host.as_ref())).expect("translate");
-        let expected: Vec<u32> = (22_050..26_000u64)
-            .map(|f| reference.at(f as f64 / 44100.0).to_bits())
+        let expected: Vec<[f32; 2]> = (22_050..26_000u64)
+            .map(|f| reference.frame(f as f64 / 44100.0))
             .collect();
 
-        let sampler: Arc<dyn Sampler> =
-            Arc::from(translate(&graph, Some(host.as_ref())).expect("translate"));
-        let realtime = |sampler: &Arc<dyn Sampler>, frames: std::ops::Range<u64>| {
+        let sampler: Arc<AudioSampler> =
+            Arc::new(translate(&graph, Some(host.as_ref())).expect("translate"));
+        let realtime = |sampler: &Arc<AudioSampler>, frames: std::ops::Range<u64>| {
             let sampler = Arc::clone(sampler);
             std::thread::spawn(move || {
                 aura_render::mark_realtime_reader();
                 frames
-                    .map(|f| sampler.at(f as f64 / 44100.0).to_bits())
-                    .collect::<Vec<u32>>()
+                    .map(|f| sampler.frame(f as f64 / 44100.0))
+                    .collect::<Vec<[f32; 2]>>()
             })
             .join()
             .expect("real-time reader")
         };
         let unprepared = realtime(&sampler, 22_100..22_101);
-        assert_eq!(unprepared, vec![0.0f32.to_bits()], "nothing prepared yet: silence");
+        assert_eq!(unprepared, vec![[0.0; 2]], "nothing prepared yet: silence");
         assert_eq!(sampler.underruns(), 1);
 
         sampler.prepare(0.5, 0.5);
@@ -416,7 +465,7 @@ mod tests {
             r#"{{ "plugin": "{SINE_ID}", "params": "{{\"0\": 0.125}}" }}"#
         ));
         let sampler = translate(&quiet, Some(host.as_ref())).expect("translate");
-        let loud = peak(sampler.as_ref(), 22050..44100);
+        let loud = peak(&sampler, 22050..44100);
         assert!((loud - 0.125).abs() < 0.01, "level 0.125 applied: {loud}");
 
         for (params, reason) in [
@@ -468,11 +517,11 @@ mod tests {
     }
 
     fn block_peak(source: &mut dyn BlockSource, blocks: usize) -> f32 {
-        let mut block = vec![0.0; 512];
+        let mut block = vec![[0.0; 2]; 512];
         let mut peak = 0.0_f32;
         for _ in 0..blocks {
             source.render_block(&mut block);
-            peak = block.iter().fold(peak, |m, s| m.max(s.abs()));
+            peak = block.iter().flatten().fold(peak, |m, s| m.max(s.abs()));
         }
         peak
     }
@@ -553,6 +602,44 @@ mod tests {
         );
     }
 
+    /// `synth → multiply`: the instrument is stereo, so `multiply` resolves to stereo and runs as
+    /// dual mono. Both channel passes share the one translated synth.
+    #[test]
+    fn dual_mono_over_a_plugin_shares_one_instance() {
+        let host = fixture_host();
+        let json = format!(
+            r#"{{
+              "nodes": {{
+                "n": {{ "id": "n", "type": "{NOTATION_NODE_TYPE}", "inputs": {{}} }},
+                "synth": {{ "id": "synth", "type": "{PLUGIN_INSTRUMENT}", "inputs": {{ "plugin": "{SINE_ID}" }} }},
+                "gain": {{ "id": "gain", "type": "multiply", "inputs": {{ "b": 0.5 }} }},
+                "o": {{ "id": "o", "type": "output", "inputs": {{}} }}
+              }},
+              "edges": {{
+                "e1": {{ "id": "e1", "from": {{ "node": "n", "port": "score" }}, "to": {{ "node": "synth", "port": "score" }} }},
+                "e2": {{ "id": "e2", "from": {{ "node": "synth", "port": "audio" }}, "to": {{ "node": "gain", "port": "a" }} }},
+                "e3": {{ "id": "e3", "from": {{ "node": "gain", "port": "audio" }}, "to": {{ "node": "o", "port": "value" }} }}
+              }}
+            }}"#
+        );
+        let graph = graph_from_json_str(&json).expect("graph");
+        let registry = aura_registry().expect("registry");
+        let scores = bindings();
+        let prepared = super::super::PreparedGraph::prepare(&graph, &registry).expect("prepare");
+        let translation = super::super::Bindings::new(
+            &scores,
+            super::super::TranslateMode::Deterministic,
+            Some(host.as_ref()),
+        );
+        let sampler = prepared
+            .translate(&registry, RATE, &translation)
+            .expect("translate");
+        assert_eq!(sampler.layout(), aura_render::Layout::Stereo);
+        assert_eq!(translation.caches.borrow().len(), 1, "one plugin instance");
+        let loud = peak(&sampler, 22050..44100);
+        assert!((loud - 0.125).abs() < 0.01, "sine 0.25 at gain 0.5: {loud}");
+    }
+
     #[test]
     fn per_voice_fallback_plays_the_live_note() {
         let host: Arc<dyn PluginResolver> = fixture_host();
@@ -565,9 +652,9 @@ mod tests {
         .expect("prepare");
         let note = live(69);
         let voice = program.instantiate(Arc::clone(&note)).expect("voice");
-        let held = peak(voice.as_ref(), 100..4000);
+        let held = peak(&voice, 100..4000);
         assert!(held > 0.2, "held note sounds: {held}");
         note.release(4000.0 / 44100.0);
-        assert_eq!(peak(voice.as_ref(), 4000 + 6000..20000), 0.0, "released");
+        assert_eq!(peak(&voice, 4000 + 6000..20000), 0.0, "released");
     }
 }

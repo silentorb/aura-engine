@@ -1,7 +1,13 @@
 //! Audio rendering for Aura: deterministic sampling ([`Sampler`]) and streaming blocks
 //! ([`BlockSource`]).
 
+mod stereo;
 mod streaming;
+
+pub use stereo::{
+    sample_offline_audio, AudioSampler, ChannelView, Layout, SharedSampler, SharedStereoSampler,
+    StereoPair, StereoSampler, LEFT, RIGHT,
+};
 
 pub use streaming::{
     voice_channel, BlockSource, StreamVoice, VoiceCommand, VoiceMixer, VoiceSendError,

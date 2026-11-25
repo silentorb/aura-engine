@@ -1,11 +1,11 @@
 //! Real-time audio playback for Aura via CPAL.
 //!
-//! Deterministic mode plays a pure [`Sampler`] on the default output device
+//! Deterministic mode plays a pure [`AudioSampler`] (mono or stereo) on the default output device
 //! ([`PlaybackEngine`]); streaming mode pulls blocks from a [`BlockSource`]
 //! ([`StreamingOutput`]). Device availability depends on the host environment
 //! (WSL/devcontainer may have none).
 
-use aura_render::{BlockSource, Sampler};
+use aura_render::{AudioSampler, BlockSource};
 use aura_sample::SampleRate;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, Stream};
@@ -29,10 +29,10 @@ pub enum PlaybackError {
     PlayStream(#[source] cpal::Error),
 }
 
-/// Real-time playback via CPAL, sampling the same `Sampler::at(t)` path as offline render.
+/// Real-time playback via CPAL, sampling the same `frame(t)` path as offline render.
 pub struct PlaybackEngine {
     stream: Option<Stream>,
-    sampler: Option<Arc<dyn Sampler>>,
+    sampler: Option<Arc<AudioSampler>>,
     sample_clock: Arc<AtomicU64>,
     sample_rate_hz: f64,
 }
@@ -79,7 +79,7 @@ impl PlaybackEngine {
     /// graph. Stops any existing stream first. Fails clearly when no device is available.
     pub fn start(
         &mut self,
-        sampler: Arc<dyn Sampler>,
+        sampler: Arc<AudioSampler>,
         sample_rate: SampleRate,
     ) -> Result<(), PlaybackError> {
         self.start_at(sampler, sample_rate, 0.0)
@@ -90,7 +90,7 @@ impl PlaybackEngine {
     /// Stops any existing stream first. Fails clearly when no device is available.
     pub fn start_at(
         &mut self,
-        sampler: Arc<dyn Sampler>,
+        sampler: Arc<AudioSampler>,
         sample_rate: SampleRate,
         start_secs: f64,
     ) -> Result<(), PlaybackError> {
@@ -109,12 +109,12 @@ impl PlaybackEngine {
         let clock = Arc::clone(&sample_clock);
         let reader = Arc::clone(&sampler);
 
-        let stream = open_output(sample_rate, move |block: &mut [f32]| {
+        let stream = open_output(sample_rate, move |block: &mut [[f32; 2]]| {
             aura_render::mark_realtime_reader();
             let sampler = &reader;
             for out in block.iter_mut() {
                 let frame = clock.fetch_add(1, Ordering::Relaxed);
-                *out = sampler.at(frame as f64 / rate);
+                *out = sampler.frame(frame as f64 / rate);
             }
         })?;
 
@@ -172,7 +172,7 @@ impl StreamingOutput {
         mut source: Box<dyn BlockSource>,
         sample_rate: SampleRate,
     ) -> Result<Self, PlaybackError> {
-        let stream = open_output(sample_rate, move |block: &mut [f32]| {
+        let stream = open_output(sample_rate, move |block: &mut [[f32; 2]]| {
             source.render_block(block);
         })?;
         Ok(Self { _stream: stream })
@@ -180,10 +180,11 @@ impl StreamingOutput {
 }
 
 /// Opens and starts an output stream on the default device at `sample_rate`. `fill` writes each
-/// device block as mono samples; they are duplicated across output channels.
+/// device block as stereo frames: a mono device gets their average, a device with more channels
+/// gets left and right on its first two and silence on the rest.
 fn open_output<F>(sample_rate: SampleRate, fill: F) -> Result<Stream, PlaybackError>
 where
-    F: FnMut(&mut [f32]) + Send + 'static,
+    F: FnMut(&mut [[f32; 2]]) + Send + 'static,
 {
     let host = cpal::default_host();
     let device = host
@@ -213,7 +214,7 @@ where
     Ok(stream)
 }
 
-/// Mono scratch frames reserved up front so typical device blocks never allocate.
+/// Scratch frames reserved up front so typical device blocks never allocate.
 const SCRATCH_FRAMES: usize = 8192;
 
 fn build_stream<T, F>(
@@ -223,24 +224,21 @@ fn build_stream<T, F>(
 ) -> Result<Stream, PlaybackError>
 where
     T: SizedSample + FromSample<f32> + Send + 'static,
-    F: FnMut(&mut [f32]) + Send + 'static,
+    F: FnMut(&mut [[f32; 2]]) + Send + 'static,
 {
     let channels = (config.channels as usize).max(1);
     let err_fn = |err| eprintln!("aura_io_cpal stream error: {err}");
-    let mut mono = Vec::with_capacity(SCRATCH_FRAMES);
+    let mut frames_buf = Vec::with_capacity(SCRATCH_FRAMES);
 
     device
         .build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
                 let frames = data.len() / channels;
-                mono.resize(frames, 0.0);
-                fill(&mut mono);
-                for (frame, &value) in data.chunks_mut(channels).zip(mono.iter()) {
-                    let sample = T::from_sample(value);
-                    for out in frame.iter_mut() {
-                        *out = sample;
-                    }
+                frames_buf.resize(frames, [0.0; 2]);
+                fill(&mut frames_buf);
+                for (frame, &[left, right]) in data.chunks_mut(channels).zip(frames_buf.iter()) {
+                    write_frame(frame, left, right);
                 }
             },
             err_fn,
@@ -260,6 +258,21 @@ where
 /// Returns whether the given CPAL sample format uses floating-point encoding.
 pub fn is_float_format(format: SampleFormat) -> bool {
     format.is_float()
+}
+
+/// Writes one stereo frame onto a device frame of any channel count.
+fn write_frame<T: SizedSample + FromSample<f32>>(frame: &mut [T], left: f32, right: f32) {
+    match frame {
+        [only] => *only = T::from_sample((left + right) * 0.5),
+        [first, second, rest @ ..] => {
+            *first = T::from_sample(left);
+            *second = T::from_sample(right);
+            for out in rest {
+                *out = T::from_sample(0.0f32);
+            }
+        }
+        [] => {}
+    }
 }
 
 #[cfg(test)]
@@ -282,6 +295,16 @@ mod tests {
     fn float_format_detection() {
         assert!(is_float_format(SampleFormat::F32));
         assert!(!is_float_format(SampleFormat::I16));
+    }
+
+    #[test]
+    fn frames_map_onto_device_channels() {
+        let mut mono = [0.0f32];
+        write_frame(&mut mono, 1.0, 0.0);
+        assert_eq!(mono, [0.5]);
+        let mut surround = [9.0f32; 4];
+        write_frame(&mut surround, 1.0, -1.0);
+        assert_eq!(surround, [1.0, -1.0, 0.0, 0.0]);
     }
 
     #[test]
