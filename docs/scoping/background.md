@@ -22,7 +22,7 @@ Aura splits across kebab-case repos so orchestration stays out of the product tr
 |------|------|
 | `aura-workbench` | Primary workspace; Compose/Dev Container; mounts siblings |
 | `aura-engine` | This product (Rust crates, docs, demos) |
-| `aura-editor` | Editor UI (separate stack; placeholder at split time) |
+| `aura-editor` | Editor UI: Aura's Imp Lab extensions and the Aura pack configuration |
 
 Imp siblings remain path dependencies under `.mnt/` inside the engine container. Motivation: keep engine cloneable as product source while the workbench owns how developers attach tools and sibling checkouts.
 

@@ -15,7 +15,7 @@ MIDI device ─midir─▶ aura_io_midi ─▶ Lab playback extension ─┬─�
 - MIDI key numbers are Aura semitones (both put A4 at 69). Velocity is `v / 127`.
 - Only notes and the sustain pedal (CC 64, ≥ 64 = down) are read. Note-on with velocity 0 is a note-off.
 - Translating a take into notation is a pure function (`aura_sequencing::capture::notes_from_capture`), testable without hardware.
-- Imp Lab never sees MIDI. It sees notation notes, setting values, and topic values.
+- Imp Lab never sees MIDI, and never sees notation: the notation editor (Aura Editor, an Imp Lab extension) sees notation notes, setting values, and topic values.
 
 ## Translation rules
 
@@ -64,7 +64,7 @@ Times are seconds on the notation's timeline (beat 0 = 0 s at the notation tempo
 - **Clock.** The take pairs the input's timestamp clock with the transport's notation time at the take's first event. Later events follow the input timestamps, which avoids the jitter of reading the transport clock per event.
 - **While recording**, the extension publishes the take on the `aura.capture.take` topic: `{recording, countIn, notes}`, with held notes at their duration so far, about 30 times a second while notes grow.
 - **Stop** stops the transport, ends held notes at the stop time, translates the take, and returns its notes. Stopping the transport any other way also ends the take; its notes wait for the next stop request.
-- In Imp Lab the take is added to the notation (overdub) as one undoable edit. See Imp Lab's `docs/features/extensions.md` for the live note capture protocol.
+- Aura Editor's notation editor adds the take to the notation (overdub) as one undoable edit. See aura-editor's `docs/design/piano-roll.md` for the live note capture protocol.
 
 ## Non-goals / avoided approaches
 

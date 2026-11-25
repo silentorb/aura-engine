@@ -16,7 +16,7 @@ A MIDI volume envelope decays independently of note length, and its release star
 
 ## Use cases driving streaming
 
-1. **Instrument audition in the notation view.** When a user places, clicks, or drags a note in Imp Lab's piano roll, the note sounds immediately and for as long as it's held. The release time is genuinely unknown ahead of time.
+1. **Instrument audition in the notation view.** When a user places, clicks, or drags a note in the piano roll, the note sounds immediately and for as long as it's held. The release time is genuinely unknown ahead of time.
 2. **Live MIDI recording.** Incoming MIDI plays through streaming mode while it's captured. The MIDI data itself isn't stored; it's translated into Aura's deterministic notation model, so the recording becomes ordinary deterministic material afterwards. Settled for the first version: a take records from the playhead while the notation plays on the transport with a metronome and a one-bar count-in; timing stays raw (snapping is a later, separate edit); a take is added to the existing notes (overdub) as one undo step; one input at a time, chosen by port name in app-level settings with a channel filter, reconnecting on its own after an unplug. Design: [`../design/live-recording.md`](../design/live-recording.md).
 
 ## Shaping decisions

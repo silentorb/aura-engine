@@ -61,7 +61,7 @@ The gated envelope is the archetypal fallback. Deterministically, `LinearAdsr` p
 
 ## Uses
 
-- **Note audition** in Imp Lab's notation view: the Lab playback extension (`aura_imp_lab_playback`) opens the pack's `sine_note_voice` as a streaming pipeline and turns `note_on` / `note_off` service events into its notes.
+- **Note audition** in Aura Editor's notation editor (running in Imp Lab): the Lab playback extension (`aura_imp_lab_playback`) opens the pack's `sine_note_voice` as a streaming pipeline and turns `note_on` / `note_off` service events into its notes.
 - **Live MIDI recording** ([live recording](live-recording.md)): a MIDI input plays through streaming mode (the same voices as audition) while a take is captured; the take is translated into deterministic notation, not stored as MIDI.
 
 ## Non-goals / avoided approaches

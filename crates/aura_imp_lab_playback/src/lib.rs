@@ -747,26 +747,4 @@ mod tests {
         assert!(handle_event(r#"{"type":"settings","values":{"aura.midi.channels":["1"]}}"#).is_ok());
         assert!(handle_event(r#"{"type":"settings"}"#).is_err());
     }
-
-    #[test]
-    fn pack_registers_midi_settings_that_resolve() {
-        let text = std::fs::read_to_string(workspace_path("lab-pack/extensions.json")).unwrap();
-        let config = imp_lab_extensions::parse_extensions_json(&text).expect("pack config");
-        let layout = imp_lab_extensions::settings_layout(&config);
-        assert!(layout.warnings.is_empty(), "{:?}", layout.warnings);
-        let midi = layout
-            .pages
-            .iter()
-            .find(|p| p.category_id.as_deref() == Some("aura.midi"))
-            .expect("MIDI page");
-        let ids: Vec<&str> = midi.settings.iter().map(|s| s.id.as_str()).collect();
-        assert_eq!(ids, vec![midi_input::SETTING_INPUT, midi_input::SETTING_CHANNELS]);
-        assert!(midi
-            .settings
-            .iter()
-            .all(|s| s.service_id.as_deref() == Some(SERVICE_IMPLEMENTATION_ID)));
-        let status = imp_lab_extensions::status_items(&config);
-        assert_eq!(status.len(), 1);
-        assert_eq!(status[0].topic, midi_input::TOPIC_STATUS);
-    }
 }

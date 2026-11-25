@@ -198,33 +198,6 @@ mod tests {
     }
 
     #[test]
-    fn the_pack_declares_plugin_choices_and_gui_actions() {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../lab-pack/extensions.json");
-        let json = std::fs::read_to_string(path).expect("pack manifest");
-        let config = imp_lab_extensions::parse_extensions_json(&json).expect("parses");
-        let ui = imp_lab_extensions::node_ui(&config);
-        assert!(ui.warnings.is_empty(), "{:?}", ui.warnings);
-        let topics: Vec<(&str, &str)> = ui
-            .literal_options
-            .iter()
-            .map(|o| (o.node_type.as_str(), o.options_topic.as_str()))
-            .collect();
-        assert_eq!(
-            topics,
-            vec![
-                ("plugin_instrument", TOPIC_INSTRUMENTS),
-                ("plugin_effect", TOPIC_EFFECTS)
-            ]
-        );
-        assert_eq!(ui.actions.len(), 2);
-        for action in &ui.actions {
-            assert_eq!(action.action, ACTION_OPEN_GUI);
-            assert_eq!(action.edits_topic.as_deref(), Some(TOPIC_EDITS));
-            assert_eq!(action.service_id, crate::SERVICE_IMPLEMENTATION_ID);
-        }
-    }
-
-    #[test]
     fn node_actions_reject_unknown_actions_and_nodes() {
         assert!(node_action(&json!({"type": "node_action", "action": "nope"})).is_err());
         assert!(node_action(&json!({"type": "node_action", "action": ACTION_OPEN_GUI})).is_err());

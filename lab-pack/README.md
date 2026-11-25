@@ -1,27 +1,29 @@
-# Imp Lab pack (Aura audio catalogs + playback)
+# Aura pack: engine libraries and data
 
-Optional sidecar pack for [Imp Lab Tauri](https://github.com/silentorb/imp-lab): Tome-shaped `extensions.json` plus Aura catalog and playback cdylibs.
-
-## Layout
+aura-engine's part of the **Aura pack**, the set of extensions that turns [Imp Lab](https://github.com/silentorb/imp-lab) into Aura's editor. The pack **configuration** (`extensions.json`) and Aura's editor UI are owned by [aura-editor](https://github.com/silentorb/aura-editor) (`pack/extensions.json`, `docs/design/pack.md`). This directory holds what the engine supplies:
 
 ```
 lab-pack/
-  extensions.json
-  extensions/          # platform cdylibs:
+  extensions/          # local build output (git-ignored artifacts):
                        #   libaura_imp_lab_catalogs.so / aura_imp_lab_catalogs.dll
                        #   libaura_imp_lab_playback.so / aura_imp_lab_playback.dll
   catalogs/
-    instruments.json   # optional demo graph library
+    instruments.json   # instrument graph library (audition voice, metronome click, demos)
   demo-project/        # sample Imp Lab project: the Aura demos as records
     imp-project.json   #   File → Open Project… and pick this file
     content/           #   one Tome data store (flat files)
 ```
 
-Place this directory’s contents next to `imp-lab-tauri` (or set `IMP_LAB_EXTENSIONS` to the `extensions.json` path). Lab runs without the pack (Imp core only). With the pack loaded, Lab gains Aura node catalogs and a **Play** menu (Start / Stop) that drives deterministic CPAL playback for Imp graphs and Aura `notation` tips (from the parked playhead). The playback service also accepts `event` messages for live note audition in streaming mode (`note_on` / `note_off` / `all_notes_off`), voiced by the `sine_note_voice` instrument in `catalogs/instruments.json`; see [`../docs/design/playback-modes.md`](../docs/design/playback-modes.md).
+aura-workbench assembles the full pack (aura-editor's configuration and UI library, these libraries and data) for a local run (`scripts/assemble-aura-pack.sh`) and for the Windows export beside `imp-lab.exe`.
 
-The pack also brings **CLAP plugins** ([`../docs/design/plugin-hosting.md`](../docs/design/plugin-hosting.md)): the catalogs include the `aura.plugin` node library (`plugin_instrument`, `plugin_effect`), and playback resolves plugin ids from `CLAP_PATH` and the platform's standard CLAP locations (on Windows, `%COMMONPROGRAMFILES%\CLAP`). A plugin node's `plugin` literal is a dropdown of installed plugins, and **Open plugin GUI** in Properties opens the plugin's own GUI; edits there are saved into the node's `state` as one undo step per session (`node-literal-options` and `node-action` components in `extensions.json`). `params` (JSON object of parameter id to plain value, ids from `aura plugin-params`) can still be set by hand.
+## What the libraries provide
 
-The pack also brings **MIDI input** ([`../docs/design/live-recording.md`](../docs/design/live-recording.md)). `extensions.json` registers a **MIDI** settings category with two settings, **Input device** (`aura.midi.input`, options from the `aura.midi.ports` topic) and **Channels** (`aura.midi.channels`), and a `status-item` showing the `aura.midi.status` topic. The playback service answers the live note capture requests (`capture_info`, `record_start`, `record_stop`) and publishes the take on `aura.capture.take`. The recording metronome is the `metronome_click` instrument in `catalogs/instruments.json`.
+- **Catalogs** (`aura_imp_lab_catalogs`): Aura node catalogs for Imp Lab's add-node picker, including the `aura.plugin` node library (`plugin_instrument`, `plugin_effect`).
+- **Playback** (`aura_imp_lab_playback`, service `playback`): deterministic CPAL playback for Imp graphs and Aura `notation` records (from the parked playhead), driven by the `play.*` commands. The service also accepts `event` messages for live note audition in streaming mode (`note_on` / `note_off` / `all_notes_off`), voiced by the `sine_note_voice` instrument in `catalogs/instruments.json`; see [`../docs/design/playback-modes.md`](../docs/design/playback-modes.md).
+- **CLAP plugins** ([`../docs/design/plugin-hosting.md`](../docs/design/plugin-hosting.md)): playback resolves plugin ids from `CLAP_PATH` and the platform's standard CLAP locations (on Windows, `%COMMONPROGRAMFILES%\CLAP`). The service publishes installed plugins on `aura.plugins.instruments` / `aura.plugins.effects`, answers `plugin.open_gui` node actions, and publishes GUI edits of a node's `state` on `aura.plugins.edits`.
+- **MIDI input** ([`../docs/design/live-recording.md`](../docs/design/live-recording.md)): settings `aura.midi.input` (options from the `aura.midi.ports` topic) and `aura.midi.channels`, status on `aura.midi.status`. The service answers the live note capture requests (`capture_info`, `record_start`, `record_stop`) and publishes the take on `aura.capture.take`. The recording metronome is the `metronome_click` instrument in `catalogs/instruments.json`.
+
+The configuration that exposes these (commands, menus, settings, node UI, bindings) is in aura-editor; its tests check it against these ids.
 
 ## Build the extension libraries
 
@@ -34,23 +36,25 @@ cargo build -p aura_imp_lab_catalogs -p aura_imp_lab_playback
 # Windows (MSVC): aura_imp_lab_catalogs.dll / aura_imp_lab_playback.dll
 ```
 
-Copy the artifacts into `lab-pack/extensions/`. The host resolves bare `libraryPath` stems across `.so` / `.dll` / `.dylib` names.
+The host resolves bare `libraryPath` stems across `.so` / `.dll` / `.dylib` names.
 
 ## Demo project
 
-`demo-project/` is generated from `../demos/*.json` by Imp Lab's seed tool. Notations keep their ids, so `demo-02` still references `demo-02-arpeggio`. Regenerate it after changing a demo (delete the folder first):
+`demo-project/` is generated from `../demos/*.json` by Imp Lab's seed tool, with the pack configuration so notation documents become Notations records. Notations keep their ids, so `demo-02` still references `demo-02-arpeggio`. Regenerate it after changing a demo (delete the folder first):
 
 ```bash
-# from imp-lab/apps/tauri/src-tauri, with aura-engine at $E
-cargo run --example seed_project -- $E/lab-pack/demo-project "Aura demos" \
+# from imp-lab/apps/tauri/src-tauri, with aura-engine at $E and aura-editor at $A
+cargo run --example seed_project -- --extensions $A/pack/extensions.json \
+  $E/lab-pack/demo-project "Aura demos" \
   $E/demos/demo-01.json $E/demos/demo-02.json $E/demos/demo-02-arpeggio.json $E/demos/sine.json
 ```
 
-The Windows export copies it to `demo-project/` beside `imp-lab.exe`, but never over an existing copy.
+Exports copy it to `demo-project/` beside `imp-lab.exe`, but never over an existing copy.
 
 In Imp Lab, Play hands the extension the open project's config. Playback then reads the records a graph references (for example `demo-02`'s arpeggio, by node id) from the project's data stores, and builds instruments from `catalogs/instruments.json`.
 
 ## See also
 
-- Imp Lab extensions: `imp-lab/docs/features/extensions.md`
+- Pack configuration and editor UI: aura-editor `pack/extensions.json`, `docs/design/pack.md`, `docs/design/piano-roll.md`
+- Imp Lab extensions: imp-lab `docs/features/extensions.md`
 - Crates: `crates/aura_imp_lab_catalogs`, `crates/aura_imp_lab_playback`
