@@ -6,8 +6,8 @@ Aura signals are **mono** or **stereo**. Motivation: [`../scoping/stereo.md`](..
 
 | Signal type | Runtime | Meaning |
 |---|---|---|
-| `audio_mono` | `Sampler::at(t) → f32` | One channel |
-| `audio_stereo` | `StereoSampler::frame(t) → [left, right]` | Two channels |
+| `audio_mono` | `Signal`: a range of frames → one buffer | One channel |
+| `audio_stereo` | `StereoSignal`: a range of frames → left and right buffers (planar) | Two channels |
 
 - The Aura type constraint **`Audio`** = `audio_mono | audio_stereo` (`aura.constraints`).
 - Control, time, score and other signals have no layout.
@@ -49,15 +49,15 @@ Every node type registers its implementations in `aura_integration` ([`translate
 
 - Only layout-polymorphic node types have a stereo row. A fixed-layout node type has the mono row only (its two cells).
 - The translator resolves each layout-polymorphic node's layout once per graph from Imp's inferred type args, then builds the cell for (layout, mode).
-- Implementations are translate-time builders; "prepared at load" means the dual-mono wrapper exists from registration and only composes samplers at translation.
+- Implementations are translate-time builders; "prepared at load" means the dual-mono wrapper exists from registration and only composes signals at translation.
 
 ### Dual mono
 
-The dual-mono wrapper runs the mono implementation once per channel and pairs the results.
+The dual-mono wrapper builds the mono implementation once per channel (one instance per channel, so a streaming implementation keeps separate history per channel) and pairs the results.
 
 - Each pass sees the pass's channel of every stereo input and the same non-audio inputs.
-- Inputs are translated **once** and shared by both passes; upstream nodes (including plugin instances) are not built twice.
-- A channel view reads one channel only (`StereoSampler::channel`), so a chain of dual-mono nodes costs about twice its mono cost, not 2^N.
+- Inputs are translated **once** and shared by both passes ([shared outputs](imp-execution.md#shared-outputs)); upstream nodes (including plugin instances) are not built twice.
+- A shared stereo input renders once per block for both channel views (`StereoChannel` over `SharedStereo`), so a chain of dual-mono nodes costs about twice its mono cost, not 2^N.
 - Stateful node types (plugins) never take the dual-mono default; they register a true stereo implementation so one instance processes both channels.
 
 ## Outputs
@@ -71,8 +71,8 @@ The graph output's layout decides what sinks receive:
 ## Non-goals / avoided approaches
 
 - Implicit up-mix of mono into stereo inputs, or mixed layouts resolving by guess
-- Layout flags read per sample; layout is resolved once, at translation
-- Dual mono for stateful nodes (two plugin instances per stereo signal)
+- Layout flags read while rendering; layout is resolved once, at translation
+- Dual mono for plugins (two plugin instances per stereo signal)
 - More than two channels for now (a later layout is another `Audio` member)
 
 ## Deferred

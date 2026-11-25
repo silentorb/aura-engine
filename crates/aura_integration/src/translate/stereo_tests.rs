@@ -8,7 +8,7 @@ use aura_imp::{
     aura_registry, aura_registry_with_libraries, graph_from_json_str, Graph, GraphLibrary,
     NodeDefinition, Port,
 };
-use aura_render::{AudioSampler, Layout};
+use aura_render::{AudioSignal, Layout};
 use aura_sample::SampleRate;
 use aura_sequencing::{LiveNote, Semitone};
 use imp_core_types::{type_var, BoundaryBindings, TypeParam};
@@ -81,11 +81,15 @@ fn owned_graph(
     graph(&nodes, &edges)
 }
 
-fn stereo(sampler: AudioSampler) -> Box<dyn aura_render::StereoSampler> {
-    match sampler {
-        AudioSampler::Stereo(stereo) => stereo,
-        AudioSampler::Mono(_) => panic!("expected a stereo graph"),
-    }
+fn stereo(signal: AudioSignal) -> AudioSignal {
+    assert_eq!(signal.layout(), Layout::Stereo, "expected a stereo graph");
+    signal
+}
+
+/// The frame at `t` seconds (on the 44.1 kHz frame grid).
+fn at(signal: &mut AudioSignal, t: f64) -> [f32; 2] {
+    let frame = (t * 44_100.0).round() as u64;
+    aura_render::render_range(signal, frame, 1)[0]
 }
 
 fn close(a: [f32; 2], b: [f32; 2]) -> bool {
@@ -115,7 +119,7 @@ fn panned_sines_mix_in_stereo() {
         ("gain".into(), "audio", "out".into(), "value", None),
     ];
     let graph = owned_graph(&nodes, &edges);
-    let sampler = stereo(translate_graph(&graph, &aura_registry().unwrap(), RATE).expect("translate"));
+    let mut signal = stereo(translate_graph(&graph, &aura_registry().unwrap(), RATE).expect("translate"));
     let (hard_left, _) = pan_gains(-1.0);
     for frame in (0..2000).step_by(37) {
         let t = f64::from(frame) / 44_100.0;
@@ -123,7 +127,7 @@ fn panned_sines_mix_in_stereo() {
             0.5 * hard_left * sine(440.0, t),
             0.5 * hard_left * sine(660.0, t),
         ];
-        assert!(close(sampler.frame(t), expected), "t={t}");
+        assert!(close(at(&mut signal, t), expected), "t={t}");
     }
 }
 
@@ -178,14 +182,14 @@ fn dual_mono_chains_stay_linear() {
     }
     nodes.push(("out".into(), "output".into(), String::new()));
     edges.push((previous, "audio", "out".into(), "value", None));
-    let sampler = stereo(
+    let mut signal = stereo(
         translate_graph(&owned_graph(&nodes, &edges), &aura_registry().unwrap(), RATE)
             .expect("translate"),
     );
     let (left, right) = pan_gains(-0.5);
-    let t = 0.001;
+    let t = 44.0 / 44_100.0;
     let value = sine(440.0, t);
-    assert!(close(sampler.frame(t), [value * left, value * right]));
+    assert!(close(at(&mut signal, t), [value * left, value * right]));
 }
 
 #[test]
@@ -205,14 +209,14 @@ fn split_and_join_round_trip() {
         ("split".into(), "left", "join".into(), "right", None),
         ("join".into(), "audio", "out".into(), "value", None),
     ];
-    let sampler = stereo(
+    let mut signal = stereo(
         translate_graph(&owned_graph(&nodes, &edges), &aura_registry().unwrap(), RATE)
             .expect("translate"),
     );
     let (left, right) = pan_gains(0.3);
-    let t = 0.002;
+    let t = 88.0 / 44_100.0;
     let value = sine(440.0, t);
-    assert!(close(sampler.frame(t), [value * right, value * left]), "channels swapped");
+    assert!(close(at(&mut signal, t), [value * right, value * left]), "channels swapped");
 }
 
 #[test]
@@ -229,12 +233,12 @@ fn stereo_to_mono_averages() {
         ("ap".into(), "audio", "down".into(), "audio", None),
         ("down".into(), "audio", "out".into(), "value", None),
     ];
-    let sampler = translate_graph(&owned_graph(&nodes, &edges), &aura_registry().unwrap(), RATE)
+    let mut signal = translate_graph(&owned_graph(&nodes, &edges), &aura_registry().unwrap(), RATE)
         .expect("translate");
-    assert_eq!(sampler.layout(), Layout::Mono);
-    let t = 0.003;
+    assert_eq!(signal.layout(), Layout::Mono);
+    let t = 132.0 / 44_100.0;
     let expected = 0.5 * pan_gains(-1.0).0 * sine(440.0, t);
-    assert!((sampler.frame(t)[0] - expected).abs() < 1e-5);
+    assert!((at(&mut signal, t)[0] - expected).abs() < 1e-5);
 }
 
 #[test]
@@ -337,9 +341,9 @@ fn generic_graph_definitions_work_at_both_layouts() {
             ("join", "audio", "out", "value", None),
         ],
     );
-    let sampler = stereo(translate_graph(&graph, &registry, RATE).expect("translate"));
-    let t = 0.004;
+    let mut signal = stereo(translate_graph(&graph, &registry, RATE).expect("translate"));
+    let t = 176.0 / 44_100.0;
     let value = sine(440.0, t);
     let hard_right = pan_gains(1.0).1;
     let expected = [0.5 * value, 0.5 * (0.5 * hard_right * value)];
-    assert!(close(sampler.frame(t), expected), "{:?} vs {expected:?}", sampler.frame(t));}
+    assert!(close(at(&mut signal, t), expected), "{:?} vs {expected:?}", at(&mut signal, t));}

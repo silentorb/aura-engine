@@ -10,16 +10,16 @@ use crate::{playback_registry, publish, PlaybackServiceError, SAMPLE_RATE};
 use aura_composition::click_bar;
 use aura_imp::{graph_from_json_str, NodeId, NOTATION_NODE_TYPE};
 use aura_integration::{
-    sampler_from_score, score_from_notation_str, translate_graph_with_bindings,
+    score_from_notation_str, signal_from_score, translate_graph_with_bindings,
 };
-use aura_render::{AudioSampler, Sampler};
+use aura_render::{AudioSignal, Frame, Signal, BLOCK_FRAMES};
 use aura_sequencing::capture::{notes_from_capture, take_snapshot, CapturedEvent, CapturedKind};
 use aura_sequencing::{
     beats_to_seconds, NoteEvent, Score, ScoreSignal, Semitone, Tempo, TimeSignature,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 /// Topic carrying the take in progress: `{recording, countIn, notes}`.
@@ -29,25 +29,47 @@ pub const CLICK_INSTRUMENT: &str = "metronome_click";
 const TAKE_PUBLISH_INTERVAL: Duration = Duration::from_millis(33);
 
 /// The transport while recording: the notation from `origin_secs` (one bar before the playhead
-/// with the click on), plus the click on the notation's bar grid. Transport time `t` is
-/// notation time `t + origin_secs`.
+/// with the click on), plus the click on the notation's bar grid. Transport frame `f` is
+/// notation frame `f + origin_frames` (the origin rounded to the nearest frame).
 pub struct RecordingTransport {
-    notation: Box<dyn Sampler>,
-    click: Option<Box<dyn Sampler>>,
+    notation: Box<dyn Signal>,
+    click: Option<Box<dyn Signal>>,
     origin_secs: f64,
-    bar_secs: f64,
+    origin_frames: i64,
+    bar_frames: u64,
+    click_buf: Vec<f32>,
 }
 
-impl Sampler for RecordingTransport {
-    fn at(&self, t: f64) -> f32 {
-        let n = t + self.origin_secs;
-        let mut value = if n >= 0.0 { self.notation.at(n) } else { 0.0 };
-        if let Some(click) = &self.click {
-            if self.bar_secs > 0.0 {
-                value += click.at(n.rem_euclid(self.bar_secs));
-            }
+impl Signal for RecordingTransport {
+    fn render(&mut self, start: Frame, out: &mut [f32]) {
+        let len = out.len();
+        let first = start as i64 + self.origin_frames;
+        // Notation time before 0 is silent.
+        let silent = (-first).clamp(0, len as i64) as usize;
+        out[..silent].fill(0.0);
+        if silent < len {
+            self.notation
+                .render((first + silent as i64) as Frame, &mut out[silent..]);
         }
-        value
+        let Some(click) = &mut self.click else {
+            return;
+        };
+        if self.bar_frames == 0 {
+            return;
+        }
+        // The click bar repeats: render it in runs that stop at each bar boundary.
+        let bar = self.bar_frames;
+        let mut k = 0;
+        while k < len {
+            let at = (first + k as i64).rem_euclid(bar as i64) as Frame;
+            let run = ((bar - at) as usize).min(len - k);
+            let buf = &mut self.click_buf[..run];
+            click.render(at, buf);
+            for (sample, &value) in out[k..k + run].iter_mut().zip(buf.iter()) {
+                *sample += value;
+            }
+            k += run;
+        }
     }
 }
 
@@ -74,10 +96,10 @@ fn click_graph_json() -> String {
 }
 
 /// One bar of clicks (deterministic), voiced by the pack's click instrument.
-pub fn click_sampler(
+pub fn click_signal(
     time_signature: TimeSignature,
     tempo: Tempo,
-) -> Result<Box<dyn Sampler>, PlaybackServiceError> {
+) -> Result<Box<dyn Signal>, PlaybackServiceError> {
     let graph = graph_from_json_str(&click_graph_json())
         .map_err(|e| PlaybackServiceError::GraphJson(e.to_string()))?;
     let registry = playback_registry(None)?;
@@ -102,7 +124,7 @@ pub fn recording_transport(
     let bar = bar_secs(time_signature, tempo);
     let playhead = beats_to_seconds(start_beats.max(0.0), tempo);
     let click = if click {
-        Some(click_sampler(time_signature, tempo)?)
+        Some(click_signal(time_signature, tempo)?)
     } else {
         None
     };
@@ -111,11 +133,14 @@ pub fn recording_transport(
     } else {
         playhead
     };
+    let rate = f64::from(SAMPLE_RATE.get());
     Ok(RecordingTransport {
-        notation: sampler_from_score(score, SAMPLE_RATE),
+        notation: signal_from_score(score, SAMPLE_RATE),
         click,
         origin_secs,
-        bar_secs: bar,
+        origin_frames: (origin_secs * rate).round() as i64,
+        bar_frames: (bar * rate).round().max(0.0) as u64,
+        click_buf: vec![0.0; BLOCK_FRAMES],
     })
 }
 
@@ -277,7 +302,7 @@ pub fn record_start(
         return Err(PlaybackServiceError::Recording("already recording".into()));
     }
     crate::start_transport(
-        Arc::new(AudioSampler::Mono(Box::new(transport))),
+        AudioSignal::Mono(Box::new(transport)),
         origin_secs,
     )?;
     guard.generation += 1;
@@ -433,12 +458,12 @@ mod tests {
         let tempo = Tempo::new(120.0).unwrap();
         let score = Score::new(TimeSignature::FOUR_FOUR, tempo, vec![]);
         // Playhead at beat 1 (0.5 s): count-in starts at notation time -1.5 s.
-        let transport = recording_transport(score, 1.0, true).expect("transport");
+        let mut transport = recording_transport(score, 1.0, true).expect("transport");
         assert!((transport.origin_secs + 1.5).abs() < 1e-9);
-        let peak = |from: f64| {
-            (0..200)
-                .map(|i| transport.at(from + i as f64 / 44_100.0).abs())
-                .fold(0.0_f32, f32::max)
+        let mut peak = |from: f64| {
+            let mut out = [0.0; 200];
+            transport.render((from * 44_100.0).round() as Frame, &mut out);
+            out.iter().fold(0.0_f32, |m, s| m.max(s.abs()))
         };
         // Transport 0.5 s = notation -1.0 s = beat 2 of the bar: a click.
         assert!(peak(0.5) > 0.05, "click on the beat");
@@ -452,8 +477,10 @@ mod tests {
     fn transport_without_click_starts_at_the_playhead() {
         let tempo = Tempo::new(120.0).unwrap();
         let score = Score::new(TimeSignature::FOUR_FOUR, tempo, vec![]);
-        let transport = recording_transport(score, 2.0, false).expect("transport");
+        let mut transport = recording_transport(score, 2.0, false).expect("transport");
         assert_eq!(transport.origin_secs, 1.0);
-        assert_eq!(transport.at(0.25), 0.0);
+        let mut out = [1.0];
+        transport.render(11_025, &mut out);
+        assert_eq!(out[0], 0.0);
     }
 }

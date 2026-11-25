@@ -2,17 +2,17 @@
 
 ## Summary
 
-Pure Time → Sample DSP functions (`sine`, sweeps, noise, oscillators, …).
+Pure per-frame DSP functions of time (`sine`, sweeps, noise, oscillators, …), evaluated by node signals for each frame of a block.
 
 ## Requirements
 
 - Every public DSP entry must be a pure function of explicit time (and parameters): seekable `f(t)`.
-- No hidden mutable phase or filter state between `Sampler::at(t)` calls.
+- No hidden mutable phase or filter state in this crate. A history-dependent algorithm (a streaming implementation) keeps its state in its node signal ([node state](../../../design/imp-execution.md#node-state-one-rule-per-mode)).
 - Offline and future real-time paths share these functions.
 
 ## Non-goals / avoided approaches
 
-- FunDSP-style sequential `tick` / `AudioUnit` state machines
+- FunDSP-style sequential `tick` / `AudioUnit` state machines in this crate
 - File I/O or Imp graph ownership
 
 ## See also

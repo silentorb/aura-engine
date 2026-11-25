@@ -15,10 +15,10 @@ use aura_imp::{
     graph_library_from_json_path, Graph, GraphLibrary, Registry,
 };
 use aura_integration::{
-    find_output_node, sampler_from_score, score_from_notation_str, translate_graph_with_project,
+    find_output_node, signal_from_score, score_from_notation_str, translate_graph_with_project,
 };
 use aura_io_cpal::PlaybackEngine;
-use aura_render::{AudioSampler, Sampler};
+use aura_render::{AudioSignal, Signal};
 use aura_sample::SampleRate;
 use aura_sequencing::beats_to_seconds;
 use imp_lab_extensions::{
@@ -84,9 +84,9 @@ pub(crate) fn publish<T: Serialize + ?Sized>(topic: &str, value: &T) {
     }
 }
 
-/// Starts the transport on `sampler` from its `t = 0`, which is notation time `offset_secs`.
+/// Starts the transport on `signal` from its frame 0, which is notation time `offset_secs`.
 pub(crate) fn start_transport(
-    sampler: Arc<AudioSampler>,
+    signal: AudioSignal,
     offset_secs: f64,
 ) -> Result<(), PlaybackServiceError> {
     let mut engine = state()
@@ -94,7 +94,7 @@ pub(crate) fn start_transport(
         .lock()
         .map_err(|_| PlaybackServiceError::Poisoned)?;
     engine
-        .start(sampler, SAMPLE_RATE)
+        .start(signal, SAMPLE_RATE)
         .map_err(|e| PlaybackServiceError::Playback(e.to_string()))?;
     drop(engine);
     set_end_secs(None)?;
@@ -199,11 +199,11 @@ pub fn parse_graph_json(json: &str) -> Result<Graph, PlaybackServiceError> {
     }
 }
 
-/// Translate graph JSON into a sampler ready for CPAL.
+/// Translate graph JSON into a signal ready for CPAL.
 pub fn prepare_graph_playback(
     graph_json: &str,
     neighbor_hint: Option<&Path>,
-) -> Result<(String, AudioSampler), PlaybackServiceError> {
+) -> Result<(String, AudioSignal), PlaybackServiceError> {
     let graph = parse_graph_json(graph_json)?;
     // Nodes the graph references but does not hold (a notation, a node of another graph) come
     // from the project's Tome stores. A legacy graph-file hint resolves nothing beyond the file.
@@ -211,10 +211,10 @@ pub fn prepare_graph_playback(
     let node_id =
         find_output_node(&graph).map_err(|e| PlaybackServiceError::Output(e.to_string()))?;
     let registry = playback_registry(neighbor_hint)?;
-    let sampler =
+    let signal =
         translate_graph_with_project(&graph, &registry, SAMPLE_RATE, project, Some(plugin_host().as_ref()))
             .map_err(|e| PlaybackServiceError::Translate(e.to_string()))?;
-    Ok((node_id, sampler))
+    Ok((node_id, signal))
 }
 
 fn payload_type(json: &str) -> Option<String> {
@@ -233,18 +233,18 @@ fn lab_start_beats(json: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Prepare notation tip JSON into a sampler + start/end times.
+/// Prepare notation tip JSON into a signal + start/end times.
 pub fn prepare_notation_playback(
     notation_json: &str,
-) -> Result<(Box<dyn Sampler>, f64, f64), PlaybackServiceError> {
+) -> Result<(Box<dyn Signal>, f64, f64), PlaybackServiceError> {
     let score =
         score_from_notation_str(notation_json).map_err(PlaybackServiceError::NotationJson)?;
     let duration_secs = score.duration_secs().max(0.0);
     let start_beats = lab_start_beats(notation_json);
     let tempo = score.tempo;
     let start_secs = beats_to_seconds(start_beats.max(0.0), tempo);
-    let sampler = sampler_from_score(score, SAMPLE_RATE);
-    Ok((sampler, start_secs, duration_secs.max(start_secs)))
+    let signal = signal_from_score(score, SAMPLE_RATE);
+    Ok((signal, start_secs, duration_secs.max(start_secs)))
 }
 
 fn set_end_secs(end: Option<f64>) -> Result<(), PlaybackServiceError> {
@@ -282,26 +282,26 @@ pub fn start_playback(
     set_position_offset(0.0)?;
     match payload_type(payload_json).as_deref() {
         Some("notation") => {
-            let (sampler, start_secs, end_secs) = prepare_notation_playback(payload_json)?;
+            let (signal, start_secs, end_secs) = prepare_notation_playback(payload_json)?;
             let mut engine = state()
                 .engine
                 .lock()
                 .map_err(|_| PlaybackServiceError::Poisoned)?;
             engine
-                .start_at(Arc::new(AudioSampler::Mono(sampler)), SAMPLE_RATE, start_secs)
+                .start_at(AudioSignal::Mono(signal), SAMPLE_RATE, start_secs)
                 .map_err(|e| PlaybackServiceError::Playback(e.to_string()))?;
             drop(engine);
             set_end_secs(Some(end_secs))?;
             Ok(())
         }
         _ => {
-            let (_node_id, sampler) = prepare_graph_playback(payload_json, neighbor_hint)?;
+            let (_node_id, signal) = prepare_graph_playback(payload_json, neighbor_hint)?;
             let mut engine = state()
                 .engine
                 .lock()
                 .map_err(|_| PlaybackServiceError::Poisoned)?;
             engine
-                .start(Arc::new(sampler), SAMPLE_RATE)
+                .start(signal, SAMPLE_RATE)
                 .map_err(|e| PlaybackServiceError::Playback(e.to_string()))?;
             drop(engine);
             set_end_secs(None)?;
@@ -660,16 +660,16 @@ mod tests {
     }
 
     #[test]
-    fn prepare_sine_graph_yields_sampler() {
+    fn prepare_sine_graph_yields_a_signal() {
         let json = sine_graph_json();
-        let (node_id, sampler) = prepare_graph_playback(&json, None).expect("prepare");
+        let (node_id, mut signal) = prepare_graph_playback(&json, None).expect("prepare");
         assert!(!node_id.is_empty());
-        let sample = sampler.frame(0.01)[0];
+        let sample = aura_render::render_range(&mut signal, 441, 1)[0][0];
         assert!(sample.abs() > 1e-6, "expected audible sample, got {sample}");
     }
 
     #[test]
-    fn prepare_notation_yields_sampler() {
+    fn prepare_notation_yields_a_signal() {
         let json = r#"{
             "type":"notation",
             "version":1,
@@ -678,10 +678,10 @@ mod tests {
             "labStartBeats":0.0,
             "events":[{"semitone":60,"startBeats":0.0,"durationBeats":0.5,"velocity":1.0}]
         }"#;
-        let (sampler, start_secs, end_secs) = prepare_notation_playback(json).expect("prepare");
+        let (signal, start_secs, end_secs) = prepare_notation_playback(json).expect("prepare");
         assert_eq!(start_secs, 0.0);
         assert!(end_secs > 0.0);
-        let sample = sampler.at(0.05);
+        let sample = aura_render::render_range(&mut AudioSignal::Mono(signal), 2_205, 1)[0][0];
         assert!(sample.abs() > 1e-4, "expected audible sample, got {sample}");
     }
 
@@ -705,10 +705,10 @@ mod tests {
         assert!(!is_project_config(&workspace_path("demos/demo-02.json")));
 
         let json = std::fs::read_to_string(workspace_path("demos/demo-02.json")).unwrap();
-        let (_node, sampler) =
+        let (_node, mut signal) =
             prepare_graph_playback(&json, Some(&config)).expect("demo-02 plays from the project");
         let peak = (0..200)
-            .map(|i| sampler.frame(i as f64 * 0.01)[0].abs())
+            .map(|i| aura_render::render_range(&mut signal, i * 441, 1)[0][0].abs())
             .fold(0.0_f32, f32::max);
         assert!(peak > 1e-4, "expected audible output, peak {peak}");
 

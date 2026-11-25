@@ -2,12 +2,12 @@
 
 ## Summary
 
-Surface integration library: load Imp graphs, `translate_graph` to an `AudioSampler` (mono or stereo, by the graph output), sample PCM (`Pcm`), write WAV helpers.
+Surface integration library: load Imp graphs, `translate_graph` to an `AudioSignal` (mono or stereo, by the graph output), render PCM (`Pcm`), write WAV helpers.
 
 ## Requirements
 
-- Implement Aura’s custom Time → Sample translator (not stock `imp_execution`).
-- Compose `Sampler` closures once at translate time; apply `f(t)` per frame for sampling.
+- Implement Aura’s custom translator to block signals (not stock `imp_execution`) ([execution model](../../../design/imp-execution.md)).
+- Build each node output once at translate time as a block signal (`translate/signals.rs`, `translate/streaming.rs`); share an output read by more than one consumer (fan-out, dual-mono passes, several output ports), counted from the graph before translation. Deterministic implementations keep the deterministic contract (any range renders identically); the contract is tested for every registered node type (`translate/contract_tests.rs`).
 - Translate for both playback modes ([playback modes](../../../design/playback-modes.md)): every node type has a deterministic implementation and may have a streaming one, chosen once at translation (streaming falls back to the deterministic implementation and never fails because of the mode). `StreamingProgram` prepares a voice graph once and instantiates it per live note. `StreamingProgram::open` builds the streaming pipeline, sharing one instance per plugin where the output is a plugin chain.
 - Own Aura's node type registrations (`translate/nodes.rs`) and finalize each into the mono/stereo × deterministic/streaming [implementation matrix](../../../design/audio-layouts.md#implementation-matrix) when the registry is built; resolve each layout-polymorphic node's layout once per graph from Imp's inferred type args.
 - Translate plugin nodes through the host-supplied `PluginResolver` (`TranslateOptions::plugins`, `StreamingProgram::prepare_with_plugins`); never depend on a plugin protocol crate ([plugin hosting](../../../design/plugin-hosting.md)).
@@ -18,7 +18,8 @@ Surface integration library: load Imp graphs, `translate_graph` to an `AudioSamp
 ## Non-goals / avoided approaches
 
 - Thick CLI UX beyond library helpers (belong in `aura_cli`)
-- Sequential tick DSP as a separate backend (streaming shares the `Sampler` runtime form)
+- A separate runtime per mode (both modes build the same block signals)
+- Translating a node more than once for several consumers
 - Reimplementing Mir store registry / sync wire-up inside Aura
 
 ## See also

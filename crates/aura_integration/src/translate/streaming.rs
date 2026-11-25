@@ -2,8 +2,9 @@
 //!
 //! Every node type has a deterministic implementation and may register a streaming one
 //! (`super::nodes::registrations`); the implementation matrix (`super::impls`) fills a missing
-//! streaming cell with the deterministic implementation when the registry is built. Both build the same runtime form (`Sampler::at(t)`); in streaming mode `t` only
-//! moves forward and is voice-local (the live note's onset is `t = 0`).
+//! streaming cell with the deterministic implementation when the registry is built. Both build
+//! the same runtime form (block signals); in streaming mode blocks arrive consecutively from a
+//! voice-local frame 0 (the live note's onset), so streaming implementations may keep history.
 //!
 //! Note-reading implementations act on the live note only when their score input carries it
 //! (`ScoreSignal::live`). A fixed score (for example an `arpeggio`) is fully known in either mode,
@@ -23,8 +24,8 @@ use aura_plugin_host::{
     PluginResolver, PluginStage, RenderMode, StageCommand, StageSendError, StageSender,
 };
 use aura_render::{
-    voice_channel, AudioSampler, BlockSource, Layout as AudioLayout, Sampler, StereoSampler,
-    StreamVoice, VoiceSendError, VoiceSender,
+    frame_secs, voice_channel, AudioSignal, BlockSource, Constant, Frame, Input,
+    Layout as AudioLayout, Signal, StereoSignal, StreamVoice, VoiceSendError, VoiceSender,
 };
 use aura_sample::SampleRate;
 use aura_sequencing::{LiveNote, ScoreSignal};
@@ -47,7 +48,17 @@ pub(super) struct NodeCtx<'a, 'b> {
 }
 
 impl NodeCtx<'_, '_> {
-    pub(super) fn signal(&mut self, port: &str) -> Result<Box<dyn Sampler>, TranslateError> {
+    /// The sample rate in Hz, for signals that compute time from frames.
+    pub(super) fn rate(&self) -> f64 {
+        f64::from(self.sample_rate.get())
+    }
+
+    /// The signal into `port`, wrapped with its own block buffer.
+    pub(super) fn input(&mut self, port: &str) -> Result<Input, TranslateError> {
+        Ok(Input::new(self.signal(port)?))
+    }
+
+    pub(super) fn signal(&mut self, port: &str) -> Result<Box<dyn Signal>, TranslateError> {
         signal_input(
             self.graph,
             self.registry,
@@ -89,7 +100,7 @@ impl NodeCtx<'_, '_> {
     }
 
     /// Every signal into variadic input `port`, in edge order.
-    pub(super) fn signals(&mut self, port: &str) -> Result<Vec<Box<dyn Sampler>>, TranslateError> {
+    pub(super) fn signals(&mut self, port: &str) -> Result<Vec<Box<dyn Signal>>, TranslateError> {
         signal_inputs_variadic(
             self.graph,
             self.registry,
@@ -106,7 +117,7 @@ impl NodeCtx<'_, '_> {
     pub(super) fn stereo_signal(
         &mut self,
         port: &str,
-    ) -> Result<Box<dyn StereoSampler>, TranslateError> {
+    ) -> Result<Box<dyn StereoSignal>, TranslateError> {
         stereo_signal_input(
             self.graph,
             self.registry,
@@ -157,9 +168,10 @@ pub(super) fn stream_note_at_time(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue
         "note_duration" => LiveField::DurationSoFar,
         _ => return Err(ctx.missing_port()),
     };
-    Ok(NodeValue::Signal(Box::new(LiveFieldSampler {
+    Ok(NodeValue::Signal(Box::new(LiveFieldSignal {
         live,
         field,
+        rate: ctx.rate(),
     })))
 }
 
@@ -173,7 +185,7 @@ pub(super) fn stream_note_param_at_time(ctx: &mut NodeCtx<'_, '_>) -> Result<Nod
     let param_name = super::read_string_input(ctx.node, "param", "cutoff_mult")?;
     // Same default as the deterministic implementation for a missing key.
     let value = live.param_or(&param_name, 1.0) as f32;
-    Ok(NodeValue::Signal(Box::new(super::ConstantSampler(value))))
+    Ok(NodeValue::Signal(Box::new(Constant(value))))
 }
 
 /// Gated envelope: the same A/D/S/R, released by the voice's note-off instead of placed inside
@@ -191,12 +203,12 @@ pub(super) fn stream_linear_adsr(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue,
     let Some(live) = live else {
         return ctx.deterministic();
     };
-    Ok(NodeValue::Signal(Box::new(GatedAdsrSampler {
-        attack: ctx.signal("attack")?,
-        decay: ctx.signal("decay")?,
-        sustain: ctx.signal("sustain")?,
-        release: ctx.signal("release")?,
-        elapsed: ctx.signal("elapsed")?,
+    Ok(NodeValue::Signal(Box::new(GatedAdsrSignal {
+        attack: ctx.input("attack")?,
+        decay: ctx.input("decay")?,
+        sustain: ctx.input("sustain")?,
+        release: ctx.input("release")?,
+        elapsed: ctx.input("elapsed")?,
         live,
     })))
 }
@@ -205,9 +217,10 @@ pub(super) fn stream_note_envelope(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValu
     let Some(live) = ctx.live_score()? else {
         return ctx.deterministic();
     };
-    Ok(NodeValue::Signal(Box::new(LiveEnvelopeSampler {
+    Ok(NodeValue::Signal(Box::new(LiveEnvelopeSignal {
         live,
         adsr: LinearAdsr::default(),
+        rate: ctx.rate(),
     })))
 }
 
@@ -217,10 +230,11 @@ pub(super) fn stream_poly_sine_score(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeVa
     };
     // Translated for parity with the deterministic implementation, which also ignores it.
     let _time = ctx.signal("time")?;
-    Ok(NodeValue::Signal(Box::new(LiveSineSampler {
+    Ok(NodeValue::Signal(Box::new(LiveSineSignal {
         frequency: live.semitone.to_hz() as f32,
         live,
         adsr: LinearAdsr::default(),
+        rate: ctx.rate(),
     })))
 }
 
@@ -268,71 +282,91 @@ enum LiveField {
     DurationSoFar,
 }
 
-struct LiveFieldSampler {
+struct LiveFieldSignal {
     live: Arc<LiveNote>,
     field: LiveField,
+    rate: f64,
 }
 
-impl Sampler for LiveFieldSampler {
-    fn at(&self, t: f64) -> f32 {
-        match self.field {
-            LiveField::Semitone => f32::from(self.live.semitone.0),
-            LiveField::Held => {
-                if self.live.is_held() {
-                    1.0
-                } else {
-                    0.0
+impl Signal for LiveFieldSignal {
+    fn render(&mut self, start: Frame, out: &mut [f32]) {
+        for (k, sample) in out.iter_mut().enumerate() {
+            let t = frame_secs(start + k as Frame, self.rate);
+            *sample = match self.field {
+                LiveField::Semitone => f32::from(self.live.semitone.0),
+                LiveField::Held => {
+                    if self.live.is_held() {
+                        1.0
+                    } else {
+                        0.0
+                    }
                 }
-            }
-            LiveField::Velocity => self.live.velocity,
-            LiveField::Onset => 0.0,
-            LiveField::DurationSoFar => self.live.duration_so_far(t) as f32,
+                LiveField::Velocity => self.live.velocity,
+                LiveField::Onset => 0.0,
+                LiveField::DurationSoFar => self.live.duration_so_far(t) as f32,
+            };
         }
     }
 }
 
-struct GatedAdsrSampler {
-    attack: Box<dyn Sampler>,
-    decay: Box<dyn Sampler>,
-    sustain: Box<dyn Sampler>,
-    release: Box<dyn Sampler>,
-    elapsed: Box<dyn Sampler>,
+struct GatedAdsrSignal {
+    attack: Input,
+    decay: Input,
+    sustain: Input,
+    release: Input,
+    elapsed: Input,
     live: Arc<LiveNote>,
 }
 
-impl Sampler for GatedAdsrSampler {
-    fn at(&self, t: f64) -> f32 {
-        let adsr = LinearAdsr {
-            attack: f64::from(self.attack.at(t)),
-            decay: f64::from(self.decay.at(t)),
-            sustain: self.sustain.at(t),
-            release: f64::from(self.release.at(t)),
-        };
-        adsr.gated_value_at(f64::from(self.elapsed.at(t)), self.live.released_after())
+impl Signal for GatedAdsrSignal {
+    fn render(&mut self, start: Frame, out: &mut [f32]) {
+        let len = out.len();
+        let attack = self.attack.read(start, len);
+        let decay = self.decay.read(start, len);
+        let sustain = self.sustain.read(start, len);
+        let release = self.release.read(start, len);
+        let elapsed = self.elapsed.read(start, len);
+        for (k, sample) in out.iter_mut().enumerate() {
+            let adsr = LinearAdsr {
+                attack: f64::from(attack[k]),
+                decay: f64::from(decay[k]),
+                sustain: sustain[k],
+                release: f64::from(release[k]),
+            };
+            *sample = adsr.gated_value_at(f64::from(elapsed[k]), self.live.released_after());
+        }
     }
 }
 
-struct LiveEnvelopeSampler {
+struct LiveEnvelopeSignal {
     live: Arc<LiveNote>,
     adsr: LinearAdsr,
+    rate: f64,
 }
 
-impl Sampler for LiveEnvelopeSampler {
-    fn at(&self, t: f64) -> f32 {
-        self.adsr.gated_value_at(t, self.live.released_after())
+impl Signal for LiveEnvelopeSignal {
+    fn render(&mut self, start: Frame, out: &mut [f32]) {
+        for (k, sample) in out.iter_mut().enumerate() {
+            let t = frame_secs(start + k as Frame, self.rate);
+            *sample = self.adsr.gated_value_at(t, self.live.released_after());
+        }
     }
 }
 
-struct LiveSineSampler {
+struct LiveSineSignal {
     live: Arc<LiveNote>,
     frequency: f32,
     adsr: LinearAdsr,
+    rate: f64,
 }
 
-impl Sampler for LiveSineSampler {
-    fn at(&self, t: f64) -> f32 {
-        let env = self.adsr.gated_value_at(t, self.live.released_after());
-        sine(self.frequency, t) * env * self.live.velocity
+impl Signal for LiveSineSignal {
+    fn render(&mut self, start: Frame, out: &mut [f32]) {
+        for (k, sample) in out.iter_mut().enumerate() {
+            let t = frame_secs(start + k as Frame, self.rate);
+            let env = self.adsr.gated_value_at(t, self.live.released_after());
+            *sample = sine(self.frequency, t) * env * self.live.velocity;
+        }
     }
 }
 
@@ -466,7 +500,7 @@ impl StreamingProgram {
 
     /// A runtime graph for one voice sounding `live` (onset at `t = 0`). Plugins in it are
     /// instantiated for this voice alone.
-    pub fn instantiate(&self, live: Arc<LiveNote>) -> Result<AudioSampler, TranslateError> {
+    pub fn instantiate(&self, live: Arc<LiveNote>) -> Result<AudioSignal, TranslateError> {
         self.instantiate_port(live, None)
     }
 
@@ -474,7 +508,7 @@ impl StreamingProgram {
         &self,
         live: Arc<LiveNote>,
         root: Option<&PortReference>,
-    ) -> Result<AudioSampler, TranslateError> {
+    ) -> Result<AudioSignal, TranslateError> {
         let scores = BTreeMap::new();
         let bindings = Bindings::new(
             &scores,
@@ -613,10 +647,10 @@ impl StreamingControl {
     pub fn note_on(&self, id: u64, live: Arc<LiveNote>) -> Result<(), StreamingError> {
         match &self.target {
             ControlTarget::Voices { voices, root } => {
-                let sampler = self
+                let signal = self
                     .program
                     .instantiate_port(Arc::clone(&live), root.as_ref())?;
-                voices.note_on(id, StreamVoice::new(sampler, live, self.program.sample_rate))?;
+                voices.note_on(id, StreamVoice::new(signal, live, self.program.sample_rate))?;
             }
             ControlTarget::Stage(stage) => stage.send(StageCommand::NoteOn {
                 id,
@@ -701,13 +735,20 @@ mod tests {
         Arc::new(LiveNote::new(Semitone(semitone), 1.0, NoteParams::new()))
     }
 
-    fn peak(sampler: &dyn Sampler, from: f64, to: f64) -> f32 {
+    /// Frames `start .. start + len` of a mono signal.
+    fn frames(signal: &mut dyn Signal, start: Frame, len: usize) -> Vec<f32> {
+        let mut out = vec![0.0; len];
+        aura_render::render_mono(signal, start, &mut out);
+        out
+    }
+
+    fn peak(signal: &mut dyn Signal, from: f64, to: f64) -> f32 {
         let rate = f64::from(RATE.get());
         let start = (from * rate) as u64;
         let end = (to * rate) as u64;
-        (start..end)
-            .map(|frame| sampler.at(frame as f64 / rate).abs())
-            .fold(0.0, f32::max)
+        frames(signal, start, (end - start) as usize)
+            .into_iter()
+            .fold(0.0, |m, s| m.max(s.abs()))
     }
 
     #[test]
@@ -716,19 +757,19 @@ mod tests {
         let program = StreamingProgram::prepare(&voice_graph("sine_note_voice"), &registry, RATE)
             .expect("sine_note_voice streams");
         let note = live(69);
-        let voice = program.instantiate(Arc::clone(&note)).expect("instance")
+        let mut voice = program.instantiate(Arc::clone(&note)).expect("instance")
             .into_mono()
             .expect("mono");
 
         // Held far longer than any note length the voice could know about.
-        assert!(peak(voice.as_ref(), 1.9, 2.0) > 0.5, "sustains while held");
+        assert!(peak(voice.as_mut(), 1.9, 2.0) > 0.5, "sustains while held");
         note.release(2.0);
         assert!(
-            peak(voice.as_ref(), 2.0, 2.01) > 0.1,
+            peak(voice.as_mut(), 2.0, 2.01) > 0.1,
             "release rings past note-off"
         );
         assert_eq!(
-            peak(voice.as_ref(), 2.06, 2.2),
+            peak(voice.as_mut(), 2.06, 2.2),
             0.0,
             "silent after the release"
         );
@@ -740,24 +781,25 @@ mod tests {
         let program = StreamingProgram::prepare(&voice_graph("kick_drum"), &registry, RATE)
             .expect("kick_drum streams");
         let note = live(36);
-        let voice = program.instantiate(Arc::clone(&note)).expect("instance")
+        let mut voice = program.instantiate(Arc::clone(&note)).expect("instance")
             .into_mono()
             .expect("mono");
-        assert!(peak(voice.as_ref(), 0.0, 0.05) > 1e-3, "audible attack");
+        assert!(peak(voice.as_mut(), 0.0, 0.05) > 1e-3, "audible attack");
         note.release(0.1);
-        assert_eq!(peak(voice.as_ref(), 2.0, 2.1), 0.0);
+        assert_eq!(peak(voice.as_mut(), 2.0, 2.1), 0.0);
     }
 
     #[test]
     fn live_note_duration_grows_while_held_and_freezes_at_release() {
         let note = live(60);
-        let sampler = LiveFieldSampler {
+        let mut signal = LiveFieldSignal {
             live: Arc::clone(&note),
             field: LiveField::DurationSoFar,
+            rate: 44_100.0,
         };
-        assert!((sampler.at(0.3) - 0.3).abs() < 1e-6);
+        assert!((frames(&mut signal, 13_230, 1)[0] - 0.3).abs() < 1e-6);
         note.release(0.5);
-        assert!((sampler.at(3.0) - 0.5).abs() < 1e-6);
+        assert!((frames(&mut signal, 132_300, 1)[0] - 0.5).abs() < 1e-6);
     }
 
     #[test]
@@ -766,45 +808,43 @@ mod tests {
         // its envelopes are timed by them. None of that depends on a live note, so in streaming
         // every node uses its deterministic implementation and the output is identical.
         let loaded = crate::load_graph(&workspace("demos/demo-01.json")).expect("demo-01");
-        let deterministic =
+        let mut deterministic =
             translate_graph_with_bindings(&loaded.graph, &loaded.registry, RATE, &BTreeMap::new())
                 .expect("deterministic")
                 .into_mono()
                 .expect("mono");
         assert!(
-            peak(deterministic.as_ref(), 0.0, 2.0) > 1e-3,
+            peak(deterministic.as_mut(), 0.0, 2.0) > 1e-3,
             "demo-01 is audible"
         );
-        let streaming = StreamingProgram::prepare(&loaded.graph, &loaded.registry, RATE)
+        let mut streaming = StreamingProgram::prepare(&loaded.graph, &loaded.registry, RATE)
             .expect("streams")
             .instantiate(live(60))
             .expect("instance")
             .into_mono()
             .expect("mono");
-        for frame in 0..8000 {
-            let t = frame as f64 / 2000.0;
-            assert_eq!(deterministic.at(t), streaming.at(t), "t={t}");
-        }
+        let expected = frames(deterministic.as_mut(), 0, 88_200);
+        assert_eq!(frames(streaming.as_mut(), 0, 88_200), expected);
     }
 
     #[test]
-    fn mode_agnostic_graphs_sample_identically_in_both_modes() {
+    fn mode_agnostic_graphs_render_identically_in_both_modes() {
         let json = std::fs::read_to_string(workspace("demos/sine.json")).expect("sine.json");
         let graph = graph_from_json_str(&json).expect("graph");
         let registry = aura_registry_with_libraries(&[]).expect("registry");
-        let deterministic = translate_graph(&graph, &registry, RATE)
+        let mut deterministic = translate_graph(&graph, &registry, RATE)
             .expect("deterministic")
             .into_mono()
             .expect("mono");
-        let streaming = StreamingProgram::prepare(&graph, &registry, RATE)
+        let mut streaming = StreamingProgram::prepare(&graph, &registry, RATE)
             .expect("streaming")
             .instantiate(live(60))
             .expect("instance")
             .into_mono()
             .expect("mono");
-        for frame in 0..4410 {
-            let t = frame as f64 / f64::from(RATE.get());
-            assert_eq!(deterministic.at(t), streaming.at(t));
-        }
+        assert_eq!(
+            frames(deterministic.as_mut(), 0, 4410),
+            frames(streaming.as_mut(), 0, 4410)
+        );
     }
 }

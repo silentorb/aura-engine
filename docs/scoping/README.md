@@ -29,3 +29,4 @@ Optimize for **capture** over perfect organization. Prefer adding a short note t
 | [`playback-modes.md`](playback-modes.md) | Why deterministic is primary and streaming degrades from it |
 | [`plugin-hosting.md`](plugin-hosting.md) | Why Aura hosts third-party plugins, the model mismatch, CLAP first |
 | [`stereo.md`](stereo.md) | Why Aura carries stereo, polymorphic node types, and dual mono prepared at load |
+| [`block-processing.md`](block-processing.md) | Why signals render blocks of frames, the per-sample workarounds it retires, and the state rule per mode |

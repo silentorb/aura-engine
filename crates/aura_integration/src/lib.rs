@@ -1,4 +1,4 @@
-//! Surface integration: Imp graph translation and sampling for Aura.
+//! Surface integration: Imp graph translation and rendering for Aura.
 
 mod duration;
 mod host;
@@ -13,7 +13,7 @@ use aura_imp::{
 };
 use aura_io_wav::{write_wav32_channels, WavError};
 use aura_plugin_host::PluginResolver;
-use aura_render::{sample_offline_audio, RenderError, RenderSpec};
+use aura_render::{sample_offline_audio, RenderError, RenderSpec, Renderer};
 use aura_sample::SampleRate;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -32,9 +32,9 @@ pub use tome_source::{
     notation_score_bindings, open_project_nodes, translate_graph_with_project, ProjectSourceError,
     TomeNodeProvider,
 };
-pub use aura_render::{AudioSampler, Layout};
+pub use aura_render::{AudioSignal, Layout};
 pub use translate::{
-    find_output_node, plugin_node_settings, sampler_from_score, translate_graph_with_bindings,
+    find_output_node, plugin_node_settings, signal_from_score, translate_graph_with_bindings,
     translate_graph_with_options, StreamingControl, StreamingError, StreamingProgram,
     TranslateError, TranslateOptions,
 };
@@ -80,22 +80,22 @@ pub fn load_graph_only(path: &Path) -> Result<Graph, IntegrationError> {
     Ok(graph_from_json_path(path)?)
 }
 
-/// Translates an Imp graph into a pure function of time (mono or stereo, by its output).
-pub fn translate_graph_to_sampler(
+/// Translates an Imp graph into a deterministic signal (mono or stereo, by its output).
+pub fn translate_graph_to_signal(
     graph: &Graph,
     registry: &aura_imp::Registry,
     sample_rate: SampleRate,
-) -> Result<AudioSampler, IntegrationError> {
+) -> Result<AudioSignal, IntegrationError> {
     Ok(translate_graph(graph, registry, sample_rate)?)
 }
 
 /// Translates a graph source with scores for its notation nodes.
-pub fn translate_graph_to_sampler_with_options<'a>(
+pub fn translate_graph_to_signal_with_options<'a>(
     source: impl Into<aura_imp::GraphSource<'a>>,
     registry: &aura_imp::Registry,
     sample_rate: SampleRate,
     options: TranslateOptions<'_>,
-) -> Result<AudioSampler, IntegrationError> {
+) -> Result<AudioSignal, IntegrationError> {
     Ok(translate_graph_with_options(
         source,
         registry,
@@ -105,12 +105,12 @@ pub fn translate_graph_to_sampler_with_options<'a>(
 }
 
 /// Translates an Imp graph with [`aura_sequencing::ScoreSignal`]s for its notation nodes.
-pub fn translate_graph_to_sampler_with_bindings(
+pub fn translate_graph_to_signal_with_bindings(
     graph: &Graph,
     registry: &aura_imp::Registry,
     sample_rate: SampleRate,
     score_bindings: &BTreeMap<aura_imp::NodeId, aura_sequencing::ScoreSignal>,
-) -> Result<AudioSampler, IntegrationError> {
+) -> Result<AudioSignal, IntegrationError> {
     Ok(translate_graph_with_bindings(
         graph,
         registry,
@@ -144,18 +144,19 @@ impl Pcm {
     }
 }
 
-/// Samples a translated graph over the requested interval.
-pub fn sample_graph(sampler: &AudioSampler, spec: SampleSpec) -> Result<Pcm, IntegrationError> {
+/// Renders a translated graph over the requested interval, from frame 0.
+pub fn sample_graph(signal: AudioSignal, spec: SampleSpec) -> Result<Pcm, IntegrationError> {
     let duration_secs = resolve_duration_secs_for_render(&spec)?;
-    let layout = sampler.layout();
+    let layout = signal.layout();
     let render_spec = RenderSpec {
         sample_rate: spec.sample_rate,
         duration_secs,
         channels: layout.channels() as u16,
     };
+    let mut renderer = Renderer::new(signal);
     Ok(Pcm {
         layout,
-        samples: sample_offline_audio(render_spec, sampler)?,
+        samples: sample_offline_audio(render_spec, &mut renderer)?,
     })
 }
 
@@ -169,14 +170,14 @@ pub fn render_graph_to_pcm(
     project: Option<&Path>,
     plugins: Option<&dyn PluginResolver>,
 ) -> Result<Pcm, IntegrationError> {
-    let sampler = translate_graph_with_project(
+    let signal = translate_graph_with_project(
         &loaded.graph,
         &loaded.registry,
         spec.sample_rate,
         project,
         plugins,
     )?;
-    sample_graph(&sampler, spec)
+    sample_graph(signal, spec)
 }
 
 /// Loads, translates, and samples a graph file to PCM in its output layout.
@@ -305,10 +306,11 @@ mod tests {
     }
 
     #[test]
-    fn sampler_is_pure() {
+    fn signal_renders_a_range_the_same_way_twice() {
         let loaded = load_graph(&workspace_demo_path("sine.json")).expect("load");
-        let sampler =
+        let mut signal =
             translate_graph(&loaded.graph, &loaded.registry, SampleRate::RATE_44100).expect("translate");
-        assert_eq!(sampler.frame(0.25), sampler.frame(0.25));
+        let first = aura_render::render_range(&mut signal, 11_025, 300);
+        assert_eq!(aura_render::render_range(&mut signal, 11_025, 300), first);
     }
 }

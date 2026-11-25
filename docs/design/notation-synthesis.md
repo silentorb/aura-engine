@@ -20,11 +20,11 @@ See also [`architecture.md`](architecture.md) and [`imp-execution.md`](imp-execu
 | **loop** | Generic Imp node `loop<T: Loopable>` — marks a score or progression as unboundedly looped (modulus over cycle length at playback) |
 | **Tempo** | Beats per minute; a **data signal** (`tempo` port type) composed at translate time |
 | **TimeSignature** | Beats per bar and beat unit; a **data signal** (`time_signature` port type) composed at translate time |
-| **Data signal** | Structured translate-time or sample-time value (e.g. `Score`, `ChordProgression`, `Tempo`, `TimeSignature`), distinct from scalar `Sampler` outputs |
+| **Data signal** | Structured translate-time or sample-time value (e.g. `Score`, `ChordProgression`, `Tempo`, `TimeSignature`), distinct from audio and control signals |
 | **Composition** | Procedural generators that produce notation |
 | **Scheduling** | Converting musical time to sample-frame timelines |
 | **Instrumentation** | Per-note instrument instances, envelopes, and mix-down |
-| **Synthesis** | Pure Time → Sample DSP and Imp graph translation |
+| **Synthesis** | Per-frame DSP functions of time and Imp graph translation |
 | **Rendering** | Sampling `f(t)` over a duration; WAV export |
 
 ## Pipeline
@@ -39,8 +39,8 @@ flowchart LR
   integration --> wav[aura_io_wav]
 ```
 
-1. **Imp graph** — denotes `Time → Sample`; music nodes delegate to composition crates at translate time.
-2. **Translation** — `translate_graph` composes pure `Sampler` closures.
+1. **Imp graph** — denotes a deterministic function of frame (`Frame → Sample`); music nodes delegate to composition crates at translate time.
+2. **Translation** — `translate_graph` builds block signals once, each node output shared by its consumers ([execution model](imp-execution.md)).
 3. **Sampling** — `sample_graph` applies `f(t)` per frame over the render duration.
 4. **Notation path** — `arpeggio`, `drum_grid`, `epic_minor_progression`, `loop`, `constant_tempo`, `constant_time_signature`, and related nodes build scores, progressions, tempo, and meter; generators emit **one cycle** measured in **bars**; graphs reference on-disk `notation` tips by tip NodeId (host Miro index resolves the remote NodeId to a `score` port + `ScoreSignal`—no Imp proxy type); `loop` compositors repeat via beat/measure modulus at sample time (not seconds).
 5. **Output** — CLI or demo scripts write WAV files.
@@ -111,8 +111,8 @@ Aura models music in its own terms: semitones, scale degrees, intervals, chords,
 | [`aura_scheduler`](../../crates/aura_scheduler) | Offline timeline, frame offsets, `ScheduleContext` |
 | [`aura_instrumentation`](../../crates/aura_instrumentation) | `Instrument` trait, per-note render, mix-down |
 | [`aura_imp`](../../crates/aura_imp) | Imp node libraries and JSON helpers |
-| [`aura_dsp`](../../crates/aura_dsp) | Pure Time → Sample DSP functions |
-| [`aura_render`](../../crates/aura_render) | Offline sampling via `Sampler` |
+| [`aura_dsp`](../../crates/aura_dsp) | Per-frame DSP functions of time |
+| [`aura_render`](../../crates/aura_render) | Block signals, offline rendering, streaming voices |
 | [`aura_sample`](../../crates/aura_sample) | Sample rate, seconds→frames |
 | [`aura_integration`](../../crates/aura_integration) | Graph translation and render glue |
 | [`aura_cli`](../../crates/aura_cli) | Thin graph-driven CLI |
@@ -127,4 +127,3 @@ An indirect dependency is a hidden direct dependency. Core library crates expose
 
 - How far streaming fallbacks should approximate deterministic lookahead
 - Graph-owned duration vs external render parameters
-- Buffer sampling optimizations preserving FP semantics

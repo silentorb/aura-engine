@@ -57,8 +57,8 @@ aura --graph PATH --output PATH [OPTIONS]
 | `aura_scheduler` | Offline event scheduling |
 | `aura_instrumentation` | Per-note instruments and mix-down |
 | `aura_imp` | Imp node libraries and JSON helpers |
-| `aura_dsp` | Pure Time → Sample DSP functions |
-| `aura_render` | Offline sampling via `Sampler` |
+| `aura_dsp` | Per-frame DSP functions of time |
+| `aura_render` | Block signals, offline rendering, streaming voices |
 | `aura_io_wav` | WAV file I/O |
 | `aura_io_cpal` | CPAL playback stub (deferred) |
 | `aura_integration` | Imp graph translation and render glue |

@@ -14,9 +14,9 @@ This repository is **aura-engine**. Day-to-day development attaches through **au
 | Composition | Procedural generators (`aura_composition`) |
 | Scheduler | Offline timeline and event dispatch (`aura_scheduler`) |
 | Synthesizer | Imp node libraries (`aura_imp`) and pure DSP (`aura_dsp`) |
-| Integration | Graph translation for deterministic and streaming modes, and sampling (`aura_integration`) |
+| Integration | Graph translation for deterministic and streaming modes, and rendering (`aura_integration`) |
 | Instrumentation | Per-note sampling and mix-down (`aura_instrumentation`) |
-| Rendering | Deterministic `Sampler` sampling; streaming voices and mixing (`aura_render`) |
+| Rendering | Block signals (`Signal`, `StereoSignal`), shared outputs, sinks; streaming voices and mixing (`aura_render`) |
 | I/O | Offline WAV export (`aura_io_wav`); CPAL transport and streaming outputs (`aura_io_cpal`) |
 | Plugin hosting | Third-party plugins as nodes: protocol-neutral seam (`aura_plugin_host`), CLAP backend (`aura_clap`); see [`plugin-hosting.md`](plugin-hosting.md) |
 
@@ -32,8 +32,8 @@ Organize Rust source as a Cargo workspace of small crates under `crates/`. New f
 | [`aura_scheduler`](../../crates/aura_scheduler) | Offline schedule, lookahead context | aura_sequencing, aura_sample |
 | [`aura_instrumentation`](../../crates/aura_instrumentation) | Instruments, per-note render, mix-down | aura_scheduler, aura_dsp, aura_sample |
 | [`aura_imp`](../../crates/aura_imp) | Imp node libraries and JSON helpers | imp_core_types, imp_registry |
-| [`aura_dsp`](../../crates/aura_dsp) | Pure Time → Sample DSP functions | — |
-| [`aura_render`](../../crates/aura_render) | Deterministic sampling via `Sampler`; streaming voices, mixer, `BlockSource` | aura_dsp, aura_sample, aura_sequencing |
+| [`aura_dsp`](../../crates/aura_dsp) | Per-frame DSP functions of time | — |
+| [`aura_render`](../../crates/aura_render) | Block signals and their adapters; `Renderer` and offline rendering; streaming voices, mixer, `BlockSource` | aura_dsp, aura_sample, aura_sequencing |
 | [`aura_plugin_host`](../../crates/aura_plugin_host) | Plugin seam (`Processor`, `PluginResolver`); deterministic `RenderCache`; streaming `PluginStage` | aura_render, aura_sample, aura_sequencing |
 | [`aura_clap`](../../crates/aura_clap) | CLAP backend: discovery, loading, shared CLAP main thread, processing | aura_plugin_host, clack-host |
 | [`aura_io_wav`](../../crates/aura_io_wav) | 32-bit float WAV write/read verification | aura_render, aura_sample |
@@ -57,11 +57,11 @@ An indirect dependency is a hidden direct dependency. Orchestration lives in `au
 |-----------------|------|
 | **DASP** (`dasp_sample`, `dasp_signal`) | Sample type traits and signal abstractions; bridges PCM to CPAL formats |
 | **CPAL** | Cross-platform real-time audio I/O (device may be absent under workbench/WSL) |
-| **`aura_dsp`** | Pure `Time → Sample` functions |
+| **`aura_dsp`** | Per-frame DSP functions of time |
 | **`aura_io_wav`** | Offline 32-bit float WAV I/O |
 | **`clack-host`** | CLAP hosting (via `aura_clap`); plugins run in-process |
 
-Both playback modes share the same `Sampler::at(t)` runtime form and the same node implementations, except where a node type supplies a streaming implementation ([`playback-modes.md`](playback-modes.md)). Plugin nodes are the one stateful exception: a plugin is rendered forward into a cache and read by `at(t)` ([`plugin-hosting.md`](plugin-hosting.md)).
+Both playback modes share the same runtime form — block signals rendering ranges of frames, each node output built once and shared — and the same node implementations, except where a node type supplies a streaming implementation ([`imp-execution.md`](imp-execution.md), [`playback-modes.md`](playback-modes.md)). Deterministic node state is nonessential; streaming node state may carry history. Plugin nodes are the bounded exception: a plugin renders forward from frame 0 into a retained cache that answers any range ([`plugin-hosting.md`](plugin-hosting.md)).
 
 
 ## Data flow
@@ -72,42 +72,41 @@ Both playback modes share the same `Sampler::at(t)` runtime form and the same no
 flowchart LR
   json[JSON graph] --> load[load_graph]
   load --> translate[translate_graph]
-  translate --> sampler[Sampler at t]
-  sampler --> pcm[PCM buffer]
+  translate --> signal[AudioSignal]
+  signal --> pcm[render ranges → PCM]
   pcm --> wav[aura_io_wav]
   cli[aura_cli] --> load
   cli --> translate
-  cli --> sampler
+  cli --> signal
   cli --> wav
 ```
 
 ### Notation in Imp graphs
 
-Music nodes (`arpeggio`, `epic_minor_progression`, `note_at_time`, …) delegate to composition crates at **translate time**. Sample-time evaluation uses precomputed schedule tables — timing remains explicit via the `time` signal. Chord progressions are **data signals** (`chord_progression` port type) composed at translate time and sampleable per frame via `ChordSignal`. Tempo and time signature are separate **data signals** (`tempo`, `time_signature` port types) wired between producer nodes (`constant_tempo`, `constant_time_signature`) and consumers.
+Music nodes (`arpeggio`, `epic_minor_progression`, `note_at_time`, …) delegate to composition crates at **translate time**. Render-time evaluation uses precomputed schedule tables — timing remains explicit via the `time` signal. Chord progressions are **data signals** (`chord_progression` port type) composed at translate time and read per frame via `ChordSignal`. Tempo and time signature are separate **data signals** (`tempo`, `time_signature` port types) wired between producer nodes (`constant_tempo`, `constant_time_signature`) and consumers.
 
 ### Audio layouts
 
-Audio is mono (`audio_mono`) or stereo (`audio_stereo`). Most DSP node types are generic over `A: Audio`, so the input layout decides the output layout and Imp rejects mismatched inputs; converters (`pan`, `stereo_to_mono`, `stereo_join`, `stereo_split`) mix layouts explicitly. Translation yields an `AudioSampler`, and the output layout decides WAV channels and device mapping. See [`audio-layouts.md`](audio-layouts.md).
+Audio is mono (`audio_mono`) or stereo (`audio_stereo`). Most DSP node types are generic over `A: Audio`, so the input layout decides the output layout and Imp rejects mismatched inputs; converters (`pan`, `stereo_to_mono`, `stereo_join`, `stereo_split`) mix layouts explicitly. Translation yields an `AudioSignal`, and the output layout decides WAV channels and device mapping. See [`audio-layouts.md`](audio-layouts.md).
 
 ### Real-time playback
 
-Transport playback is deterministic: `aura_io_cpal::PlaybackEngine` opens the default output device and calls the same `frame(t)` functions as offline rendering (mono or stereo), advancing `t` from a start time until stopped. Plugin caches are prepared before the device opens and rendered ahead in the background, so the audio thread only reads ([`plugin-hosting.md`](plugin-hosting.md#transport-playback-render-ahead)). Live note audition is streaming: `StreamingOutput` pulls blocks from a `VoiceMixer` whose voices are per-note instances of a voice graph translated for streaming mode. Missing devices return a clear error. See [`playback-modes.md`](playback-modes.md).
+Transport playback is deterministic: `aura_io_cpal::PlaybackEngine` renders the same frames as offline rendering (mono or stereo) from a start frame until stopped. One render thread keeps a ring buffer 2 s ahead of the playhead, filled before the device opens, so the audio callback only copies ([`plugin-hosting.md`](plugin-hosting.md#transport-playback-render-ahead)). Live note audition is streaming: `StreamingOutput` pulls blocks from a `VoiceMixer` whose voices are per-note instances of a voice graph translated for streaming mode. Missing devices return a clear error. See [`playback-modes.md`](playback-modes.md).
 
 ## Constraints
 
 - **Real-time audio** — API available; device may be absent in WSL/devcontainer; file-first WAV remains the primary automated validation path
-- **Determinism** — pure `f(t)` sampling; see [`notation-synthesis.md`](notation-synthesis.md)
+- **Determinism** — any range renders identically (deterministic node state is nonessential); see [`imp-execution.md`](imp-execution.md) and [`notation-synthesis.md`](notation-synthesis.md)
 - **Modularity** — composition, scheduling, instrumentation, and synthesis are separable via crate boundaries
 
 ## Non-goals / avoided approaches
 
 - A single monolithic crate for all Aura domains
-- FunDSP-style sequential `tick` DSP as the primary synthesis model
+- History-carrying (`tick`-style) node state in deterministic mode; it belongs in streaming implementations
 - Streaming as the primary playback model (it degrades from deterministic; see [`playback-modes.md`](playback-modes.md))
 - Hiding surface orchestration behind transitive core-crate dependencies
 
 ## Open questions
 
-- Buffer/block sampling optimizations without breaking FP semantics
 - Graph-owned duration vs external render parameters
 - How far streaming fallbacks should approximate deterministic look-ahead

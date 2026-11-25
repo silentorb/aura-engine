@@ -173,15 +173,17 @@ fn read_wav_metadata(path: &str) -> Result<WavMetadata, WavError> {
 mod tests {
     use super::*;
     use aura_dsp::sine;
-    use aura_render::{sample_offline, RenderSpec, Sampler};
+    use aura_render::{frame_secs, sample_offline, Frame, RenderSpec, Signal};
     use aura_sample::SampleRate;
     use tempfile::NamedTempFile;
 
     struct Sine440;
 
-    impl Sampler for Sine440 {
-        fn at(&self, t: f64) -> f32 {
-            sine(440.0, t)
+    impl Signal for Sine440 {
+        fn render(&mut self, start: Frame, out: &mut [f32]) {
+            for (k, sample) in out.iter_mut().enumerate() {
+                *sample = sine(440.0, frame_secs(start + k as Frame, 44_100.0));
+            }
         }
     }
 
@@ -192,7 +194,7 @@ mod tests {
             duration_secs: 0.1,
             channels: 1,
         };
-        let samples = sample_offline(spec, &Sine440).expect("sample should succeed");
+        let samples = sample_offline(spec, &mut Sine440).expect("sample should succeed");
 
         let file = NamedTempFile::new().expect("temp file");
         write_wav32(file.path(), &samples, spec.sample_rate).expect("write should succeed");

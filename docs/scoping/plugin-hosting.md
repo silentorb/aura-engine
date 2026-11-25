@@ -14,14 +14,14 @@ Plugin protocols are built for the streaming model Aura deliberately ranks secon
 
 | | Aura (deterministic) | Plugin (CLAP) |
 |---|---|---|
-| Unit | Pure `at(t) → f32`, seekable, any order | Stateful object, `process(block)`, forward only |
+| Unit | Block signals: any range of frames, any order; state nonessential ([block processing](block-processing.md)) | Stateful object, `process(block)`, forward only |
 | Notes | Full score known up front, with lengths | Note-on/off events in time order |
 | Polyphony | One graph instance per note | One instance, voices inside |
 | Channels | Mono | Mostly stereo |
 | Reproducibility | Bit-for-bit | Whatever the plugin does |
 | Persistence | Declarative graph data | Opaque, plugin-versioned state blob |
 
-A plugin's DSP state cannot be snapshotted (`state` saves presets, not filter history), so sampling time `t` means having run the plugin from a known start up to `t`. That is the central wrangling: a plugin becomes a *frozen region* of an otherwise pure graph, rendered forward once and then read like any sampler.
+A plugin's DSP state cannot be snapshotted (`state` saves presets, not filter history), so sampling time `t` means having run the plugin from a known start up to `t`. That is the central wrangling: a plugin becomes a *frozen region* of an otherwise pure graph, rendered forward once and then read like any other signal.
 
 Streaming is the protocols' native model, so there the plugin runs nearly as-is; the work is on Aura's side, whose streaming runtime instantiates a whole voice graph per note.
 

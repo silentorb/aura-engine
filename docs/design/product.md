@@ -16,9 +16,9 @@ Declarative product requirements for Aura. Motivation and goals: [`../scoping/pr
 
 ## Rendering
 
-- Load Imp JSON graphs; translate to `Sampler`; sample over a specified duration.
+- Load Imp JSON graphs; translate to block signals (`AudioSignal`); render a specified duration.
 - Write 32-bit float WAV files to untracked `output/` via `aura_cli` or [`demos/render-all.sh`](../../demos/render-all.sh).
-- Real-time playback via CPAL (`aura_io_cpal::PlaybackEngine`) streams the same `Sampler::at(t)` path from `t = 0`; device absence (e.g. some WSL hosts) is an environment limit.
+- Real-time playback via CPAL (`aura_io_cpal::PlaybackEngine`) plays the same frames as offline rendering; device absence (e.g. some WSL hosts) is an environment limit.
 - Third-party plugins (CLAP) render as Imp nodes in both modes; the CLI resolves them from `--plugin-path` and the standard CLAP locations ([`plugin-hosting.md`](plugin-hosting.md)).
 
 ## Integration requirements
@@ -43,8 +43,8 @@ Repos and projects use kebab-case; Rust crates use snake_case.
 ## Non-goals / avoided approaches
 
 - Requiring a live audio device for CI or offline WAV workflows
-- Stock `imp_execution` for Aura’s primary sampler path
-- FunDSP-style sequential `tick` DSP for the primary synthesis path
+- Stock `imp_execution` for Aura’s primary rendering path
+- History-carrying (`tick`-style) node state in deterministic mode ([execution model](imp-execution.md#node-state-one-rule-per-mode))
 - Embedding workbench orchestration (Compose/Dev Container entrypoint) inside this engine repo
 
 Background: [`../scoping/background.md`](../scoping/background.md).

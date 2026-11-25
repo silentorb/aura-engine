@@ -1,12 +1,19 @@
-//! Imp graph → Sampler translation.
+//! Imp graph → block signal translation.
+//!
+//! Translation builds each node output once, as a [`Signal`] or [`StereoSignal`] that renders a
+//! range of frames. An output read by several consumers is shared ([`Shared`]), so fan-out
+//! renders it once per range.
 
 mod impls;
 mod nodes;
 mod note_schedule;
 mod plugin;
+mod signals;
 mod streaming;
 #[cfg(test)]
 mod stereo_tests;
+#[cfg(test)]
+mod contract_tests;
 
 pub use plugin::plugin_node_settings;
 pub use streaming::{StreamingControl, StreamingError, StreamingProgram};
@@ -18,12 +25,8 @@ use aura_composition::{
 };
 use aura_sequencing::{
     LiveNote,
-    ChordProgression, ChordSignal, ProgressionSignal, Score, ScoreSignal, Semitone, Tempo,
+    ChordProgression, ProgressionSignal, Score, ScoreSignal, Semitone, Tempo,
     TimeSignature,
-};
-use aura_dsp::{
-    add, bandlimited_saw, deterministic_noise, exponential_sweep_sine, highpass_noise, multiply,
-    sine,
 };
 use aura_imp::{
     flatten_graph, Graph, GraphSource, Node, NodeId, PortReference, PrimitiveValue, Registry,
@@ -31,7 +34,11 @@ use aura_imp::{
 };
 use aura_instrumentation::LinearAdsr;
 use aura_plugin_host::PluginResolver;
-use aura_render::{AudioSampler, Layout, Sampler, StereoSampler};
+use aura_render::{
+    AudioSignal, Constant, Input, Layout, Shared, SharedStereo, Signal, StereoChannel,
+    StereoSignal,
+};
+use signals::*;
 use aura_sample::SampleRate;
 use aura_imp::constraints::AUDIO;
 use aura_imp::signals::AUDIO_STEREO;
@@ -112,29 +119,47 @@ pub struct TranslateOptions<'a> {
 }
 
 enum NodeValue {
-    Signal(Box<dyn Sampler>),
-    Stereo(Box<dyn StereoSampler>),
+    Signal(Box<dyn Signal>),
+    Stereo(Box<dyn StereoSignal>),
     ScoreSignal(ScoreSignal),
     ProgressionSignal(ProgressionSignal),
     Tempo(Tempo),
     TimeSignature(TimeSignature),
 }
 
+/// A node output shared by several consumers.
+#[derive(Clone)]
+enum SharedOutput {
+    Mono(Shared),
+    Stereo(SharedStereo),
+}
+
+impl SharedOutput {
+    fn value(&self) -> NodeValue {
+        match self {
+            SharedOutput::Mono(shared) => NodeValue::Signal(Box::new(shared.clone())),
+            SharedOutput::Stereo(shared) => NodeValue::Stereo(Box::new(shared.clone())),
+        }
+    }
+}
+
 /// Polyphonic sine audition for a concrete [`Score`] (no Imp graph / proxy type).
-pub fn sampler_from_score(score: Score, sample_rate: SampleRate) -> Box<dyn Sampler> {
+pub fn signal_from_score(score: Score, sample_rate: SampleRate) -> Box<dyn Signal> {
     let schedule = NoteSchedule::from_score_signal(&ScoreSignal::finite(score), sample_rate);
-    Box::new(PolySineScoreSampler {
+    Box::new(PolySineScoreSignal {
         schedule,
         adsr: LinearAdsr::default(),
+        rate: f64::from(sample_rate.get()),
     })
 }
 
-/// Translates an Imp graph into a pure Time → Sample (mono) or Time → Frame (stereo) function.
+/// Translates an Imp graph into a deterministic signal: mono (frame → sample) or stereo
+/// (frame → `[left, right]`), renderable over any range.
 pub fn translate_graph(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
-) -> Result<AudioSampler, TranslateError> {
+) -> Result<AudioSignal, TranslateError> {
     translate_graph_with_bindings(graph, registry, sample_rate, &BTreeMap::new())
 }
 
@@ -144,7 +169,7 @@ pub fn translate_graph_with_bindings(
     registry: &Registry,
     sample_rate: SampleRate,
     score_bindings: &BTreeMap<NodeId, ScoreSignal>,
-) -> Result<AudioSampler, TranslateError> {
+) -> Result<AudioSignal, TranslateError> {
     translate_graph_with_options(
         graph,
         registry,
@@ -163,28 +188,28 @@ pub fn translate_graph_with_options<'a>(
     registry: &Registry,
     sample_rate: SampleRate,
     options: TranslateOptions<'_>,
-) -> Result<AudioSampler, TranslateError> {
+) -> Result<AudioSignal, TranslateError> {
     let prepared = PreparedGraph::prepare(source, registry)?;
     let bindings = Bindings::new(
         options.score_bindings,
         TranslateMode::Deterministic,
         options.plugins,
     );
-    let root = prepared.translate(registry, sample_rate, &bindings)?;
-    Ok(plugin::prepared_root(root, bindings.caches.take()))
+    prepared.translate(registry, sample_rate, &bindings)
 }
 
 /// The execution mode a graph is translated for (see `docs/design/playback-modes.md`).
 ///
 /// Every node type has a deterministic implementation and may have a streaming one. In
 /// streaming mode the translator builds a node type's streaming implementation when it has one
-/// and its deterministic implementation otherwise. Nodes never check the mode while sampling.
+/// and its deterministic implementation otherwise. Nodes never check the mode while rendering.
 #[derive(Debug, Clone, Default)]
 pub(crate) enum TranslateMode {
-    /// Random-access sampling with full knowledge of the score.
+    /// Any range in any order, with full knowledge of the score. Node state is nonessential.
     #[default]
     Deterministic,
-    /// Sequential sampling of one voice instance sounding a live note (onset at `t = 0`).
+    /// Consecutive blocks of one voice instance sounding a live note (onset at frame 0). Node
+    /// state may carry history.
     Streaming { live: Arc<LiveNote> },
 }
 
@@ -193,10 +218,14 @@ pub(crate) struct Bindings<'a> {
     pub(crate) scores: &'a BTreeMap<NodeId, ScoreSignal>,
     pub(crate) mode: TranslateMode,
     pub(crate) plugins: Option<&'a dyn PluginResolver>,
-    /// Plugin render caches built so far, so the root can prepare them for real-time reading.
-    pub(crate) caches: std::cell::RefCell<Vec<aura_plugin_host::RenderCache>>,
+    /// Plugin instances created so far.
+    pub(crate) plugin_instances: std::cell::Cell<usize>,
     /// Resolved layout of each layout-polymorphic node, set by the graph being translated.
     pub(crate) layouts: std::cell::RefCell<Arc<BTreeMap<NodeId, Layout>>>,
+    /// How many times each node output may be read, set by the graph being translated.
+    reads: std::cell::RefCell<Arc<BTreeMap<TargetKey, usize>>>,
+    /// Node outputs built so far that more than one consumer reads.
+    shared: std::cell::RefCell<BTreeMap<TargetKey, SharedOutput>>,
     /// Dual-mono channel passes in progress, innermost last.
     pub(crate) channel_passes: std::cell::RefCell<Vec<impls::ChannelPass>>,
 }
@@ -211,10 +240,16 @@ impl<'a> Bindings<'a> {
             scores,
             mode,
             plugins,
-            caches: Default::default(),
+            plugin_instances: Default::default(),
             layouts: Default::default(),
+            reads: Default::default(),
+            shared: Default::default(),
             channel_passes: Default::default(),
         }
+    }
+
+    fn reads_of(&self, key: &TargetKey) -> usize {
+        self.reads.borrow().get(key).copied().unwrap_or(1)
     }
 
     /// The channel pass of a dual-mono `consumer` whose inputs are being translated, if any.
@@ -250,6 +285,33 @@ pub(crate) struct PreparedGraph {
     edges_by_target: BTreeMap<TargetKey, Vec<PortReference>>,
     /// Resolved layout of each layout-polymorphic node.
     layouts: Arc<BTreeMap<NodeId, Layout>>,
+    /// How many times translation may read each node output (see [`count_reads`]).
+    reads: Arc<BTreeMap<TargetKey, usize>>,
+}
+
+/// An upper bound on how many times translation reads each node output: once per edge out of
+/// it, times the number of the consumer's output ports in use (each is translated on its own),
+/// times two when the consumer is stereo (a dual-mono consumer translates once per channel).
+/// An output read more than once is shared; overcounting only shares an output that did not
+/// need it.
+fn count_reads(graph: &Graph, layouts: &BTreeMap<NodeId, Layout>) -> BTreeMap<TargetKey, usize> {
+    let mut ports_in_use: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for edge in graph.edges.values() {
+        ports_in_use
+            .entry(edge.from.node.as_str())
+            .or_default()
+            .insert(edge.from.port.as_str());
+    }
+    let mut reads = BTreeMap::new();
+    for edge in graph.edges.values() {
+        let consumer = edge.to.node.as_str();
+        let ports = ports_in_use.get(consumer).map_or(1, |ports| ports.len().max(1));
+        let channels = layouts.get(consumer).map_or(1, |layout| layout.channels());
+        *reads
+            .entry((edge.from.node.clone(), edge.from.port.clone()))
+            .or_insert(0) += ports * channels;
+    }
+    reads
 }
 
 impl PreparedGraph {
@@ -268,12 +330,14 @@ impl PreparedGraph {
             .map_err(|message| TranslateError::Resolve { message })?;
         let output_node = find_output_node(&graph)?;
         let edges_by_target = index_edges_by_target(&graph);
-        let layouts = Arc::new(resolve_layouts(&graph, registry));
+        let layouts = resolve_layouts(&graph, registry);
+        let reads = Arc::new(count_reads(&graph, &layouts));
         Ok(Self {
             graph,
             output_node,
             edges_by_target,
-            layouts,
+            layouts: Arc::new(layouts),
+            reads,
         })
     }
 
@@ -282,7 +346,7 @@ impl PreparedGraph {
         registry: &Registry,
         sample_rate: SampleRate,
         bindings: &Bindings<'_>,
-    ) -> Result<AudioSampler, TranslateError> {
+    ) -> Result<AudioSignal, TranslateError> {
         self.translate_port(registry, sample_rate, bindings, &self.output_node, "value")
     }
 
@@ -294,8 +358,9 @@ impl PreparedGraph {
         bindings: &Bindings<'_>,
         node: &str,
         port: &str,
-    ) -> Result<AudioSampler, TranslateError> {
+    ) -> Result<AudioSignal, TranslateError> {
         *bindings.layouts.borrow_mut() = Arc::clone(&self.layouts);
+        *bindings.reads.borrow_mut() = Arc::clone(&self.reads);
         let mut visiting = BTreeSet::new();
         match translate_node(
             &self.graph,
@@ -307,8 +372,8 @@ impl PreparedGraph {
             node,
             port,
         )? {
-            NodeValue::Signal(sampler) => Ok(AudioSampler::Mono(sampler)),
-            NodeValue::Stereo(sampler) => Ok(AudioSampler::Stereo(sampler)),
+            NodeValue::Signal(signal) => Ok(AudioSignal::Mono(signal)),
+            NodeValue::Stereo(signal) => Ok(AudioSignal::Stereo(signal)),
             NodeValue::ScoreSignal(_)
             | NodeValue::ProgressionSignal(_)
             | NodeValue::Tempo(_)
@@ -366,6 +431,46 @@ fn index_edges_by_target(graph: &Graph) -> BTreeMap<TargetKey, Vec<PortReference
 }
 
 fn translate_node(
+    graph: &Graph,
+    registry: &Registry,
+    sample_rate: SampleRate,
+    edges_by_target: &BTreeMap<TargetKey, Vec<PortReference>>,
+    visiting: &mut BTreeSet<NodeId>,
+    bindings: &Bindings<'_>,
+    node_id: &str,
+    output_port: &str,
+) -> Result<NodeValue, TranslateError> {
+    // An output read more than once is built once and shared by every reader.
+    let key: TargetKey = (node_id.to_string(), output_port.to_string());
+    if let Some(shared) = bindings.shared.borrow().get(&key) {
+        return Ok(shared.value());
+    }
+    let value = build_node(
+        graph,
+        registry,
+        sample_rate,
+        edges_by_target,
+        visiting,
+        bindings,
+        node_id,
+        output_port,
+    )?;
+    if bindings.reads_of(&key) <= 1 {
+        return Ok(value);
+    }
+    let shared = match value {
+        NodeValue::Signal(signal) => SharedOutput::Mono(Shared::new(signal)),
+        NodeValue::Stereo(signal) => SharedOutput::Stereo(SharedStereo::new(signal)),
+        other => return Ok(other),
+    };
+    let value = shared.value();
+    bindings.shared.borrow_mut().insert(key, shared);
+    Ok(value)
+}
+
+/// Builds one node output from its type's implementation matrix.
+#[allow(clippy::too_many_arguments)]
+fn build_node(
     graph: &Graph,
     registry: &Registry,
     sample_rate: SampleRate,
@@ -438,12 +543,12 @@ fn translate_note_at_time_port(
     )?;
     let schedule = NoteSchedule::from_score_signal(&score_signal, sample_rate);
 
-    let sampler: Box<dyn Sampler> = match output_port {
-        "semitone" => Box::new(NoteSemitoneSampler { schedule }),
-        "active" => Box::new(NoteActiveSampler { schedule }),
-        "velocity" => Box::new(NoteVelocitySampler { schedule }),
-        "note_start" => Box::new(NoteStartSampler { schedule }),
-        "note_duration" => Box::new(NoteDurationSampler { schedule }),
+    let field = match output_port {
+        "semitone" => NoteField::Semitone,
+        "active" => NoteField::Active,
+        "velocity" => NoteField::Velocity,
+        "note_start" => NoteField::Start,
+        "note_duration" => NoteField::Duration,
         _ => {
             return Err(TranslateError::MissingOutputPort {
                 node: node_id.into(),
@@ -452,7 +557,11 @@ fn translate_note_at_time_port(
         }
     };
 
-    Ok(NodeValue::Signal(sampler))
+    Ok(NodeValue::Signal(Box::new(NoteFieldSignal {
+        schedule,
+        field,
+        rate: f64::from(sample_rate.get()),
+    })))
 }
 
 fn translate_note_param_at_time_port(
@@ -485,9 +594,10 @@ fn translate_note_param_at_time_port(
     let schedule = NoteSchedule::from_score_signal(&score_signal, sample_rate);
     let param_name = read_string_input(node, "param", "cutoff_mult")?;
 
-    Ok(NodeValue::Signal(Box::new(NoteParamSampler {
+    Ok(NodeValue::Signal(Box::new(NoteFieldSignal {
         schedule,
-        param_name,
+        field: NoteField::Param(param_name),
+        rate: f64::from(sample_rate.get()),
     })))
 }
 
@@ -532,9 +642,18 @@ fn translate_chord_at_time_port(
         "time",
     )?;
 
-    let sampler: Box<dyn Sampler> = match output_port {
-        "root" => Box::new(ChordRootSampler { progression, tempo }),
-        "active" => Box::new(ChordActiveSampler { progression, tempo }),
+    let rate = f64::from(sample_rate.get());
+    let signal: Box<dyn Signal> = match output_port {
+        "root" => Box::new(ChordRootSignal {
+            progression,
+            tempo,
+            rate,
+        }),
+        "active" => Box::new(ChordActiveSignal {
+            progression,
+            tempo,
+            rate,
+        }),
         _ => {
             return Err(TranslateError::MissingOutputPort {
                 node: node_id.into(),
@@ -543,7 +662,7 @@ fn translate_chord_at_time_port(
         }
     };
 
-    Ok(NodeValue::Signal(sampler))
+    Ok(NodeValue::Signal(signal))
 }
 
 fn translate_tempo_at_time_port(
@@ -577,17 +696,13 @@ fn translate_tempo_at_time_port(
         "time",
     )?;
 
-    let sampler: Box<dyn Sampler> = match output_port {
-        "bpm" => Box::new(TempoBpmSampler { tempo }),
-        _ => {
-            return Err(TranslateError::MissingOutputPort {
-                node: node_id.into(),
-                port: output_port.into(),
-            })
-        }
-    };
-
-    Ok(NodeValue::Signal(sampler))
+    match output_port {
+        "bpm" => Ok(NodeValue::Signal(Box::new(Constant(tempo.bpm as f32)))),
+        _ => Err(TranslateError::MissingOutputPort {
+            node: node_id.into(),
+            port: output_port.into(),
+        }),
+    }
 }
 
 fn translate_time_signature_at_time_port(
@@ -621,9 +736,9 @@ fn translate_time_signature_at_time_port(
         "time",
     )?;
 
-    let sampler: Box<dyn Sampler> = match output_port {
-        "beats_per_bar" => Box::new(BeatsPerBarSampler { time_signature }),
-        "beat_unit" => Box::new(BeatUnitSampler { time_signature }),
+    let value = match output_port {
+        "beats_per_bar" => f32::from(time_signature.beats_per_bar),
+        "beat_unit" => f32::from(time_signature.beat_unit),
         _ => {
             return Err(TranslateError::MissingOutputPort {
                 node: node_id.into(),
@@ -632,7 +747,7 @@ fn translate_time_signature_at_time_port(
         }
     };
 
-    Ok(NodeValue::Signal(sampler))
+    Ok(NodeValue::Signal(Box::new(Constant(value))))
 }
 
 fn translate_loop_value(
@@ -1040,10 +1155,10 @@ fn signal_input(
     bindings: &Bindings<'_>,
     node_id: &str,
     port: &str,
-) -> Result<Box<dyn Sampler>, TranslateError> {
+) -> Result<Box<dyn Signal>, TranslateError> {
     if let Some(literal) = graph.nodes.get(node_id).and_then(|node| node.inputs.get(port)) {
         let number = primitive_to_f64(node_id, port, literal)?;
-        return Ok(Box::new(ConstantSampler(number as f32)));
+        return Ok(Box::new(Constant(number as f32)));
     }
 
     let source = wired_source(edges_by_target, node_id, port)?;
@@ -1056,7 +1171,6 @@ fn signal_input(
         bindings,
         node_id,
         port,
-        0,
         &source,
     )
 }
@@ -1071,7 +1185,7 @@ fn signal_inputs_variadic(
     bindings: &Bindings<'_>,
     node_id: &str,
     port: &str,
-) -> Result<Vec<Box<dyn Sampler>>, TranslateError> {
+) -> Result<Vec<Box<dyn Signal>>, TranslateError> {
     let sources = wired_sources(edges_by_target, node_id, port);
     if sources.is_empty() {
         return Err(TranslateError::UnwiredInput {
@@ -1081,8 +1195,7 @@ fn signal_inputs_variadic(
     }
     sources
         .iter()
-        .enumerate()
-        .map(|(index, source)| {
+        .map(|source| {
             signal_from(
                 graph,
                 registry,
@@ -1092,17 +1205,17 @@ fn signal_inputs_variadic(
                 bindings,
                 node_id,
                 port,
-                index,
                 source,
             )
         })
         .collect()
 }
 
-/// The mono signal `consumer` reads from `source` through input `port` (edge `index`).
+/// The mono signal `consumer` reads from `source` through input `port`.
 ///
-/// Inside a dual-mono channel pass of `consumer`, the input is translated once and shared by
-/// both passes, and a stereo input is seen as the pass's channel.
+/// Inside a dual-mono channel pass of `consumer`, a stereo input is seen as the pass's channel.
+/// Both passes read the same input: a stereo consumer's inputs count as read twice
+/// ([`count_reads`]), so translation shares them.
 #[allow(clippy::too_many_arguments)]
 fn signal_from(
     graph: &Graph,
@@ -1113,13 +1226,9 @@ fn signal_from(
     bindings: &Bindings<'_>,
     consumer: &str,
     port: &str,
-    index: usize,
     source: &PortReference,
-) -> Result<Box<dyn Sampler>, TranslateError> {
+) -> Result<Box<dyn Signal>, TranslateError> {
     let pass = bindings.channel_pass(consumer);
-    if let Some(input) = pass.as_ref().and_then(|pass| pass.remembered(port, index)) {
-        return Ok(pass.expect("pass").view(input));
-    }
     let value = translate_node(
         graph,
         registry,
@@ -1130,21 +1239,17 @@ fn signal_from(
         &source.node,
         &source.port,
     )?;
-    let input = match (value, &pass) {
-        (NodeValue::Signal(sampler), None) => return Ok(sampler),
-        (NodeValue::Signal(sampler), Some(_)) => impls::SharedInput::Mono(Arc::from(sampler)),
-        (NodeValue::Stereo(sampler), Some(_)) => impls::SharedInput::Stereo(Arc::from(sampler)),
-        (NodeValue::Stereo(_), None) => {
-            return Err(TranslateError::UnexpectedStereo {
-                node: consumer.into(),
-                port: port.into(),
-            })
+    match (value, pass) {
+        (NodeValue::Signal(signal), _) => Ok(signal),
+        (NodeValue::Stereo(signal), Some(pass)) => {
+            Ok(Box::new(StereoChannel::new(signal, pass.channel)))
         }
-        (other, _) => return Err(invalid_signal_source(other, &source.node)),
-    };
-    let pass = pass.expect("pass");
-    pass.remember(port, index, input.clone());
-    Ok(pass.view(input))
+        (NodeValue::Stereo(_), None) => Err(TranslateError::UnexpectedStereo {
+            node: consumer.into(),
+            port: port.into(),
+        }),
+        (other, _) => Err(invalid_signal_source(other, &source.node)),
+    }
 }
 
 /// A stereo signal into `port` of a stereo implementation.
@@ -1158,7 +1263,7 @@ fn stereo_signal_input(
     bindings: &Bindings<'_>,
     node_id: &str,
     port: &str,
-) -> Result<Box<dyn StereoSampler>, TranslateError> {
+) -> Result<Box<dyn StereoSignal>, TranslateError> {
     let source = wired_source(edges_by_target, node_id, port)?;
     match translate_node(
         graph,
@@ -1170,7 +1275,7 @@ fn stereo_signal_input(
         &source.node,
         &source.port,
     )? {
-        NodeValue::Stereo(sampler) => Ok(sampler),
+        NodeValue::Stereo(signal) => Ok(signal),
         NodeValue::Signal(_) => Err(TranslateError::ExpectedStereo {
             node: node_id.into(),
             port: port.into(),
@@ -1252,365 +1357,6 @@ fn primitive_to_string(
     }
 }
 
-struct ConstantSampler(f32);
-
-impl Sampler for ConstantSampler {
-    fn at(&self, _t: f64) -> f32 {
-        self.0
-    }
-}
-
-struct TimeSampler;
-
-impl Sampler for TimeSampler {
-    fn at(&self, t: f64) -> f32 {
-        t as f32
-    }
-}
-
-struct TimeElapsedSampler {
-    start: Box<dyn Sampler>,
-}
-
-impl Sampler for TimeElapsedSampler {
-    fn at(&self, t: f64) -> f32 {
-        let start = self.start.at(t) as f64;
-        (t - start).max(0.0) as f32
-    }
-}
-
-struct SineSampler {
-    frequency: Box<dyn Sampler>,
-    time: Box<dyn Sampler>,
-}
-
-impl Sampler for SineSampler {
-    fn at(&self, t: f64) -> f32 {
-        let frequency = self.frequency.at(t);
-        let phase_time = self.time.at(t) as f64;
-        sine(frequency, phase_time)
-    }
-}
-
-struct MultiplySampler {
-    a: Box<dyn Sampler>,
-    b: Box<dyn Sampler>,
-}
-
-impl Sampler for MultiplySampler {
-    fn at(&self, t: f64) -> f32 {
-        multiply(self.a.at(t), self.b.at(t))
-    }
-}
-
-struct MultiplyControlSampler {
-    a: Box<dyn Sampler>,
-    b: Box<dyn Sampler>,
-}
-
-impl Sampler for MultiplyControlSampler {
-    fn at(&self, t: f64) -> f32 {
-        multiply(self.a.at(t), self.b.at(t))
-    }
-}
-
-struct AddSampler {
-    inputs: Vec<Box<dyn Sampler>>,
-}
-
-impl Sampler for AddSampler {
-    fn at(&self, t: f64) -> f32 {
-        self.inputs
-            .iter()
-            .map(|input| input.at(t))
-            .reduce(add)
-            .unwrap_or(0.0)
-    }
-}
-
-struct ExponentialSweepSineSampler {
-    start_hz: Box<dyn Sampler>,
-    decay_rate: Box<dyn Sampler>,
-    elapsed: Box<dyn Sampler>,
-}
-
-impl Sampler for ExponentialSweepSineSampler {
-    fn at(&self, t: f64) -> f32 {
-        exponential_sweep_sine(
-            self.start_hz.at(t),
-            self.decay_rate.at(t),
-            self.elapsed.at(t) as f64,
-        )
-    }
-}
-
-struct DeterministicNoiseSampler {
-    seed: Box<dyn Sampler>,
-    time: Box<dyn Sampler>,
-}
-
-impl Sampler for DeterministicNoiseSampler {
-    fn at(&self, t: f64) -> f32 {
-        deterministic_noise(self.seed.at(t), self.time.at(t) as f64)
-    }
-}
-
-struct HighpassNoiseSampler {
-    seed: Box<dyn Sampler>,
-    time: Box<dyn Sampler>,
-    dt: Box<dyn Sampler>,
-}
-
-impl Sampler for HighpassNoiseSampler {
-    fn at(&self, t: f64) -> f32 {
-        highpass_noise(
-            self.seed.at(t),
-            self.time.at(t) as f64,
-            self.dt.at(t) as f64,
-        )
-    }
-}
-
-struct LinearAdsrSampler {
-    attack: Box<dyn Sampler>,
-    decay: Box<dyn Sampler>,
-    sustain: Box<dyn Sampler>,
-    release: Box<dyn Sampler>,
-    elapsed: Box<dyn Sampler>,
-    note_duration: Box<dyn Sampler>,
-}
-
-impl Sampler for LinearAdsrSampler {
-    fn at(&self, t: f64) -> f32 {
-        let adsr = LinearAdsr {
-            attack: self.attack.at(t) as f64,
-            decay: self.decay.at(t) as f64,
-            sustain: self.sustain.at(t),
-            release: self.release.at(t) as f64,
-        };
-        adsr.value_at(
-            self.elapsed.at(t) as f64,
-            self.note_duration.at(t) as f64,
-        )
-    }
-}
-
-struct SemitoneToHzSampler {
-    semitone: Box<dyn Sampler>,
-}
-
-impl Sampler for SemitoneToHzSampler {
-    fn at(&self, t: f64) -> f32 {
-        let value = self.semitone.at(t).round() as i16;
-        Semitone(value).to_hz() as f32
-    }
-}
-
-struct NoteSemitoneSampler {
-    schedule: NoteSchedule,
-}
-
-impl Sampler for NoteSemitoneSampler {
-    fn at(&self, t: f64) -> f32 {
-        self.schedule
-            .active_at(t)
-            .map(|note| note.semitone.0 as f32)
-            .unwrap_or(0.0)
-    }
-}
-
-struct NoteActiveSampler {
-    schedule: NoteSchedule,
-}
-
-impl Sampler for NoteActiveSampler {
-    fn at(&self, t: f64) -> f32 {
-        if self.schedule.active_at(t).is_some() {
-            1.0
-        } else {
-            0.0
-        }
-    }
-}
-
-struct NoteStartSampler {
-    schedule: NoteSchedule,
-}
-
-impl Sampler for NoteStartSampler {
-    fn at(&self, t: f64) -> f32 {
-        self.schedule
-            .note_global_start_secs(t)
-            .map(|start| start as f32)
-            .unwrap_or(0.0)
-    }
-}
-
-struct NoteDurationSampler {
-    schedule: NoteSchedule,
-}
-
-impl Sampler for NoteDurationSampler {
-    fn at(&self, t: f64) -> f32 {
-        self.schedule
-            .active_at(t)
-            .map(|note| self.schedule.note_duration_secs(note) as f32)
-            .unwrap_or(0.0)
-    }
-}
-
-struct NoteVelocitySampler {
-    schedule: NoteSchedule,
-}
-
-impl Sampler for NoteVelocitySampler {
-    fn at(&self, t: f64) -> f32 {
-        self.schedule
-            .active_at(t)
-            .map(|note| note.velocity)
-            .unwrap_or(0.0)
-    }
-}
-
-struct NoteParamSampler {
-    schedule: NoteSchedule,
-    param_name: String,
-}
-
-impl Sampler for NoteParamSampler {
-    fn at(&self, t: f64) -> f32 {
-        match self.schedule.active_at(t) {
-            None => 0.0,
-            Some(note) => note.param_or(&self.param_name, 1.0) as f32,
-        }
-    }
-}
-
-struct BandlimitedSawSampler {
-    frequency: Box<dyn Sampler>,
-    elapsed: Box<dyn Sampler>,
-    cutoff: Box<dyn Sampler>,
-}
-
-impl Sampler for BandlimitedSawSampler {
-    fn at(&self, t: f64) -> f32 {
-        let frequency = self.frequency.at(t);
-        let elapsed = self.elapsed.at(t) as f64;
-        let cutoff = self.cutoff.at(t);
-        bandlimited_saw(frequency, elapsed, cutoff)
-    }
-}
-
-struct NoteEnvelopeSampler {
-    schedule: NoteSchedule,
-    adsr: LinearAdsr,
-}
-
-impl Sampler for NoteEnvelopeSampler {
-    fn at(&self, t: f64) -> f32 {
-        match self.schedule.note_local_secs(t) {
-            None => 0.0,
-            Some(local) => {
-                let duration = self
-                    .schedule
-                    .active_at(t)
-                    .map(|note| self.schedule.note_duration_secs(note))
-                    .unwrap_or(0.0);
-                self.adsr.value_at(local, duration)
-            }
-        }
-    }
-}
-
-/// Polyphonic sine voice: mixes overlapping notes (sine × envelope × velocity).
-struct PolySineScoreSampler {
-    schedule: NoteSchedule,
-    adsr: LinearAdsr,
-}
-
-impl Sampler for PolySineScoreSampler {
-    fn at(&self, t: f64) -> f32 {
-        let mut mix = 0.0f32;
-        for note in self.schedule.overlapping_at(t) {
-            let local = self.schedule.note_local_secs_for(note, t);
-            let duration = self.schedule.note_duration_secs(note);
-            let env = self.adsr.value_at(local, duration);
-            let frequency = note.semitone.to_hz() as f32;
-            mix += sine(frequency, local) * env * note.velocity;
-        }
-        mix
-    }
-}
-
-struct ChordRootSampler {
-    progression: ProgressionSignal,
-    tempo: Tempo,
-}
-
-impl Sampler for ChordRootSampler {
-    fn at(&self, t: f64) -> f32 {
-        self.progression.chord_at(t, self.tempo).root.0 as f32
-    }
-}
-
-struct ChordActiveSampler {
-    progression: ProgressionSignal,
-    tempo: Tempo,
-}
-
-impl Sampler for ChordActiveSampler {
-    fn at(&self, t: f64) -> f32 {
-        if self.progression.looping {
-            return 1.0;
-        }
-        let beat = t / self.tempo.seconds_per_beat();
-        if self
-            .progression
-            .progression
-            .regions
-            .iter()
-            .any(|region| {
-                beat >= region.start_beats - 1e-9
-                    && beat < region.start_beats + region.duration_beats - 1e-9
-            })
-        {
-            1.0
-        } else {
-            0.0
-        }
-    }
-}
-
-struct TempoBpmSampler {
-    tempo: Tempo,
-}
-
-impl Sampler for TempoBpmSampler {
-    fn at(&self, _t: f64) -> f32 {
-        self.tempo.bpm as f32
-    }
-}
-
-struct BeatsPerBarSampler {
-    time_signature: TimeSignature,
-}
-
-impl Sampler for BeatsPerBarSampler {
-    fn at(&self, _t: f64) -> f32 {
-        f32::from(self.time_signature.beats_per_bar)
-    }
-}
-
-struct BeatUnitSampler {
-    time_signature: TimeSignature,
-}
-
-impl Sampler for BeatUnitSampler {
-    fn at(&self, _t: f64) -> f32 {
-        f32::from(self.time_signature.beat_unit)
-    }
-}
-
 pub fn infer_score_duration_secs(graph: &Graph, sample_rate: SampleRate) -> Option<f64> {
     let score_node = graph
         .nodes
@@ -1641,16 +1387,23 @@ mod tests {
     fn workspace_demo_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../demos").join(name)
     }
+
+    /// The value of a mono signal at one frame.
+    fn value_at(signal: &mut dyn Signal, frame: u64) -> f32 {
+        let mut out = [0.0];
+        signal.render(frame, &mut out);
+        out[0]
+    }
     #[test]
     fn translate_sine_graph_is_pure() {
         let json = include_str!("../../../../demos/sine.json");
         let graph = aura_imp::graph_from_json_str(json).expect("graph");
         let registry = aura_registry().expect("registry");
-        let sampler = translate_graph(&graph, &registry, SampleRate::RATE_44100)
+        let mut signal = translate_graph(&graph, &registry, SampleRate::RATE_44100)
             .expect("translate")
             .into_mono()
             .expect("mono");
-        assert_eq!(sampler.at(0.25), sampler.at(0.25));
+        assert_eq!(value_at(signal.as_mut(), 11_025), value_at(signal.as_mut(), 11_025));
     }
 
     #[test]
@@ -1780,11 +1533,11 @@ mod tests {
             ]),
         };
         let registry = aura_registry().expect("registry");
-        let sampler = translate_graph(&graph, &registry, SampleRate::RATE_44100)
+        let mut signal = translate_graph(&graph, &registry, SampleRate::RATE_44100)
             .expect("translate")
             .into_mono()
             .expect("mono");
-        assert!((sampler.at(0.0) - 1.0).abs() < 1e-5);
+        assert!((value_at(signal.as_mut(), 0) - 1.0).abs() < 1e-5);
     }
 
     #[test]
@@ -1944,11 +1697,13 @@ mod tests {
         let signal = ScoreSignal::finite(score).with_looping(true);
         let cycle = signal.score.loop_cycle_secs();
         let schedule = NoteSchedule::from_score_signal(&signal, SampleRate::RATE_44100);
-        let sampler = NoteEnvelopeSampler {
+        let mut signal = NoteEnvelopeSignal {
             schedule,
             adsr: LinearAdsr::default(),
+            rate: 44_100.0,
         };
-        let early_second_cycle = sampler.at(cycle + 0.01) as f64;
+        let frame = ((cycle + 0.01) * 44_100.0).round() as u64;
+        let early_second_cycle = value_at(&mut signal, frame) as f64;
         assert!(
             early_second_cycle > 0.0,
             "expected audible envelope after loop cycle, got {early_second_cycle}"
@@ -2073,7 +1828,7 @@ mod tests {
             nodes: &nodes,
             edges: &graph.edges,
         };
-        let sampler = translate_graph_with_options(
+        let mut signal = translate_graph_with_options(
             source,
             &registry,
             SampleRate::RATE_44100,
@@ -2086,13 +1841,13 @@ mod tests {
         .into_mono()
         .expect("mono");
 
-        let chord = sampler.at(0.05);
+        let chord = value_at(signal.as_mut(), 2_205);
         assert!(
             chord.abs() > 1e-4,
             "expected audible chord mix, got {chord}"
         );
-        assert_eq!(sampler.at(0.05), sampler.at(0.05));
-        assert_eq!(sampler.at(1.0), 0.0);
+        assert_eq!(value_at(signal.as_mut(), 2_205), value_at(signal.as_mut(), 2_205));
+        assert_eq!(value_at(signal.as_mut(), 44_100), 0.0);
     }
 
     #[test]

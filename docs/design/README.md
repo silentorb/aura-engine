@@ -30,7 +30,7 @@ See [Silent Orb: Scoping and Design](https://silentorb.com/business/product/scop
 |----------|-------------|
 | [`product.md`](product.md) | Product-level declarative requirements |
 | [`architecture.md`](architecture.md) | System overview, crate layout, data flow |
-| [`imp-execution.md`](imp-execution.md) | Imp graph Time → Sample execution model |
+| [`imp-execution.md`](imp-execution.md) | Imp graph execution model: block signals, shared outputs, node state per mode |
 | [`notation-synthesis.md`](notation-synthesis.md) | Notation → audio pipeline and integration rules |
 | [`playback-modes.md`](playback-modes.md) | Deterministic and streaming modes; per-node streaming implementations |
 | [`live-recording.md`](live-recording.md) | Live MIDI input: the adapter boundary, devices, monitoring, and recording takes into notation |

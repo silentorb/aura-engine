@@ -11,7 +11,7 @@ use aura_imp::{
     Registry, NOTATION_COLUMN, NOTATION_NODE_TYPE,
 };
 use aura_plugin_host::PluginResolver;
-use aura_render::AudioSampler;
+use aura_render::AudioSignal;
 use aura_sample::SampleRate;
 use aura_sequencing::ScoreSignal;
 use imp_core_types::unresolved_node_ids;
@@ -117,7 +117,7 @@ pub fn translate_graph_with_project(
     sample_rate: SampleRate,
     project: Option<&Path>,
     plugins: Option<&dyn PluginResolver>,
-) -> Result<AudioSampler, ProjectSourceError> {
+) -> Result<AudioSignal, ProjectSourceError> {
     let project = match project {
         Some(path) => open_project_nodes(path, registry)?,
         None => TomeNodeProvider::default(),
@@ -167,12 +167,16 @@ mod tests {
             ["01M7HJ0CRN88N5QEQQQ1GBJT8H"]
         );
 
-        let sampler =
+        let mut signal =
             translate_graph_with_project(&graph, &registry, SampleRate::RATE_44100, Some(&project), None)
                 .expect("translate")
                 .into_mono()
                 .expect("mono");
-        assert_eq!(sampler.at(0.25), sampler.at(0.25));
+        let mut a = [0.0; 64];
+        let mut b = [0.0; 64];
+        signal.render(11_025, &mut a);
+        signal.render(11_025, &mut b);
+        assert_eq!(a, b);
     }
 
     #[test]

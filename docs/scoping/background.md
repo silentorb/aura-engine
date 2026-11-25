@@ -34,7 +34,7 @@ imp-rs is bind-mounted at `.mnt/imp-rs` (host `~/dev/imp-rs`) so Cargo path deps
 
 ## Seekable sampling vs sequential DSP
 
-Aura targets explicit time and seekable pure `f(t)` sampling. Sequential `tick` DSP (phase accumulators, filter history between samples) is deterministic when run in order but is not a pure function of time — seeking requires simulating prior samples. That conflict is why FunDSP-style tick units are avoided; see design non-goals in [`../design/imp-execution.md`](../design/imp-execution.md) and [`../crates/aura_dsp/design/overview.md`](../crates/aura_dsp/design/overview.md). Streaming mode only ever runs forward, so it is where sequential optimizations may eventually live, as optional streaming implementations ([`playback-modes.md`](playback-modes.md)).
+Aura targets explicit time and seekable deterministic rendering. Sequential `tick` DSP (phase accumulators, filter history between samples) is deterministic when run in order but is not a function of time alone — seeking requires simulating prior samples. That conflict is why history-carrying state stays out of deterministic mode; see [`../design/imp-execution.md`](../design/imp-execution.md) and [`../crates/aura_dsp/design/overview.md`](../crates/aura_dsp/design/overview.md). Signals render blocks of frames and may keep state, but in deterministic mode only nonessential state ([`block-processing.md`](block-processing.md)). Streaming mode only ever runs forward, so history-carrying state lives there, as optional streaming implementations ([`playback-modes.md`](playback-modes.md)).
 
 ## Domain separation
 

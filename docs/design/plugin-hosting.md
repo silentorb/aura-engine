@@ -33,28 +33,27 @@ Plugin nodes have **no plugin-specific ports**. A plugin is configured entirely 
 
 ## Deterministic mode: render cache
 
-A plugin node's deterministic implementation is a `RenderCache`: a `Sampler` that owns one plugin instance, renders it forward in blocks into a retained buffer, and reads `at(t)` from that buffer.
+A plugin node's deterministic implementation is a `RenderCache`: a block signal ([execution model](imp-execution.md)) that owns one plugin instance, renders it forward from frame 0 on its own block grid (`BLOCK_FRAMES`), keeps what it rendered, and answers any requested range from that.
 
-- Sampling past the rendered range renders more blocks first. Everything rendered is kept for the life of the translation, so out-of-order and repeated sampling return identical values without re-rendering.
-- `at(t)` off the frame grid interpolates linearly between frames.
+- A plugin's state is essential and cannot be snapshotted, so a plugin is the one deterministic node that renders from frame 0 ([node state](imp-execution.md#node-state-one-rule-per-mode)). Retaining its output is what lets it meet the deterministic contract: rendering a range past what exists renders more blocks first; everything rendered is kept for the life of the translation, so out-of-order and repeated ranges return identical frames without re-rendering.
+- Output is frame-exact: no interpolation.
 - Note events come from the fully known score at **exact frames** (`NoteEventSource`): note-offs before note-ons at the same frame; unique note ids per note instance, including per loop cycle of a looping score.
 - The plugin's reported **latency is removed** from the head of the output, so output frame `k` is the plugin's response to input and events at frame `k`.
-- Upstream inputs (an effect's `audio`, the score) stay pure and are sampled at whatever frames each block needs.
-- After the last note, with no audio input, rendering stops once the plugin's reported tail has passed and the output has been quiet for 0.25 s (or after 30 s regardless); later samples are silence. An effect with audio input never stops early.
+- Upstream inputs (an effect's `audio`, the score) are deterministic, so the plugin renders its audio input over each of its own blocks as it needs it.
+- After the last note, with no audio input, rendering stops once the plugin's reported tail has passed and the output has been quiet for 0.25 s (or after 30 s regardless); later frames are silence. An effect with audio input never stops early.
 - Plugins are activated in the protocol's **offline** render mode where supported.
 - A plugin that fails while processing stops its cache; the rest of that node's output is silence and the failure is reported (`RenderCache::failure`, and on stderr). Errors at creation fail translation.
 - Reproducibility is **as strong as the plugins in the graph**. Aura adds no nondeterminism of its own: the same graph, state, and plugin build render bit-identical output.
+- A cache holds at most about 3.4 hours (at 44.1 kHz); past that it reads as silence.
 
 ## Transport playback: render-ahead
 
-Transport playback (`PlaybackEngine`) reads the deterministic graph in real time, so plugin caches are prepared before the device opens and kept ahead while it plays.
+Transport playback (`PlaybackEngine`) plays the deterministic graph in real time without rendering on the audio thread:
 
-- `Sampler::prepare(start, ahead)` readies a sampler for real-time reading; `Sampler::underruns()` counts real-time reads that found nothing prepared. Both default to nothing for pure samplers. Translation wraps the root of a graph with plugin nodes so both reach every plugin cache (upstream caches first).
-- `PlaybackEngine::start_at` calls `prepare(start, PREPARE_AHEAD_SECS)` (2 s) on the calling thread before opening the stream. That call renders every plugin from the start to `start + 2 s`, so a late start in a long song waits for the render.
-- After preparing, each cache runs one background worker that keeps 2 s rendered past the furthest real-time read. The worker exits when the cache finishes or is dropped.
-- The transport audio callback marks its thread a **real-time reader**. A cache read from it never renders or waits: rendered output is published through lock-free append-only storage, and a frame not rendered yet reads as silence and counts as an underrun (`PlaybackEngine::underruns`). Every other reader (offline export, a worker reading an upstream plugin, streaming voices) renders inline as before.
-- Output is identical to offline rendering: the same frames render in the same order whichever thread renders them. Caches render in the offline render mode in transport too, so a plugin slower than real time underruns instead of changing its sound.
-- A cache holds at most about 3.4 hours (at 44.1 kHz); past that it reads as silence.
+- One render thread per playback owns the translated graph and renders it into a lock-free ring buffer, `PREPARE_AHEAD_SECS` (2 s) ahead of the playhead. The audio callback only copies frames out of the ring.
+- `PlaybackEngine::start_at` fills the ring on the calling thread before opening the stream. A late start in a long song with plugins waits while they render from frame 0 up to the start.
+- If the ring runs dry, the callback plays silence and counts the missing frames (`PlaybackEngine::underruns`); the playhead reports what was heard.
+- Output is identical to offline rendering: the same graph renders the same frames. Plugins render in the offline render mode in transport too, so a plugin slower than real time underruns instead of changing its sound.
 
 ## Streaming mode: shared instances
 

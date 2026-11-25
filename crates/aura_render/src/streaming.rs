@@ -1,7 +1,8 @@
 //! Streaming-mode rendering: sequential blocks of live voices.
 //!
-//! Deterministic rendering samples a [`Sampler`] at any time. Streaming rendering pulls
-//! consecutive blocks from a [`BlockSource`]; time only moves forward. A [`StreamVoice`] is one
+//! Deterministic rendering may render any range of a signal. Streaming rendering pulls
+//! consecutive blocks from a [`BlockSource`]; time only moves forward, so a voice's signals may
+//! keep history. A [`StreamVoice`] is one
 //! runtime graph instance sounding one [`LiveNote`]; a [`VoiceMixer`] sums voices started and
 //! released from a control thread through a [`VoiceSender`].
 //!
@@ -9,14 +10,14 @@
 //! thread, held in preallocated slots, and handed back to the control thread to be dropped once
 //! they finish.
 
-use crate::AudioSampler;
+use crate::{AudioSignal, Frame, Renderer, BLOCK_FRAMES};
 use aura_sample::SampleRate;
 use aura_sequencing::LiveNote;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
-/// Produces consecutive blocks of mono samples. Each call continues where the last ended.
+/// Produces consecutive blocks of stereo frames. Each call continues where the last ended.
 pub trait BlockSource: Send {
     /// Fills `out` with the next stereo frames (`[left, right]`); a mono source writes the same
     /// value to both.
@@ -37,7 +38,7 @@ pub const MAX_SLOTS: usize = MAX_VOICES * 2;
 /// One runtime graph instance sounding one live note, with its own voice-local clock
 /// (onset at `t = 0`).
 pub struct StreamVoice {
-    root: AudioSampler,
+    root: Renderer,
     live: Arc<LiveNote>,
     frame: u64,
     rate: f64,
@@ -46,9 +47,9 @@ pub struct StreamVoice {
 
 impl StreamVoice {
     /// `root` is the voice graph, mono or stereo.
-    pub fn new(root: AudioSampler, live: Arc<LiveNote>, sample_rate: SampleRate) -> Self {
+    pub fn new(root: AudioSignal, live: Arc<LiveNote>, sample_rate: SampleRate) -> Self {
         Self {
-            root,
+            root: Renderer::new(root),
             live,
             frame: 0,
             rate: f64::from(sample_rate.get()),
@@ -72,18 +73,23 @@ impl StreamVoice {
         self.now() - released >= MAX_TAIL_SECS || self.quiet_frames as f64 / self.rate >= QUIET_SECS
     }
 
-    /// Adds this voice's next `out.len()` samples into `out`.
+    /// Adds this voice's next `out.len()` frames into `out`, rendered in consecutive blocks.
     pub fn render_add(&mut self, out: &mut [[f32; 2]]) {
-        for frame in out.iter_mut() {
-            let [left, right] = self.root.frame(self.now());
-            frame[0] += left;
-            frame[1] += right;
-            self.frame += 1;
-            if self.live.is_held() || left.abs().max(right.abs()) >= QUIET_LEVEL {
-                self.quiet_frames = 0;
-            } else {
-                self.quiet_frames += 1;
+        for chunk in out.chunks_mut(BLOCK_FRAMES) {
+            let held = self.live.is_held();
+            let (left, right) = self.root.block(self.frame as Frame, chunk.len());
+            let mut quiet = self.quiet_frames;
+            for ((frame, &l), &r) in chunk.iter_mut().zip(left).zip(right) {
+                frame[0] += l;
+                frame[1] += r;
+                if held || l.abs().max(r.abs()) >= QUIET_LEVEL {
+                    quiet = 0;
+                } else {
+                    quiet += 1;
+                }
             }
+            self.quiet_frames = quiet;
+            self.frame += chunk.len() as u64;
         }
     }
 }
@@ -268,7 +274,7 @@ pub fn voice_channel() -> (VoiceSender, VoiceMixer) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Sampler, StereoPair};
+    use crate::{Constant, Signal, StereoPair};
     use aura_sequencing::{NoteParams, Semitone};
 
     const RATE: SampleRate = SampleRate::RATE_44100;
@@ -276,18 +282,21 @@ mod tests {
     /// Full level while held; silent once released.
     struct Gate(Arc<LiveNote>);
 
-    impl Sampler for Gate {
-        fn at(&self, t: f64) -> f32 {
-            match self.0.released_after() {
-                Some(released) if t >= released => 0.0,
-                _ => 0.5,
+    impl Signal for Gate {
+        fn render(&mut self, start: Frame, out: &mut [f32]) {
+            for (k, sample) in out.iter_mut().enumerate() {
+                let t = crate::frame_secs(start + k as Frame, 44_100.0);
+                *sample = match self.0.released_after() {
+                    Some(released) if t >= released => 0.0,
+                    _ => 0.5,
+                };
             }
         }
     }
 
     fn voice() -> StreamVoice {
         let live = Arc::new(LiveNote::new(Semitone(60), 1.0, NoteParams::new()));
-        StreamVoice::new(AudioSampler::Mono(Box::new(Gate(Arc::clone(&live)))), live, RATE)
+        StreamVoice::new(AudioSignal::Mono(Box::new(Gate(Arc::clone(&live)))), live, RATE)
     }
 
     /// The left channel of the next block (mono voices only, so both channels match).
@@ -298,23 +307,15 @@ mod tests {
         out.iter().map(|frame| frame[0]).collect()
     }
 
-    struct Level(f32);
-
-    impl Sampler for Level {
-        fn at(&self, _t: f64) -> f32 {
-            self.0
-        }
-    }
-
     #[test]
     fn stereo_voices_keep_their_channels() {
         let (sender, mut mixer) = voice_channel();
         let live = Arc::new(LiveNote::new(Semitone(60), 1.0, NoteParams::new()));
-        let stereo = StereoPair::new(Box::new(Level(0.25)), Box::new(Level(-0.5)));
+        let stereo = StereoPair::new(Box::new(Constant(0.25)), Box::new(Constant(-0.5)));
         sender
             .note_on(
                 1,
-                StreamVoice::new(AudioSampler::Stereo(Box::new(stereo)), live, RATE),
+                StreamVoice::new(AudioSignal::Stereo(Box::new(stereo)), live, RATE),
             )
             .unwrap();
         sender.note_on(2, voice()).unwrap();
@@ -370,17 +371,9 @@ mod tests {
     }
 
     /// Silent from note-on: finishes as soon as it's released.
-    struct Silent;
-
-    impl Sampler for Silent {
-        fn at(&self, _t: f64) -> f32 {
-            0.0
-        }
-    }
-
     fn silent_voice() -> StreamVoice {
         let live = Arc::new(LiveNote::new(Semitone(60), 1.0, NoteParams::new()));
-        StreamVoice::new(AudioSampler::Mono(Box::new(Silent)), live, RATE)
+        StreamVoice::new(AudioSignal::Mono(Box::new(Constant(0.0))), live, RATE)
     }
 
     #[test]

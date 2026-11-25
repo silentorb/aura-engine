@@ -4,7 +4,7 @@ use aura_plugin_host::{
     EventSource, LayoutStage, NoteEventSource, ParamSetting, PluginSettings, ProcessorConfig,
     RenderCache, RenderMode, BLOCK_FRAMES,
 };
-use aura_render::Sampler;
+use aura_render::{AudioSignal, Constant, Signal};
 use aura_sample::SampleRate;
 use aura_sequencing::{NoteEvent, Score, ScoreSignal, Semitone, Tempo, TimeSignature};
 
@@ -62,8 +62,10 @@ fn sine_cache_with(host: &ClapHost, settings: &PluginSettings) -> RenderCache {
     )
 }
 
-fn frame(cache: &RenderCache, frame: u64) -> f32 {
-    cache.at(frame as f64 / 44100.0)
+fn frame(cache: &mut RenderCache, frame: u64) -> f32 {
+    let mut out = [0.0];
+    Signal::render(cache, frame, &mut out);
+    out[0]
 }
 
 #[test]
@@ -93,34 +95,27 @@ fn unknown_plugin_is_not_found() {
 #[test]
 fn sine_onset_lands_on_the_score_frame_with_latency_compensated() {
     let host = fixture_host();
-    let cache = sine_cache(&host);
+    let mut cache = sine_cache(&host);
     // Onset at frame 22050; the sine starts at phase 0, so its first non-zero sample is next.
     for f in [0, 1000, 22049, 22050] {
-        assert_eq!(frame(&cache, f), 0.0, "silent at {f}");
+        assert_eq!(frame(&mut cache, f), 0.0, "silent at {f}");
     }
-    assert!(frame(&cache, 22051).abs() > 0.0);
-    let peak = (22050..44100).map(|f| frame(&cache, f).abs()).fold(0.0, f32::max);
+    assert!(frame(&mut cache, 22051).abs() > 0.0);
+    let peak = (22050..44100).map(|f| frame(&mut cache, f).abs()).fold(0.0, f32::max);
     assert!((peak - 0.25).abs() < 0.01, "peak {peak}");
     // Released at 1.0 s with a 0.1 s release: silent by 1.1 s.
-    assert_eq!(frame(&cache, 44100 + 4500), 0.0);
+    assert_eq!(frame(&mut cache, 44100 + 4500), 0.0);
     assert!(cache.failure().is_none());
 }
 
 #[test]
 fn renders_are_reproducible_and_seekable() {
     let host = fixture_host();
-    let sequential = sine_cache(&host);
-    let expected: Vec<f32> = (0..50_000).map(|f| frame(&sequential, f)).collect();
-    let again = sine_cache(&host);
+    let mut sequential = sine_cache(&host);
+    let expected: Vec<f32> = (0..50_000).map(|f| frame(&mut sequential, f)).collect();
+    let mut again = sine_cache(&host);
     for f in (0..50_000u64).rev().step_by(331) {
-        assert_eq!(frame(&again, f).to_bits(), expected[f as usize].to_bits());
-    }
-}
-
-struct Constant(f32);
-impl Sampler for Constant {
-    fn at(&self, _t: f64) -> f32 {
-        self.0
+        assert_eq!(frame(&mut again, f).to_bits(), expected[f as usize].to_bits());
     }
 }
 
@@ -132,12 +127,12 @@ fn gain_effect_applies_its_stored_state() {
             GAIN_ID,
             stage(&host, GAIN_ID, &settings(state.as_deref())),
             EventSource::None,
-            Some(aura_render::AudioSampler::Mono(Box::new(Constant(0.8)))),
+            Some(AudioSignal::Mono(Box::new(Constant(0.8)))),
             RATE,
         )
     };
-    assert_eq!(frame(&effect(None), 100), 0.8 * 0.5);
-    assert_eq!(frame(&effect(Some(gain_state(0.25))), 100), 0.8 * 0.25);
+    assert_eq!(frame(&mut effect(None), 100), 0.8 * 0.5);
+    assert_eq!(frame(&mut effect(Some(gain_state(0.25))), 100), 0.8 * 0.25);
 }
 
 #[test]
@@ -163,8 +158,8 @@ fn instances_on_other_threads_share_the_main_thread() {
         .map(|_| {
             let host = Arc::clone(&host);
             std::thread::spawn(move || {
-                let cache = sine_cache(&host);
-                frame(&cache, 30_000)
+                let mut cache = sine_cache(&host);
+                frame(&mut cache, 30_000)
             })
         })
         .collect();
@@ -182,7 +177,7 @@ fn level(value: f64) -> PluginSettings {
     }
 }
 
-fn note_peak(cache: &RenderCache) -> f32 {
+fn note_peak(cache: &mut RenderCache) -> f32 {
     (22050..44100).map(|f| frame(cache, f).abs()).fold(0.0, f32::max)
 }
 
@@ -211,12 +206,12 @@ fn lists_plugin_parameters() {
 #[test]
 fn embedded_parameter_values_apply_from_the_first_frame() {
     let host = fixture_host();
-    let default = note_peak(&sine_cache(&host));
-    let half = note_peak(&sine_cache_with(&host, &level(0.125)));
+    let default = note_peak(&mut sine_cache(&host));
+    let half = note_peak(&mut sine_cache_with(&host, &level(0.125)));
     assert!((default - 0.25).abs() < 0.01, "default level: {default}");
     assert!((half - 0.125).abs() < 0.01, "level 0.125: {half}");
     // Out-of-range values clamp to the parameter's range.
-    let clamped = note_peak(&sine_cache_with(&host, &level(5.0)));
+    let clamped = note_peak(&mut sine_cache_with(&host, &level(5.0)));
     assert!((clamped - 1.0).abs() < 0.02, "clamped to 1.0: {clamped}");
 }
 

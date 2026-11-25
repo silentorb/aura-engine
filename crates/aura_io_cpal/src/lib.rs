@@ -1,11 +1,13 @@
 //! Real-time audio playback for Aura via CPAL.
 //!
-//! Deterministic mode plays a pure [`AudioSampler`] (mono or stereo) on the default output device
+//! Deterministic mode plays an [`AudioSignal`] (mono or stereo) on the default output device
 //! ([`PlaybackEngine`]); streaming mode pulls blocks from a [`BlockSource`]
 //! ([`StreamingOutput`]). Device availability depends on the host environment
 //! (WSL/devcontainer may have none).
 
-use aura_render::{AudioSampler, BlockSource};
+mod transport;
+
+use aura_render::{AudioSignal, BlockSource};
 use aura_sample::SampleRate;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, Stream};
@@ -13,6 +15,7 @@ use dasp_sample::Sample;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
+use transport::RenderAhead;
 
 /// Errors from opening or running a CPAL output stream.
 #[derive(Debug, Error)]
@@ -29,16 +32,24 @@ pub enum PlaybackError {
     PlayStream(#[source] cpal::Error),
 }
 
-/// Real-time playback via CPAL, sampling the same `frame(t)` path as offline render.
+/// Deterministic transport playback via CPAL: the same frames as an offline render.
+///
+/// A render thread runs the signal [`PREPARE_AHEAD_SECS`] ahead of the playhead into a ring
+/// buffer; the audio callback only copies frames out of it. If the ring runs dry the callback
+/// plays silence, counts the missing frames as underruns, and the playhead waits for the
+/// renderer (it reports what was heard).
 pub struct PlaybackEngine {
     stream: Option<Stream>,
-    sampler: Option<Arc<AudioSampler>>,
-    sample_clock: Arc<AtomicU64>,
+    render: Option<RenderAhead>,
+    /// Frames played since the start frame.
+    played: Arc<AtomicU64>,
+    underruns: Arc<AtomicU64>,
+    start_frame: u64,
     sample_rate_hz: f64,
 }
 
-/// How far ahead of the playhead stateful samplers (plugins) keep prepared during transport
-/// playback; [`PlaybackEngine::start_at`] prepares this much before the stream opens.
+/// How far ahead of the playhead the transport renders. [`PlaybackEngine::start_at`] renders
+/// this much before the stream opens.
 pub const PREPARE_AHEAD_SECS: f64 = 2.0;
 
 impl std::fmt::Debug for PlaybackEngine {
@@ -54,8 +65,10 @@ impl PlaybackEngine {
     pub fn new() -> Self {
         Self {
             stream: None,
-            sampler: None,
-            sample_clock: Arc::new(AtomicU64::new(0)),
+            render: None,
+            played: Arc::new(AtomicU64::new(0)),
+            underruns: Arc::new(AtomicU64::new(0)),
+            start_frame: 0,
             sample_rate_hz: 0.0,
         }
     }
@@ -65,76 +78,78 @@ impl PlaybackEngine {
         self.stream.is_some()
     }
 
-    /// Current playback time in seconds (from the shared sample clock).
+    /// Current playback time in seconds: the start position plus the frames played.
     pub fn position_secs(&self) -> f64 {
         if self.sample_rate_hz <= 0.0 {
             return 0.0;
         }
-        self.sample_clock.load(Ordering::Relaxed) as f64 / self.sample_rate_hz
+        (self.start_frame + self.played.load(Ordering::Relaxed)) as f64 / self.sample_rate_hz
     }
 
-    /// Starts playback of `sampler` from `t = 0` on the default output device.
+    /// Starts playback of `signal` from frame 0 on the default output device.
     ///
     /// The stream uses `sample_rate` so it matches the rate used to translate the
     /// graph. Stops any existing stream first. Fails clearly when no device is available.
-    pub fn start(
-        &mut self,
-        sampler: Arc<AudioSampler>,
-        sample_rate: SampleRate,
-    ) -> Result<(), PlaybackError> {
-        self.start_at(sampler, sample_rate, 0.0)
+    pub fn start(&mut self, signal: AudioSignal, sample_rate: SampleRate) -> Result<(), PlaybackError> {
+        self.start_at(signal, sample_rate, 0.0)
     }
 
-    /// Starts playback of `sampler` from `start_secs` on the default output device.
+    /// Starts playback of `signal` from `start_secs` on the default output device.
     ///
-    /// Stops any existing stream first. Fails clearly when no device is available.
+    /// Renders [`PREPARE_AHEAD_SECS`] on this thread first (a plugin far into a piece renders
+    /// up to there), then opens the stream. Stops any existing stream first. Fails clearly when
+    /// no device is available.
     pub fn start_at(
         &mut self,
-        sampler: Arc<AudioSampler>,
+        signal: AudioSignal,
         sample_rate: SampleRate,
         start_secs: f64,
     ) -> Result<(), PlaybackError> {
         self.stop();
 
         let rate = f64::from(sample_rate.get());
-        let start_sample = if start_secs <= 0.0 || rate <= 0.0 {
+        let start_frame = if start_secs <= 0.0 || rate <= 0.0 {
             0
         } else {
             (start_secs * rate).round().max(0.0) as u64
         };
-        // Stateful samplers (plugins) render up to here now, on this thread, and keep ahead of
-        // the playhead in the background, so the audio thread only reads.
-        sampler.prepare(start_secs.max(0.0), PREPARE_AHEAD_SECS);
-        let sample_clock = Arc::new(AtomicU64::new(start_sample));
-        let clock = Arc::clone(&sample_clock);
-        let reader = Arc::clone(&sampler);
+        let ahead_frames = (PREPARE_AHEAD_SECS * rate).ceil() as usize;
+        let render = RenderAhead::start(signal, start_frame, ahead_frames);
+        let ring = Arc::clone(&render.ring);
+        let played = Arc::new(AtomicU64::new(0));
+        let underruns = Arc::new(AtomicU64::new(0));
+        let (played_in, underruns_in) = (Arc::clone(&played), Arc::clone(&underruns));
 
         let stream = open_output(sample_rate, move |block: &mut [[f32; 2]]| {
-            aura_render::mark_realtime_reader();
-            let sampler = &reader;
-            for out in block.iter_mut() {
-                let frame = clock.fetch_add(1, Ordering::Relaxed);
-                *out = sampler.frame(frame as f64 / rate);
+            let count = ring.pop_into(block);
+            if count < block.len() {
+                block[count..].fill([0.0; 2]);
+                underruns_in.fetch_add((block.len() - count) as u64, Ordering::Relaxed);
             }
+            played_in.fetch_add(count as u64, Ordering::Relaxed);
         })?;
 
-        self.sample_clock = sample_clock;
+        self.played = played;
+        self.underruns = underruns;
+        self.start_frame = start_frame;
         self.sample_rate_hz = rate;
         self.stream = Some(stream);
-        self.sampler = Some(sampler);
+        self.render = Some(render);
         Ok(())
     }
 
-    /// Real-time reads during this playback that found nothing prepared (silence instead).
+    /// Frames of this playback that were not rendered in time (played as silence).
     pub fn underruns(&self) -> u64 {
-        self.sampler.as_ref().map_or(0, |s| s.underruns())
+        self.underruns.load(Ordering::Relaxed)
     }
 
     /// Stops playback if running. No-op when idle.
     pub fn stop(&mut self) {
+        // The callback stops before its ring's renderer does.
         self.stream = None;
-        self.sampler = None;
-        self.sample_clock.store(0, Ordering::Relaxed);
+        self.render = None;
+        self.played.store(0, Ordering::Relaxed);
+        self.start_frame = 0;
         self.sample_rate_hz = 0.0;
     }
 }

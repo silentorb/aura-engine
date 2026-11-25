@@ -15,12 +15,8 @@
 use super::streaming::NodeCtx;
 use super::{NodeValue, TranslateError};
 use aura_imp::NodeId;
-use aura_render::{
-    ChannelView, Layout, Sampler, SharedSampler, StereoPair, StereoSampler, LEFT, RIGHT,
-};
-use std::cell::RefCell;
+use aura_render::{Layout, StereoPair, LEFT, RIGHT};
 use std::collections::BTreeMap;
-use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
 /// One implementation: builds a node's runtime value at translate time.
@@ -181,51 +177,24 @@ pub(crate) fn node_impls() -> &'static BTreeMap<&'static str, Matrix> {
     })
 }
 
-/// A translated input shared between the two channel passes of a dual-mono node.
-#[derive(Clone)]
-pub(crate) enum SharedInput {
-    Mono(Arc<dyn Sampler>),
-    Stereo(Arc<dyn StereoSampler>),
-}
-
-/// One channel pass of a dual-mono node: which node, which channel, and its inputs translated
-/// so far (by port and edge index), so the second pass reuses them instead of translating
-/// upstream again.
+/// One channel pass of a dual-mono node: which node, and which channel of its stereo inputs it
+/// sees. The inputs themselves are translated once and shared by both passes (translation
+/// shares every output a stereo consumer reads).
 #[derive(Clone)]
 pub(crate) struct ChannelPass {
     pub(crate) consumer: NodeId,
     pub(crate) channel: usize,
-    memo: Rc<RefCell<BTreeMap<(String, usize), SharedInput>>>,
 }
 
-impl ChannelPass {
-    pub(crate) fn remembered(&self, port: &str, index: usize) -> Option<SharedInput> {
-        self.memo.borrow().get(&(port.to_string(), index)).cloned()
-    }
-
-    pub(crate) fn remember(&self, port: &str, index: usize, input: SharedInput) {
-        self.memo.borrow_mut().insert((port.to_string(), index), input);
-    }
-
-    /// The input as this pass sees it: a mono input shared, a stereo input as this channel.
-    pub(crate) fn view(&self, input: SharedInput) -> Box<dyn Sampler> {
-        match input {
-            SharedInput::Mono(sampler) => Box::new(SharedSampler(sampler)),
-            SharedInput::Stereo(sampler) => Box::new(ChannelView::new(sampler, self.channel)),
-        }
-    }
-}
-
-/// Stereo from a mono implementation: run it once per channel, each pass seeing that channel of
-/// every stereo input (and the same mono inputs), and pair the results.
+/// Stereo from a mono implementation: build it once per channel, each instance seeing that
+/// channel of every stereo input (and the same mono inputs), and pair the results. Each channel
+/// has its own instance, so a node's state (streaming history included) stays per channel.
 fn dual_mono(mono: Build) -> Build {
     Arc::new(move |ctx: &mut NodeCtx<'_, '_>| {
-        let memo = Rc::new(RefCell::new(BTreeMap::new()));
         let channel = |ctx: &mut NodeCtx<'_, '_>, channel: usize| {
             let pass = ChannelPass {
                 consumer: ctx.node.id.clone(),
                 channel,
-                memo: Rc::clone(&memo),
             };
             ctx.bindings.channel_passes.borrow_mut().push(pass);
             let layout = std::mem::replace(&mut ctx.layout, Layout::Mono);
@@ -233,7 +202,7 @@ fn dual_mono(mono: Build) -> Build {
             ctx.layout = layout;
             ctx.bindings.channel_passes.borrow_mut().pop();
             match result? {
-                NodeValue::Signal(sampler) => Ok(sampler),
+                NodeValue::Signal(signal) => Ok(signal),
                 _ => Err(ctx.missing_port()),
             }
         };

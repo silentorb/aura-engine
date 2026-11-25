@@ -3,9 +3,10 @@
 //! Plugins are stateful, block-based, and forward-only. This crate turns them into Aura runtime
 //! nodes without any protocol code:
 //!
-//! - **Deterministic** — [`RenderCache`] owns a plugin instance and renders it forward into a
-//!   retained buffer, so `Sampler::at(t)` can be sampled in any order. Note events come from the
-//!   fully known score at exact frames, and the plugin's latency is compensated.
+//! - **Deterministic** — [`RenderCache`] is a block node owning a plugin instance. It renders
+//!   the plugin forward on its own block grid into retained output, so any range of frames can
+//!   be rendered in any order with identical results. Note events come from the fully known
+//!   score at exact frames, and the plugin's latency is compensated.
 //! - **Streaming** — [`PluginStage`] is a [`BlockSource`](aura_render::BlockSource) holding one
 //!   shared instance, driven by note commands as they arrive. A per-voice [`RenderCache`] bound
 //!   to one live note is the fallback where a shared instance cannot express the graph.
@@ -27,9 +28,9 @@ use aura_sample::SampleRate;
 use std::sync::Arc;
 use thiserror::Error;
 
-/// Frames a plugin processes per call. Small enough for streaming latency, large enough that
-/// per-call overhead stays negligible offline.
-pub const BLOCK_FRAMES: u32 = 256;
+/// Frames a plugin processes per call: Aura's block size. Small enough for streaming latency,
+/// large enough that per-call overhead stays negligible offline.
+pub const BLOCK_FRAMES: u32 = aura_render::BLOCK_FRAMES as u32;
 
 /// A note event for one processing block. `frame` is relative to the block start.
 #[derive(Debug, Clone, Copy, PartialEq)]

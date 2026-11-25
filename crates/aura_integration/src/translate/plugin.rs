@@ -2,7 +2,8 @@
 //! host's [`PluginResolver`](aura_plugin_host::PluginResolver).
 //!
 //! Both modes build a [`RenderCache`]: in deterministic mode it renders the plugin forward
-//! from the fully known score; in a streaming voice instance it plays the voice's live note.
+//! from the fully known score and answers any range from what it kept; in a streaming voice
+//! instance it plays the voice's live note.
 //! Streaming programs whose output is a chain of plugins instead share one instance per
 //! plugin across every voice (see `StreamingProgram::open`).
 
@@ -16,11 +17,10 @@ use aura_plugin_host::{
     EventSource, LayoutStage, NoteEventSource, ParamSetting, PluginSettings, ProcessorConfig,
     ProcessorFactory, RenderCache, RenderMode, BLOCK_FRAMES,
 };
-use aura_render::{AudioSampler, Layout, Sampler, StereoSampler};
+use aura_render::{AudioSignal, Layout};
 use aura_sample::SampleRate;
 use base64::Engine;
 use std::sync::Arc;
-
 
 fn literal(node: &Node, port: &str) -> Result<String, TranslateError> {
     match node.inputs.get(port) {
@@ -162,82 +162,19 @@ pub(super) fn translate_plugin(
         (events, None, Layout::Stereo)
     } else {
         let input = match ctx.layout {
-            Layout::Mono => AudioSampler::Mono(ctx.signal("audio")?),
-            Layout::Stereo => AudioSampler::Stereo(ctx.stereo_signal("audio")?),
+            Layout::Mono => AudioSignal::Mono(ctx.signal("audio")?),
+            Layout::Stereo => AudioSignal::Stereo(ctx.stereo_signal("audio")?),
         };
         (EventSource::None, Some(input), ctx.layout)
     };
     let stage = plugin_stage(node, factory.as_ref(), ctx.sample_rate, mode, layout)?;
     let cache = RenderCache::new(factory.plugin_id(), stage, events, input, ctx.sample_rate);
-    ctx.bindings.caches.borrow_mut().push(cache.clone());
+    let instances = &ctx.bindings.plugin_instances;
+    instances.set(instances.get() + 1);
     Ok(match layout {
         Layout::Mono => NodeValue::Signal(Box::new(cache)),
         Layout::Stereo => NodeValue::Stereo(Box::new(cache)),
     })
-}
-
-/// A translated graph whose plugin caches are reachable for real-time preparation; samples
-/// exactly like its root.
-struct PreparedRoot {
-    root: Box<dyn Sampler>,
-    caches: Vec<RenderCache>,
-}
-
-impl Sampler for PreparedRoot {
-    fn at(&self, time_secs: f64) -> f32 {
-        self.root.at(time_secs)
-    }
-
-    /// Prepares upstream caches first (translation builds inputs before their consumers), so
-    /// a downstream plugin reads upstream output that is already rendered.
-    fn prepare(&self, start_secs: f64, ahead_secs: f64) {
-        for cache in &self.caches {
-            cache.prepare(start_secs, ahead_secs);
-        }
-    }
-
-    fn underruns(&self) -> u64 {
-        self.caches.iter().map(RenderCache::underruns).sum()
-    }
-}
-
-/// Wraps a translated root so preparing it prepares its plugin caches; unchanged without any.
-pub(super) fn prepared_root(root: AudioSampler, caches: Vec<RenderCache>) -> AudioSampler {
-    if caches.is_empty() {
-        return root;
-    }
-    match root {
-        AudioSampler::Mono(root) => AudioSampler::Mono(Box::new(PreparedRoot { root, caches })),
-        AudioSampler::Stereo(root) => {
-            AudioSampler::Stereo(Box::new(PreparedStereoRoot { root, caches }))
-        }
-    }
-}
-
-/// [`PreparedRoot`] for a stereo root.
-struct PreparedStereoRoot {
-    root: Box<dyn StereoSampler>,
-    caches: Vec<RenderCache>,
-}
-
-impl StereoSampler for PreparedStereoRoot {
-    fn frame(&self, time_secs: f64) -> [f32; 2] {
-        self.root.frame(time_secs)
-    }
-
-    fn channel(&self, channel: usize, time_secs: f64) -> f32 {
-        self.root.channel(channel, time_secs)
-    }
-
-    fn prepare(&self, start_secs: f64, ahead_secs: f64) {
-        for cache in &self.caches {
-            cache.prepare(start_secs, ahead_secs);
-        }
-    }
-
-    fn underruns(&self) -> u64 {
-        self.caches.iter().map(RenderCache::underruns).sum()
-    }
 }
 
 /// A plugin node's deterministic implementation.
@@ -355,7 +292,7 @@ mod tests {
     fn translate(
         graph: &Graph,
         plugins: Option<&dyn PluginResolver>,
-    ) -> Result<AudioSampler, TranslateError> {
+    ) -> Result<AudioSignal, TranslateError> {
         let bindings = bindings();
         translate_graph_with_options(
             graph,
@@ -369,61 +306,39 @@ mod tests {
     }
 
     /// Peak of either channel over `frames`.
-    fn peak(sampler: &AudioSampler, frames: std::ops::Range<u64>) -> f32 {
-        frames
-            .map(|f| {
-                let [left, right] = sampler.frame(f as f64 / 44100.0);
-                left.abs().max(right.abs())
-            })
-            .fold(0.0, f32::max)
+    fn peak(signal: &mut AudioSignal, frames: std::ops::Range<u64>) -> f32 {
+        aura_render::render_range(signal, frames.start, (frames.end - frames.start) as usize)
+            .into_iter()
+            .flatten()
+            .fold(0.0, |m, s| m.max(s.abs()))
     }
 
     #[test]
     fn deterministic_plugin_chain_renders_the_score_reproducibly() {
         let host = fixture_host();
         let graph = sine_then_gain(0.5);
-        let sampler = translate(&graph, Some(host.as_ref())).expect("translate");
-        assert_eq!(peak(&sampler, 0..22051), 0.0, "silent before the note");
-        let loud = peak(&sampler, 22050..44100);
+        let mut signal = translate(&graph, Some(host.as_ref())).expect("translate");
+        assert_eq!(peak(&mut signal, 0..22051), 0.0, "silent before the note");
+        let loud = peak(&mut signal, 22050..44100);
         assert!((loud - 0.125).abs() < 0.01, "sine 0.25 through gain 0.5: {loud}");
-        assert_eq!(peak(&sampler, 49000..60000), 0.0, "released");
+        assert_eq!(peak(&mut signal, 49000..60000), 0.0, "released");
 
-        let again = translate(&graph, Some(host.as_ref())).expect("translate");
-        for f in (0..50_000u64).step_by(97) {
-            let t = f as f64 / 44100.0;
-            assert_eq!(sampler.frame(t), again.frame(t));
-        }
+        let mut again = translate(&graph, Some(host.as_ref())).expect("translate");
+        let expected = aura_render::render_range(&mut signal, 0, 50_000);
+        assert_eq!(aura_render::render_range(&mut again, 0, 50_000), expected);
     }
 
     #[test]
-    fn preparing_a_translated_graph_readies_its_plugins_for_realtime_reading() {
+    fn plugin_chains_render_any_range_in_any_order_like_a_sequential_pass() {
         let host = fixture_host();
         let graph = sine_then_gain(0.5);
-        let reference = translate(&graph, Some(host.as_ref())).expect("translate");
-        let expected: Vec<[f32; 2]> = (22_050..26_000u64)
-            .map(|f| reference.frame(f as f64 / 44100.0))
-            .collect();
-
-        let sampler: Arc<AudioSampler> =
-            Arc::new(translate(&graph, Some(host.as_ref())).expect("translate"));
-        let realtime = |sampler: &Arc<AudioSampler>, frames: std::ops::Range<u64>| {
-            let sampler = Arc::clone(sampler);
-            std::thread::spawn(move || {
-                aura_render::mark_realtime_reader();
-                frames
-                    .map(|f| sampler.frame(f as f64 / 44100.0))
-                    .collect::<Vec<[f32; 2]>>()
-            })
-            .join()
-            .expect("real-time reader")
-        };
-        let unprepared = realtime(&sampler, 22_100..22_101);
-        assert_eq!(unprepared, vec![[0.0; 2]], "nothing prepared yet: silence");
-        assert_eq!(sampler.underruns(), 1);
-
-        sampler.prepare(0.5, 0.5);
-        assert_eq!(realtime(&sampler, 22_050..26_000), expected, "same output as offline");
-        assert_eq!(sampler.underruns(), 1, "no new underruns once prepared");
+        let mut sequential = translate(&graph, Some(host.as_ref())).expect("translate");
+        let expected = aura_render::render_range(&mut sequential, 0, 50_000);
+        let mut sparse = translate(&graph, Some(host.as_ref())).expect("translate");
+        for start in (0..49_000usize).rev().step_by(1_013) {
+            let got = aura_render::render_range(&mut sparse, start as u64, 777);
+            assert_eq!(got[..], expected[start..start + 777], "range at {start}");
+        }
     }
 
     #[test]
@@ -464,8 +379,8 @@ mod tests {
         let quiet = graph_with_inputs(&format!(
             r#"{{ "plugin": "{SINE_ID}", "params": "{{\"0\": 0.125}}" }}"#
         ));
-        let sampler = translate(&quiet, Some(host.as_ref())).expect("translate");
-        let loud = peak(&sampler, 22050..44100);
+        let mut signal = translate(&quiet, Some(host.as_ref())).expect("translate");
+        let loud = peak(&mut signal, 22050..44100);
         assert!((loud - 0.125).abs() < 0.01, "level 0.125 applied: {loud}");
 
         for (params, reason) in [
@@ -631,13 +546,55 @@ mod tests {
             super::super::TranslateMode::Deterministic,
             Some(host.as_ref()),
         );
-        let sampler = prepared
+        let mut signal = prepared
             .translate(&registry, RATE, &translation)
             .expect("translate");
-        assert_eq!(sampler.layout(), aura_render::Layout::Stereo);
-        assert_eq!(translation.caches.borrow().len(), 1, "one plugin instance");
-        let loud = peak(&sampler, 22050..44100);
+        assert_eq!(signal.layout(), aura_render::Layout::Stereo);
+        assert_eq!(translation.plugin_instances.get(), 1, "one plugin instance");
+        let loud = peak(&mut signal, 22050..44100);
         assert!((loud - 0.125).abs() < 0.01, "sine 0.25 at gain 0.5: {loud}");
+    }
+
+    /// `synth` feeds two gains that are summed: translation builds the synth once and both
+    /// gains read the same rendered blocks.
+    #[test]
+    fn fan_out_builds_one_plugin_instance() {
+        let host = fixture_host();
+        let json = format!(
+            r#"{{
+              "nodes": {{
+                "n": {{ "id": "n", "type": "{NOTATION_NODE_TYPE}", "inputs": {{}} }},
+                "synth": {{ "id": "synth", "type": "{PLUGIN_INSTRUMENT}", "inputs": {{ "plugin": "{SINE_ID}" }} }},
+                "half": {{ "id": "half", "type": "multiply", "inputs": {{ "b": 0.5 }} }},
+                "quarter": {{ "id": "quarter", "type": "multiply", "inputs": {{ "b": 0.25 }} }},
+                "mix": {{ "id": "mix", "type": "add", "inputs": {{}} }},
+                "o": {{ "id": "o", "type": "output", "inputs": {{}} }}
+              }},
+              "edges": {{
+                "e1": {{ "id": "e1", "from": {{ "node": "n", "port": "score" }}, "to": {{ "node": "synth", "port": "score" }} }},
+                "e2": {{ "id": "e2", "from": {{ "node": "synth", "port": "audio" }}, "to": {{ "node": "half", "port": "a" }} }},
+                "e3": {{ "id": "e3", "from": {{ "node": "synth", "port": "audio" }}, "to": {{ "node": "quarter", "port": "a" }} }},
+                "e4": {{ "id": "e4", "from": {{ "node": "half", "port": "audio" }}, "to": {{ "node": "mix", "port": "inputs" }}, "order": 0 }},
+                "e5": {{ "id": "e5", "from": {{ "node": "quarter", "port": "audio" }}, "to": {{ "node": "mix", "port": "inputs" }}, "order": 1 }},
+                "e6": {{ "id": "e6", "from": {{ "node": "mix", "port": "audio" }}, "to": {{ "node": "o", "port": "value" }} }}
+              }}
+            }}"#
+        );
+        let graph = graph_from_json_str(&json).expect("graph");
+        let registry = aura_registry().expect("registry");
+        let scores = bindings();
+        let prepared = super::super::PreparedGraph::prepare(&graph, &registry).expect("prepare");
+        let translation = super::super::Bindings::new(
+            &scores,
+            super::super::TranslateMode::Deterministic,
+            Some(host.as_ref()),
+        );
+        let mut signal = prepared
+            .translate(&registry, RATE, &translation)
+            .expect("translate");
+        assert_eq!(translation.plugin_instances.get(), 1, "one plugin instance");
+        let loud = peak(&mut signal, 22050..44100);
+        assert!((loud - 0.1875).abs() < 0.01, "sine 0.25 at gain 0.75: {loud}");
     }
 
     #[test]
@@ -651,10 +608,10 @@ mod tests {
         )
         .expect("prepare");
         let note = live(69);
-        let voice = program.instantiate(Arc::clone(&note)).expect("voice");
-        let held = peak(&voice, 100..4000);
+        let mut voice = program.instantiate(Arc::clone(&note)).expect("voice");
+        let held = peak(&mut voice, 100..4000);
         assert!(held > 0.2, "held note sounds: {held}");
         note.release(4000.0 / 44100.0);
-        assert_eq!(peak(&voice, 4000 + 6000..20000), 0.0, "released");
+        assert_eq!(peak(&mut voice, 4000 + 6000..20000), 0.0, "released");
     }
 }

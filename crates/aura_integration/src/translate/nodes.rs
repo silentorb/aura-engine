@@ -8,9 +8,8 @@ use super::impls::Registration;
 use super::note_schedule::NoteSchedule;
 use super::streaming::{self, NodeCtx};
 use super::*;
-use aura_dsp::pan_gains;
 use aura_imp::plugin::{PLUGIN_EFFECT, PLUGIN_INSTRUMENT};
-use aura_render::{ChannelView, StereoPair, LEFT, RIGHT};
+use aura_render::{StereoChannel, StereoPair, StereoToMono, LEFT, RIGHT};
 
 /// Calls a translator helper that takes the shared translation arguments first.
 macro_rules! with_ctx {
@@ -27,8 +26,8 @@ macro_rules! with_ctx {
     };
 }
 
-fn signal(sampler: impl Sampler + 'static) -> Result<NodeValue, TranslateError> {
-    Ok(NodeValue::Signal(Box::new(sampler)))
+fn signal(signal: impl Signal + 'static) -> Result<NodeValue, TranslateError> {
+    Ok(NodeValue::Signal(Box::new(signal)))
 }
 
 fn notation(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
@@ -58,49 +57,52 @@ fn parameter(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
             node: node_id.into(),
             port: "value".into(),
         })?;
-    signal(ConstantSampler(primitive_to_f64(node_id, "value", value)? as f32))
+    signal(Constant(primitive_to_f64(node_id, "value", value)? as f32))
 }
 
-fn time(_ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    signal(TimeSampler)
+fn time(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
+    signal(TimeSignal { rate: ctx.rate() })
 }
 
 fn time_elapsed(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let start = ctx.signal("start")?;
+    let start = ctx.input("start")?;
     let _time = ctx.signal("time")?;
-    signal(TimeElapsedSampler { start })
+    signal(TimeElapsedSignal {
+        start,
+        rate: ctx.rate(),
+    })
 }
 
 fn sine_node(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let frequency = ctx.signal("frequency")?;
-    let time = ctx.signal("time")?;
-    signal(SineSampler { frequency, time })
+    let frequency = ctx.input("frequency")?;
+    let time = ctx.input("time")?;
+    signal(SineSignal { frequency, time })
 }
 
 /// Mono gain; stereo is dual mono.
 fn multiply_node(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let a = ctx.signal("a")?;
-    let b = ctx.signal("b")?;
-    signal(MultiplySampler { a, b })
+    let a = ctx.input("a")?;
+    let b = ctx.input("b")?;
+    signal(MultiplySignal { a, b })
 }
 
 fn multiply_control(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let a = ctx.signal("a")?;
-    let b = ctx.signal("b")?;
-    signal(MultiplyControlSampler { a, b })
+    let a = ctx.input("a")?;
+    let b = ctx.input("b")?;
+    signal(MultiplySignal { a, b })
 }
 
 /// Mono sum; stereo is dual mono.
 fn add_node(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let inputs = ctx.signals("inputs")?;
-    signal(AddSampler { inputs })
+    let inputs = ctx.signals("inputs")?.into_iter().map(Input::new).collect();
+    signal(AddSignal { inputs })
 }
 
 fn exponential_sweep_sine_node(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let start_hz = ctx.signal("start_hz")?;
-    let decay_rate = ctx.signal("decay_rate")?;
-    let elapsed = ctx.signal("elapsed")?;
-    signal(ExponentialSweepSineSampler {
+    let start_hz = ctx.input("start_hz")?;
+    let decay_rate = ctx.input("decay_rate")?;
+    let elapsed = ctx.input("elapsed")?;
+    signal(ExponentialSweepSineSignal {
         start_hz,
         decay_rate,
         elapsed,
@@ -108,23 +110,23 @@ fn exponential_sweep_sine_node(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, T
 }
 
 fn deterministic_noise_node(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let seed = ctx.signal("seed")?;
-    let time = ctx.signal("time")?;
-    signal(DeterministicNoiseSampler { seed, time })
+    let seed = ctx.input("seed")?;
+    let time = ctx.input("time")?;
+    signal(DeterministicNoiseSignal { seed, time })
 }
 
 fn highpass_noise_node(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let seed = ctx.signal("seed")?;
-    let time = ctx.signal("time")?;
-    let dt = ctx.signal("dt")?;
-    signal(HighpassNoiseSampler { seed, time, dt })
+    let seed = ctx.input("seed")?;
+    let time = ctx.input("time")?;
+    let dt = ctx.input("dt")?;
+    signal(HighpassNoiseSignal { seed, time, dt })
 }
 
 fn bandlimited_saw_node(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let frequency = ctx.signal("frequency")?;
-    let elapsed = ctx.signal("elapsed")?;
-    let cutoff = ctx.signal("cutoff")?;
-    signal(BandlimitedSawSampler {
+    let frequency = ctx.input("frequency")?;
+    let elapsed = ctx.input("elapsed")?;
+    let cutoff = ctx.input("cutoff")?;
+    signal(BandlimitedSawSignal {
         frequency,
         elapsed,
         cutoff,
@@ -132,13 +134,13 @@ fn bandlimited_saw_node(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, Translat
 }
 
 fn linear_adsr(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let attack = ctx.signal("attack")?;
-    let decay = ctx.signal("decay")?;
-    let sustain = ctx.signal("sustain")?;
-    let release = ctx.signal("release")?;
-    let elapsed = ctx.signal("elapsed")?;
-    let note_duration = ctx.signal("note_duration")?;
-    signal(LinearAdsrSampler {
+    let attack = ctx.input("attack")?;
+    let decay = ctx.input("decay")?;
+    let sustain = ctx.input("sustain")?;
+    let release = ctx.input("release")?;
+    let elapsed = ctx.input("elapsed")?;
+    let note_duration = ctx.input("note_duration")?;
+    signal(LinearAdsrSignal {
         attack,
         decay,
         sustain,
@@ -149,8 +151,8 @@ fn linear_adsr(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
 }
 
 fn semitone_to_hz(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let semitone = ctx.signal("semitone")?;
-    signal(SemitoneToHzSampler { semitone })
+    let semitone = ctx.input("semitone")?;
+    signal(SemitoneToHzSignal { semitone })
 }
 
 fn epic_minor_progression_node(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
@@ -229,66 +231,31 @@ fn chord_at_time(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError>
 
 fn note_envelope(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
     let score = ctx.score("score")?;
-    signal(NoteEnvelopeSampler {
+    signal(NoteEnvelopeSignal {
         schedule: NoteSchedule::from_score_signal(&score, ctx.sample_rate),
         adsr: LinearAdsr::default(),
+        rate: ctx.rate(),
     })
 }
 
 fn poly_sine_score(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
     let score = ctx.score("score")?;
     let _time = ctx.signal("time")?;
-    signal(PolySineScoreSampler {
+    signal(PolySineScoreSignal {
         schedule: NoteSchedule::from_score_signal(&score, ctx.sample_rate),
         adsr: LinearAdsr::default(),
+        rate: ctx.rate(),
     })
 }
 
-/// Equal-power pan of a mono signal; each channel is computed on its own.
-struct PanSampler {
-    audio: Box<dyn Sampler>,
-    position: Box<dyn Sampler>,
-}
-
-impl StereoSampler for PanSampler {
-    fn frame(&self, t: f64) -> [f32; 2] {
-        let value = self.audio.at(t);
-        let (left, right) = pan_gains(self.position.at(t));
-        [value * left, value * right]
-    }
-
-    fn channel(&self, channel: usize, t: f64) -> f32 {
-        let (left, right) = pan_gains(self.position.at(t));
-        self.audio.at(t) * if channel == LEFT { left } else { right }
-    }
-}
-
 fn pan(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    let audio = ctx.signal("audio")?;
-    let position = ctx.signal("position")?;
-    Ok(NodeValue::Stereo(Box::new(PanSampler { audio, position })))
-}
-
-/// The average of a stereo signal's channels.
-struct StereoToMonoSampler(Box<dyn StereoSampler>);
-
-impl Sampler for StereoToMonoSampler {
-    fn at(&self, t: f64) -> f32 {
-        let [left, right] = self.0.frame(t);
-        (left + right) * 0.5
-    }
-
-    fn prepare(&self, start_secs: f64, ahead_secs: f64) {
-        self.0.prepare(start_secs, ahead_secs);
-    }
-
-    fn underruns(&self) -> u64 {
-        self.0.underruns()
-    }
+    let audio = ctx.input("audio")?;
+    let position = ctx.input("position")?;
+    Ok(NodeValue::Stereo(Box::new(PanSignal { audio, position })))
 }
 
 fn stereo_to_mono(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
-    signal(StereoToMonoSampler(ctx.stereo_signal("audio")?))
+    signal(StereoToMono::new(ctx.stereo_signal("audio")?))
 }
 
 fn stereo_join(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> {
@@ -304,8 +271,7 @@ fn stereo_split(ctx: &mut NodeCtx<'_, '_>) -> Result<NodeValue, TranslateError> 
         "right" => RIGHT,
         _ => return Err(ctx.missing_port()),
     };
-    let stereo: Arc<dyn StereoSampler> = Arc::from(ctx.stereo_signal("audio")?);
-    signal(ChannelView::new(stereo, channel))
+    signal(StereoChannel::new(ctx.stereo_signal("audio")?, channel))
 }
 
 /// Every Aura node type with the implementations it provides.
