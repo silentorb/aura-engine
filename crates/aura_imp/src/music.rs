@@ -11,10 +11,10 @@ use imp_core_types::{
 };
 use std::collections::BTreeMap;
 
-fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option<PrimitiveValue>) -> Port {
+fn port(id: &str, ty: imp_core_types::Type, default_value: Option<PrimitiveValue>) -> Port {
     Port {
         id: id.into(),
-        signal_type,
+        ty,
         default_value,
         variadic: false,
     }

@@ -17,7 +17,7 @@ pub use imp_core_types::{
     concrete_type, core_node_library, graph_source, materialize_graph, Edge, EdgeId, Graph,
     GraphLibrary, GraphSource, InputValues, LayeredNodes, Node, NodeProvider,
     NodeDefinition, NodeId, NodeLibrary, NodeType, NodeTypeId, Port, PortId, PortReference, Ports,
-    PrimitiveValue, SignalType, SignalTypeId,
+    PrimitiveValue, Type, TypeId,
 };
 pub use imp_graph_resolve::flatten_graph;
 pub use imp_registry::{

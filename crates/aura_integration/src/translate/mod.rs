@@ -42,7 +42,7 @@ use signals::*;
 use aura_sample::SampleRate;
 use aura_imp::constraints::AUDIO;
 use aura_imp::signals::AUDIO_STEREO;
-use aura_imp::{get_node_definition, SignalType};
+use aura_imp::{get_node_definition, Type};
 use imp_typecheck::{check_graph, resolve_type_args};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -1321,7 +1321,7 @@ fn resolve_layouts(graph: &Graph, registry: &Registry) -> BTreeMap<NodeId, Layou
         };
         let stereo = resolve_type_args(graph, &node.id, registry, None)
             .and_then(|args| args.get(index).cloned())
-            .is_some_and(|arg| matches!(arg, SignalType::Concrete { id, .. } if id == AUDIO_STEREO));
+            .is_some_and(|arg| matches!(arg, Type::Concrete { id, .. } if id == AUDIO_STEREO));
         if stereo {
             layouts.insert(node.id.clone(), Layout::Stereo);
         }

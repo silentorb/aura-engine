@@ -26,10 +26,10 @@ pub const PLUGIN_STATE_PORT: &str = "state";
 /// to plain value, e.g. `{"0": 0.4}`. Applied after `state`, overriding it. Empty for none.
 pub const PLUGIN_PARAMS_PORT: &str = "params";
 
-fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option<PrimitiveValue>) -> Port {
+fn port(id: &str, ty: imp_core_types::Type, default_value: Option<PrimitiveValue>) -> Port {
     Port {
         id: id.into(),
-        signal_type,
+        ty,
         default_value,
         variadic: false,
     }

@@ -279,7 +279,7 @@ fn generic_graph_definitions_work_at_both_layouts() {
             id.to_string(),
             Port {
                 id: id.into(),
-                signal_type: a.clone(),
+                ty: a.clone(),
                 default_value: None,
                 variadic: false,
             },

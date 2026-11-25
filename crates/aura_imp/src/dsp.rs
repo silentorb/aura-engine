@@ -6,19 +6,19 @@ use crate::signals::{signal, ANY, AUDIO_MONO, AUDIO_STEREO, CONTROL, TIME};
 use imp_core_types::{type_var, NodeLibrary, Port, PrimitiveValue, TypeParam};
 use std::collections::BTreeMap;
 
-fn port(id: &str, signal_type: imp_core_types::SignalType, default_value: Option<PrimitiveValue>) -> Port {
+fn port(id: &str, ty: imp_core_types::Type, default_value: Option<PrimitiveValue>) -> Port {
     Port {
         id: id.into(),
-        signal_type,
+        ty,
         default_value,
         variadic: false,
     }
 }
 
-fn variadic_port(id: &str, signal_type: imp_core_types::SignalType) -> Port {
+fn variadic_port(id: &str, ty: imp_core_types::Type) -> Port {
     Port {
         id: id.into(),
-        signal_type,
+        ty,
         default_value: None,
         variadic: true,
     }
