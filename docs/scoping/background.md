@@ -24,13 +24,13 @@ Aura splits across kebab-case repos so orchestration stays out of the product tr
 | `aura-engine` | This product (Rust crates, docs, demos) |
 | `aura-editor` | Editor UI: Aura's Imp Lab extensions and the Aura pack configuration |
 
-Imp siblings remain path dependencies under `.mnt/` inside the engine container. Motivation: keep engine cloneable as product source while the workbench owns how developers attach tools and sibling checkouts.
+Imp siblings are path dependencies on sibling checkouts (`../imp-rs`, `../tome-rust-server`). Motivation: keep engine cloneable as product source while the workbench owns how developers attach tools and sibling checkouts.
 
 ## Declarative graphs via Imp
 
 Aura needs a portable declarative DAG for synthesis. [Imp](https://github.com/silentorb/imp-spec) provides `Graph`, node libraries, and registries. Stock `imp_execution` evaluates collection/path graphs into tabular rows — the wrong model for continuous audio buffers.
 
-imp-rs is bind-mounted at `.mnt/imp-rs` (host `~/dev/imp-rs`) so Cargo path deps pick up sibling changes without rebuilding the image.
+imp-rs is a sibling checkout (`../imp-rs`; `/workspaces/imp-rs` in workbench containers) so Cargo path deps pick up sibling changes without rebuilding the image.
 
 ## Seekable sampling vs sequential DSP
 

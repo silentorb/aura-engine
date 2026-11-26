@@ -20,7 +20,7 @@ imp_graph_resolve = { workspace = true }
 imp_mir = { workspace = true }
 imp_typecheck = { workspace = true }
 imp_core_types = { workspace = true }
-tome_imp = { path = "../../.mnt/tome-rust-server/crates/tome_imp" }
+tome_imp = { path = "../../../tome-rust-server/crates/tome_imp" }
 base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

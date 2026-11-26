@@ -19,14 +19,9 @@ members = [
     "crates/aura_io_midi",
     "crates/aura_integration",
     "crates/aura_cli",
-    ".mnt/imp-rs/crates/imp_core_types",
-    ".mnt/imp-rs/crates/imp_registry",
-    ".mnt/imp-rs/crates/imp_typecheck",
-    ".mnt/imp-rs/crates/imp_file",
-    ".mnt/imp-rs/crates/imp_graph_resolve",
 ]
-# tome-rust-server keeps its own workspace (its crates inherit deps from it), as in Imp Lab.
-exclude = [".mnt/tome-rust-server"]
+# Imp and tome-rust-server crates are sibling checkouts (../imp-rs, ../tome-rust-server)
+# with their own workspaces; they are path dependencies, not members (as in Imp Lab).
 
 [workspace.package]
 version = "0.1.0"
@@ -35,13 +30,13 @@ license = "MIT"
 repository = "https://github.com/silentorb/aura-engine"
 
 [workspace.dependencies]
-imp_core_types = { path = ".mnt/imp-rs/crates/imp_core_types" }
-imp_registry = { path = ".mnt/imp-rs/crates/imp_registry" }
-imp_typecheck = { path = ".mnt/imp-rs/crates/imp_typecheck" }
-imp_file = { path = ".mnt/imp-rs/crates/imp_file" }
-imp_graph_resolve = { path = ".mnt/imp-rs/crates/imp_graph_resolve" }
-imp_collection_transforms = { path = ".mnt/imp-rs/crates/imp_collection_transforms" }
-imp_mir = { path = ".mnt/tome-rust-server/crates/imp_mir" }
+imp_core_types = { path = "../imp-rs/crates/imp_core_types" }
+imp_registry = { path = "../imp-rs/crates/imp_registry" }
+imp_typecheck = { path = "../imp-rs/crates/imp_typecheck" }
+imp_file = { path = "../imp-rs/crates/imp_file" }
+imp_graph_resolve = { path = "../imp-rs/crates/imp_graph_resolve" }
+imp_collection_transforms = { path = "../imp-rs/crates/imp_collection_transforms" }
+imp_mir = { path = "../tome-rust-server/crates/imp_mir" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dasp_sample = "0.11"

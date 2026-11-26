@@ -1009,24 +1009,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
 
 [[package]]
-name = "imp_collection_transforms"
-version = "0.1.0"
-dependencies = [
- "imp_core_types",
- "imp_registry",
-]
-
-[[package]]
 name = "imp_core_types"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "serde",
- "serde_json",
 ]
 
 [[package]]
 name = "imp_file"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "imp_core_types",
  "serde",
@@ -1036,9 +1027,8 @@ dependencies = [
 
 [[package]]
 name = "imp_graph_resolve"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
- "imp_collection_transforms",
  "imp_core_types",
  "imp_registry",
  "imp_typecheck",
@@ -1067,18 +1057,16 @@ dependencies = [
 
 [[package]]
 name = "imp_registry"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "imp_core_types",
- "serde_json",
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "imp_typecheck"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
- "imp_collection_transforms",
  "imp_core_types",
  "imp_registry",
  "thiserror 2.0.20",
