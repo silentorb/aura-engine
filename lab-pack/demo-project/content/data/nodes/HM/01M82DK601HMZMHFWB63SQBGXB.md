@@ -4,205 +4,187 @@ created_at: 2026-11-22T20:01:38.817Z
 modified_at: 2026-11-22T20:01:38.817Z
 graph:
   nodes:
-    0033AFBG2Q00V664EQRF0SN9SR:
-      id: 0033AFBG2Q00V664EQRF0SN9SR
+    - id: 0033AFBG2Q00V664EQRF0SN9SR
       type: time
       inputs: {}
       title: time
-    0033AFBG2R00VG2JAHFN0EA8TD:
-      id: 0033AFBG2R00VG2JAHFN0EA8TD
+    - id: 0033AFBG2R00VG2JAHFN0EA8TD
       type: constant_tempo
       inputs: {}
       title: tempo
-    0033AFBG2S00VSZ06B6V02Z7V2:
-      id: 0033AFBG2S00VSZ06B6V02Z7V2
+    - id: 0033AFBG2S00VSZ06B6V02Z7V2
       type: constant_time_signature
       inputs: {}
       title: meter
-    0033AFBG2T00W3VE24Y0ZQM6VQ:
-      id: 0033AFBG2T00W3VE24Y0ZQM6VQ
+    - id: 0033AFBG2T00W3VE24Y0ZQM6VQ
       type: epic_minor_progression
       inputs: {}
       title: prog
-    0033AFBG2V00WDQVXYN6ZC95WC:
-      id: 0033AFBG2V00WDQVXYN6ZC95WC
+    - id: 0033AFBG2V00WDQVXYN6ZC95WC
       type: loop
       inputs: {}
       title: loop_prog
-    0033AFBG2X00X1GQNJ3JYNK3XP:
-      id: 0033AFBG2X00X1GQNJ3JYNK3XP
+    - id: 0033AFBG2X00X1GQNJ3JYNK3XP
       type: loop
       inputs: {}
       title: loop_arp
-    0033AFBG2Y00XBD5HBTRYA82YB:
-      id: 0033AFBG2Y00XBD5HBTRYA82YB
+    - id: 0033AFBG2Y00XBD5HBTRYA82YB
       type: sine_note_voice
       inputs: {}
       title: arp_voice
-    0033AFBG2Z00XN9KD5HYXYX1Z0:
-      id: 0033AFBG2Z00XN9KD5HYXYX1Z0
+    - id: 0033AFBG2Z00XN9KD5HYXYX1Z0
       type: drum_grid
       inputs:
         lane: 0
       title: kick_grid
-    0033AFBG3000XZ618Z94XKJ0ZN:
-      id: 0033AFBG3000XZ618Z94XKJ0ZN
+    - id: 0033AFBG3000XZ618Z94XKJ0ZN
       type: loop
       inputs: {}
       title: loop_kick
-    0033AFBG3100Y92F4S0AX8700A:
-      id: 0033AFBG3100Y92F4S0AX8700A
+    - id: 0033AFBG3100Y92F4S0AX8700A
       type: kick_drum
       inputs: {}
       title: kick
-    0033AFBG3200YJYX0JQGWWVZ0Z:
-      id: 0033AFBG3200YJYX0JQGWWVZ0Z
+    - id: 0033AFBG3200YJYX0JQGWWVZ0Z
       type: drum_grid
       inputs:
         lane: 1
       title: snare_grid
-    0033AFBG3300YWVAWCEPWHGY1M:
-      id: 0033AFBG3300YWVAWCEPWHGY1M
+    - id: 0033AFBG3300YWVAWCEPWHGY1M
       type: loop
       inputs: {}
       title: loop_snare
-    0033AFBG3400Z6QRR65WW65X29:
-      id: 0033AFBG3400Z6QRR65WW65X29
+    - id: 0033AFBG3400Z6QRR65WW65X29
       type: snare_drum
       inputs: {}
       title: snare
-    0033AFBG3500ZGM6KZX2VTTW2Y:
-      id: 0033AFBG3500ZGM6KZX2VTTW2Y
+    - id: 0033AFBG3500ZGM6KZX2VTTW2Y
       type: add
       inputs: {}
       title: mix
-    0033AFBG3600ZTGMFSM8VFFV3K:
-      id: 0033AFBG3600ZTGMFSM8VFFV3K
+    - id: 0033AFBG3600ZTGMFSM8VFFV3K
       type: bass_line
       inputs: {}
       title: bass
-    0033AFBG370104D2BKBEV44T48:
-      id: 0033AFBG370104D2BKBEV44T48
+    - id: 0033AFBG370104D2BKBEV44T48
       type: loop
       inputs: {}
       title: loop_bass
-    0033AFBG38010E9G7D2MTRSS4X:
-      id: 0033AFBG38010E9G7D2MTRSS4X
+    - id: 0033AFBG38010E9G7D2MTRSS4X
       type: bass_saw_voice
       inputs: {}
       title: bass_voice
-    0033AFBG39010R5Y36STTDER5J:
-      id: 0033AFBG39010R5Y36STTDER5J
+    - id: 0033AFBG39010R5Y36STTDER5J
       type: output
       inputs: {}
       title: out
   edges:
-    meter_to_prog:
+    - id: meter_to_prog
       from:
         node: 0033AFBG2S00VSZ06B6V02Z7V2
         port: time_signature
       to:
         node: 0033AFBG2T00W3VE24Y0ZQM6VQ
         port: time_signature
-    prog_to_loop_prog:
+    - id: prog_to_loop_prog
       from:
         node: 0033AFBG2T00W3VE24Y0ZQM6VQ
         port: progression
       to:
         node: 0033AFBG2V00WDQVXYN6ZC95WC
         port: value
-    arp_to_loop_arp:
+    - id: arp_to_loop_arp
       from:
         node: 01M7HJ0CRN88N5QEQQQ1GBJT8H
         port: score
       to:
         node: 0033AFBG2X00X1GQNJ3JYNK3XP
         port: value
-    loop_arp_to_arp_voice_score:
+    - id: loop_arp_to_arp_voice_score
       from:
         node: 0033AFBG2X00X1GQNJ3JYNK3XP
         port: value
       to:
         node: 0033AFBG2Y00XBD5HBTRYA82YB
         port: score
-    time_to_arp_voice:
+    - id: time_to_arp_voice
       from:
         node: 0033AFBG2Q00V664EQRF0SN9SR
         port: time
       to:
         node: 0033AFBG2Y00XBD5HBTRYA82YB
         port: time
-    tempo_to_kick_grid:
+    - id: tempo_to_kick_grid
       from:
         node: 0033AFBG2R00VG2JAHFN0EA8TD
         port: tempo
       to:
         node: 0033AFBG2Z00XN9KD5HYXYX1Z0
         port: tempo
-    meter_to_kick_grid:
+    - id: meter_to_kick_grid
       from:
         node: 0033AFBG2S00VSZ06B6V02Z7V2
         port: time_signature
       to:
         node: 0033AFBG2Z00XN9KD5HYXYX1Z0
         port: time_signature
-    kick_grid_to_loop_kick:
+    - id: kick_grid_to_loop_kick
       from:
         node: 0033AFBG2Z00XN9KD5HYXYX1Z0
         port: score
       to:
         node: 0033AFBG3000XZ618Z94XKJ0ZN
         port: value
-    loop_kick_to_kick_score:
+    - id: loop_kick_to_kick_score
       from:
         node: 0033AFBG3000XZ618Z94XKJ0ZN
         port: value
       to:
         node: 0033AFBG3100Y92F4S0AX8700A
         port: score
-    time_to_kick:
+    - id: time_to_kick
       from:
         node: 0033AFBG2Q00V664EQRF0SN9SR
         port: time
       to:
         node: 0033AFBG3100Y92F4S0AX8700A
         port: time
-    tempo_to_snare_grid:
+    - id: tempo_to_snare_grid
       from:
         node: 0033AFBG2R00VG2JAHFN0EA8TD
         port: tempo
       to:
         node: 0033AFBG3200YJYX0JQGWWVZ0Z
         port: tempo
-    meter_to_snare_grid:
+    - id: meter_to_snare_grid
       from:
         node: 0033AFBG2S00VSZ06B6V02Z7V2
         port: time_signature
       to:
         node: 0033AFBG3200YJYX0JQGWWVZ0Z
         port: time_signature
-    snare_grid_to_loop_snare:
+    - id: snare_grid_to_loop_snare
       from:
         node: 0033AFBG3200YJYX0JQGWWVZ0Z
         port: score
       to:
         node: 0033AFBG3300YWVAWCEPWHGY1M
         port: value
-    loop_snare_to_snare_score:
+    - id: loop_snare_to_snare_score
       from:
         node: 0033AFBG3300YWVAWCEPWHGY1M
         port: value
       to:
         node: 0033AFBG3400Z6QRR65WW65X29
         port: score
-    time_to_snare:
+    - id: time_to_snare
       from:
         node: 0033AFBG2Q00V664EQRF0SN9SR
         port: time
       to:
         node: 0033AFBG3400Z6QRR65WW65X29
         port: time
-    arp_voice_to_mix:
+    - id: arp_voice_to_mix
       from:
         node: 0033AFBG2Y00XBD5HBTRYA82YB
         port: audio
@@ -210,7 +192,7 @@ graph:
         node: 0033AFBG3500ZGM6KZX2VTTW2Y
         port: inputs
       order: 0
-    kick_to_mix:
+    - id: kick_to_mix
       from:
         node: 0033AFBG3100Y92F4S0AX8700A
         port: audio
@@ -218,7 +200,7 @@ graph:
         node: 0033AFBG3500ZGM6KZX2VTTW2Y
         port: inputs
       order: 1
-    snare_to_mix:
+    - id: snare_to_mix
       from:
         node: 0033AFBG3400Z6QRR65WW65X29
         port: audio
@@ -226,49 +208,49 @@ graph:
         node: 0033AFBG3500ZGM6KZX2VTTW2Y
         port: inputs
       order: 2
-    tempo_to_bass:
+    - id: tempo_to_bass
       from:
         node: 0033AFBG2R00VG2JAHFN0EA8TD
         port: tempo
       to:
         node: 0033AFBG3600ZTGMFSM8VFFV3K
         port: tempo
-    meter_to_bass:
+    - id: meter_to_bass
       from:
         node: 0033AFBG2S00VSZ06B6V02Z7V2
         port: time_signature
       to:
         node: 0033AFBG3600ZTGMFSM8VFFV3K
         port: time_signature
-    loop_prog_to_bass:
+    - id: loop_prog_to_bass
       from:
         node: 0033AFBG2V00WDQVXYN6ZC95WC
         port: value
       to:
         node: 0033AFBG3600ZTGMFSM8VFFV3K
         port: progression
-    bass_to_loop_bass:
+    - id: bass_to_loop_bass
       from:
         node: 0033AFBG3600ZTGMFSM8VFFV3K
         port: score
       to:
         node: 0033AFBG370104D2BKBEV44T48
         port: value
-    loop_bass_to_bass_voice_score:
+    - id: loop_bass_to_bass_voice_score
       from:
         node: 0033AFBG370104D2BKBEV44T48
         port: value
       to:
         node: 0033AFBG38010E9G7D2MTRSS4X
         port: score
-    time_to_bass_voice:
+    - id: time_to_bass_voice
       from:
         node: 0033AFBG2Q00V664EQRF0SN9SR
         port: time
       to:
         node: 0033AFBG38010E9G7D2MTRSS4X
         port: time
-    bass_voice_to_mix:
+    - id: bass_voice_to_mix
       from:
         node: 0033AFBG38010E9G7D2MTRSS4X
         port: audio
@@ -276,7 +258,7 @@ graph:
         node: 0033AFBG3500ZGM6KZX2VTTW2Y
         port: inputs
       order: 3
-    mix_to_out:
+    - id: mix_to_out
       from:
         node: 0033AFBG3500ZGM6KZX2VTTW2Y
         port: audio

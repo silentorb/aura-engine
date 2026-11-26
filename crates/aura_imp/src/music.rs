@@ -1,6 +1,6 @@
 //! Musical composition node library.
 
-use crate::constraints::LOOPABLE;
+use crate::types::{named, LOOPABLE};
 use crate::node_def::primitive_node;
 use crate::signals::{
     signal, AUDIO_MONO, CHORD_PROGRESSION, CONTROL, SCORE, TEMPO, TIME, TIME_SIGNATURE,
@@ -134,7 +134,7 @@ pub fn music_node_library() -> NodeLibrary {
             "loop",
             vec![TypeParam {
                 id: "T".into(),
-                bounds: vec![LOOPABLE.into()],
+                bounds: vec![named(LOOPABLE)],
             }],
             Some(NodeImplementation::Dispatch {
                 param_index: Some(0),
@@ -379,6 +379,7 @@ pub fn music_node_library() -> NodeLibrary {
     ];
 
     NodeLibrary {
+        types: Vec::new(),
         id: "aura.music".into(),
         definitions,
     }

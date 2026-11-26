@@ -8,7 +8,7 @@ lab-pack/
                        #   libaura_imp_lab_catalogs.so / aura_imp_lab_catalogs.dll
                        #   libaura_imp_lab_playback.so / aura_imp_lab_playback.dll
   catalogs/
-    instruments.json   # instrument graph library (audition voice, metronome click, demos)
+    instruments.json   # Imp file of instrument definitions (audition voice, metronome click, demos)
   demo-project/        # sample Imp Lab project: the Aura demos as records
     imp-project.json   #   File → Open Project… and pick this file
     content/           #   one Tome data store (flat files)

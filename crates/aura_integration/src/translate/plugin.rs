@@ -192,8 +192,8 @@ mod tests {
     use aura_clap::ClapHost;
     use aura_clap_fixture::{gain_state, FixtureEntry, GAIN_ID, SINE_ID};
     use aura_imp::{
-        aura_registry, aura_registry_with_libraries, graph_from_json_str,
-        graph_library_from_json_path, Graph, NodeId, Registry, NOTATION_NODE_TYPE,
+        aura_registry, aura_registry_with_files,
+        imp_file_from_json_path, Graph, NodeId, Registry, NOTATION_NODE_TYPE,
     };
     use aura_plugin_host::PluginResolver;
     use aura_imp::plugin::PLUGIN_EFFECT;
@@ -259,7 +259,7 @@ mod tests {
             nodes.join(", "),
             edges.join(", ")
         );
-        graph_from_json_str(&json).expect("graph")
+        serde_json::from_str::<Graph>(&json).expect("graph")
     }
 
     fn b64(bytes: &[u8]) -> String {
@@ -428,7 +428,7 @@ mod tests {
               }}
             }}"#
         );
-        graph_from_json_str(&json).expect("graph")
+        serde_json::from_str::<Graph>(&json).expect("graph")
     }
 
     fn block_peak(source: &mut dyn BlockSource, blocks: usize) -> f32 {
@@ -474,8 +474,8 @@ mod tests {
     fn pack_registry() -> Registry {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../lab-pack/catalogs/instruments.json");
-        let library = graph_library_from_json_path(&path).expect("instruments library");
-        aura_registry_with_libraries(&[library]).expect("registry")
+        let library = imp_file_from_json_path(&path).expect("instruments library");
+        aura_registry_with_files(&[library]).expect("registry")
     }
 
     #[test]
@@ -537,7 +537,7 @@ mod tests {
               }}
             }}"#
         );
-        let graph = graph_from_json_str(&json).expect("graph");
+        let graph = serde_json::from_str::<Graph>(&json).expect("graph");
         let registry = aura_registry().expect("registry");
         let scores = bindings();
         let prepared = super::super::PreparedGraph::prepare(&graph, &registry).expect("prepare");
@@ -580,7 +580,7 @@ mod tests {
               }}
             }}"#
         );
-        let graph = graph_from_json_str(&json).expect("graph");
+        let graph = serde_json::from_str::<Graph>(&json).expect("graph");
         let registry = aura_registry().expect("registry");
         let scores = bindings();
         let prepared = super::super::PreparedGraph::prepare(&graph, &registry).expect("prepare");

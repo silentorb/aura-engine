@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 imp_core_types = { workspace = true }
-imp_graph_library = { workspace = true }
+imp_file = { workspace = true }
 imp_graph_resolve = { workspace = true }
 imp_registry = { workspace = true }
 imp_typecheck = { workspace = true }

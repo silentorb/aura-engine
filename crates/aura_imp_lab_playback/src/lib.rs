@@ -11,8 +11,8 @@ pub mod recording;
 
 use aura_clap::ClapHost;
 use aura_imp::{
-    aura_registry_with_libraries, discover_graph_libraries, graph_from_json_str,
-    graph_library_from_json_path, Graph, GraphLibrary, Registry,
+    aura_registry_with_files, discover_imp_files, graph_from_json_str,
+    imp_file_from_json_path, Graph, ImpFile, Registry,
 };
 use aura_integration::{
     find_output_node, signal_from_score, score_from_notation_str, translate_graph_with_project,
@@ -22,7 +22,7 @@ use aura_render::{AudioSignal, Signal};
 use aura_sample::SampleRate;
 use aura_sequencing::beats_to_seconds;
 use imp_lab_extensions::{
-    write_service_error, write_service_reply, ImpLabHostV0, ImpLabServiceV0, Publisher,
+    write_service_error, write_service_reply, ImpLabHostV1, ImpLabServiceV0, Publisher,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -137,13 +137,13 @@ pub enum PlaybackServiceError {
     Poisoned,
 }
 
-/// Graph libraries shipped in the Lab pack (`catalogs/instruments.json`), found at register.
+/// Library Imp files shipped in the Lab pack (`catalogs/instruments.json`), found at register.
 fn pack_library_paths() -> &'static Mutex<Vec<PathBuf>> {
     static PATHS: OnceLock<Mutex<Vec<PathBuf>>> = OnceLock::new();
     PATHS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-fn pack_libraries() -> Result<Vec<GraphLibrary>, PlaybackServiceError> {
+fn pack_libraries() -> Result<Vec<ImpFile>, PlaybackServiceError> {
     let paths = pack_library_paths()
         .lock()
         .map_err(|_| PlaybackServiceError::Poisoned)?
@@ -151,7 +151,7 @@ fn pack_libraries() -> Result<Vec<GraphLibrary>, PlaybackServiceError> {
     paths
         .iter()
         .map(|p| {
-            graph_library_from_json_path(p)
+            imp_file_from_json_path(p)
                 .map_err(|e| PlaybackServiceError::Registry(e.to_string()))
         })
         .collect()
@@ -164,39 +164,22 @@ pub fn plugin_host() -> &'static Arc<ClapHost> {
     HOST.get_or_init(|| Arc::new(ClapHost::with_standard_paths(Vec::new())))
 }
 
-/// Builds a registry for playback. A legacy graph-file hint discovers graph libraries next to
+/// Builds a registry for playback. A legacy graph-file hint discovers library Imp files next to
 /// the file; a project config (or no hint) uses the Lab pack's libraries.
 pub fn playback_registry(neighbor_hint: Option<&Path>) -> Result<Registry, PlaybackServiceError> {
     let libraries = match neighbor_hint {
-        Some(path) if !is_project_config(path) => discover_graph_libraries(path)
+        Some(path) if !is_project_config(path) => discover_imp_files(path)
             .map_err(|e| PlaybackServiceError::Registry(e.to_string()))?,
         _ => pack_libraries()?,
     };
-    aura_registry_with_libraries(&libraries)
+    aura_registry_with_files(&libraries)
         .map_err(|e| PlaybackServiceError::Registry(e.to_string()))
 }
 
-/// Parse graph JSON from the Lab host (bare Imp graph or tip-wrapped).
+/// Parse an Imp file from the Lab host into the graph its nodes and edges form. Unknown top-level
+/// fields (host wrappers) are ignored by Imp file parsing.
 pub fn parse_graph_json(json: &str) -> Result<Graph, PlaybackServiceError> {
-    match graph_from_json_str(json) {
-        Ok(graph) => Ok(graph),
-        Err(first) => {
-            let value: Value = serde_json::from_str(json)
-                .map_err(|e| PlaybackServiceError::GraphJson(e.to_string()))?;
-            let nodes = value.get("nodes").cloned();
-            let edges = value.get("edges").cloned();
-            match (nodes, edges) {
-                (Some(nodes), Some(edges)) => {
-                    let bare = serde_json::json!({ "nodes": nodes, "edges": edges });
-                    let text = serde_json::to_string(&bare)
-                        .map_err(|e| PlaybackServiceError::GraphJson(e.to_string()))?;
-                    graph_from_json_str(&text)
-                        .map_err(|e| PlaybackServiceError::GraphJson(e.to_string()))
-                }
-                _ => Err(PlaybackServiceError::GraphJson(first.to_string())),
-            }
-        }
-    }
+    graph_from_json_str(json).map_err(|e| PlaybackServiceError::GraphJson(e.to_string()))
 }
 
 /// Translate graph JSON into a signal ready for CPAL.
@@ -575,7 +558,7 @@ unsafe extern "C" fn service_request(
 
 /// Record the pack's demo instruments library (same search as the catalogs extension) so
 /// project playback can build voices like `sine_note_voice`.
-fn remember_pack_libraries(host: &ImpLabHostV0) {
+fn remember_pack_libraries(host: &ImpLabHostV1) {
     const CANDIDATES: &[&str] = &[
         "catalogs/instruments.json",
         "instruments.json",
@@ -613,9 +596,9 @@ fn remember_pack_libraries(host: &ImpLabHostV0) {
 ///
 /// # Safety
 ///
-/// `host` must be a valid pointer to an [`ImpLabHostV0`] for the duration of this call.
+/// `host` must be a valid pointer to an [`ImpLabHostV1`] for the duration of this call.
 #[no_mangle]
-pub unsafe extern "C" fn imp_lab_extension_register(host: *const ImpLabHostV0) -> i32 {
+pub unsafe extern "C" fn imp_lab_extension_register(host: *const ImpLabHostV1) -> i32 {
     if host.is_null() {
         return -1;
     }

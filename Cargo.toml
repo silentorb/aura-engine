@@ -22,7 +22,7 @@ members = [
     ".mnt/imp-rs/crates/imp_core_types",
     ".mnt/imp-rs/crates/imp_registry",
     ".mnt/imp-rs/crates/imp_typecheck",
-    ".mnt/imp-rs/crates/imp_graph_library",
+    ".mnt/imp-rs/crates/imp_file",
     ".mnt/imp-rs/crates/imp_graph_resolve",
 ]
 # tome-rust-server keeps its own workspace (its crates inherit deps from it), as in Imp Lab.
@@ -38,7 +38,7 @@ repository = "https://github.com/silentorb/aura-engine"
 imp_core_types = { path = ".mnt/imp-rs/crates/imp_core_types" }
 imp_registry = { path = ".mnt/imp-rs/crates/imp_registry" }
 imp_typecheck = { path = ".mnt/imp-rs/crates/imp_typecheck" }
-imp_graph_library = { path = ".mnt/imp-rs/crates/imp_graph_library" }
+imp_file = { path = ".mnt/imp-rs/crates/imp_file" }
 imp_graph_resolve = { path = ".mnt/imp-rs/crates/imp_graph_resolve" }
 imp_collection_transforms = { path = ".mnt/imp-rs/crates/imp_collection_transforms" }
 imp_mir = { path = ".mnt/tome-rust-server/crates/imp_mir" }

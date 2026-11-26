@@ -68,6 +68,7 @@ pub fn envelope_node_library() -> NodeLibrary {
     ];
 
     NodeLibrary {
+        types: Vec::new(),
         id: "aura.envelope".into(),
         definitions,
     }

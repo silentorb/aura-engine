@@ -5,7 +5,7 @@
 use super::{impls, PreparedGraph, TranslateOptions, translate_graph_with_options};
 use aura_clap::ClapHost;
 use aura_clap_fixture::FixtureEntry;
-use aura_imp::{aura_registry, graph_from_json_str, Graph, NodeId, Registry, NOTATION_NODE_TYPE};
+use aura_imp::{aura_registry, Graph, NodeId, Registry, NOTATION_NODE_TYPE};
 use aura_plugin_host::PluginResolver;
 use aura_render::{render_range, AudioSignal, Frame};
 use aura_sample::SampleRate;
@@ -130,7 +130,7 @@ fn coverage_graph() -> Graph {
         nodes.join(", "),
         edges.join(", ")
     );
-    graph_from_json_str(&json).expect("coverage graph")
+    serde_json::from_str::<Graph>(&json).expect("coverage graph")
 }
 
 /// `notation → <instrument>.score`, `time → <instrument>.time`, `→ out`.
@@ -150,7 +150,7 @@ fn instrument_graph(instrument: &str) -> Graph {
           }}
         }}"#
     );
-    graph_from_json_str(&json).expect("instrument graph")
+    serde_json::from_str::<Graph>(&json).expect("instrument graph")
 }
 
 /// A graph and how to translate it.
@@ -200,11 +200,11 @@ fn cases() -> Vec<Case> {
         }
     };
     let pack = {
-        let library = aura_imp::graph_library_from_json_path(&workspace(
+        let library = aura_imp::imp_file_from_json_path(&workspace(
             "lab-pack/catalogs/instruments.json",
         ))
         .expect("instruments library");
-        aura_imp::aura_registry_with_libraries(&[library]).expect("registry")
+        aura_imp::aura_registry_with_files(&[library]).expect("registry")
     };
     let mut cases = vec![
         demo("demo-01.json"),

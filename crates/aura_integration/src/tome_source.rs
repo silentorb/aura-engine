@@ -144,7 +144,7 @@ pub fn translate_graph_with_project(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aura_imp::{aura_registry_with_libraries, discover_graph_libraries};
+    use aura_imp::{aura_registry_with_files, discover_imp_files};
 
     fn workspace_path(relative: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -156,8 +156,8 @@ mod tests {
     fn demo_02_plays_its_arpeggio_from_the_demo_project() {
         let graph_path = workspace_path("demos/demo-02.json");
         let graph = aura_imp::graph_from_json_path(&graph_path).expect("graph");
-        let libraries = discover_graph_libraries(&graph_path).expect("libraries");
-        let registry = aura_registry_with_libraries(&libraries).expect("registry");
+        let libraries = discover_imp_files(&graph_path).expect("libraries");
+        let registry = aura_registry_with_files(&libraries).expect("registry");
         let project = workspace_path("lab-pack/demo-project/imp-project.json");
 
         let nodes = open_project_nodes(&project, &registry).expect("project");
@@ -183,8 +183,8 @@ mod tests {
     fn demo_02_without_a_project_reports_the_unresolved_notation() {
         let graph_path = workspace_path("demos/demo-02.json");
         let graph = aura_imp::graph_from_json_path(&graph_path).expect("graph");
-        let libraries = discover_graph_libraries(&graph_path).expect("libraries");
-        let registry = aura_registry_with_libraries(&libraries).expect("registry");
+        let libraries = discover_imp_files(&graph_path).expect("libraries");
+        let registry = aura_registry_with_files(&libraries).expect("registry");
         let err =
             match translate_graph_with_project(&graph, &registry, SampleRate::RATE_44100, None, None) {
                 Ok(_) => panic!("expected an unresolved notation"),

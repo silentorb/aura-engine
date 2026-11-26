@@ -16,7 +16,7 @@ See also [`architecture.md`](architecture.md) and [`imp-execution.md`](imp-execu
 | **Semitone** | Discrete key pitch on the 12-TET chromatic scale; not a frequency |
 | **Chord** | Root, voiced tones, and optional bass — built from intervals and scale degrees |
 | **ChordProgression** | Timed sequence of chords on a beat grid; a **data signal** sampled per frame via `ChordSignal` (with wired tempo) |
-| **Loopable** | Type constraint (`Loopable`) satisfied by `score` and `chord_progression`; required type argument for the generic `loop` node |
+| **Loopable** | Union type `Loopable` = `score | chord_progression` (an Aura type definition); required type argument for the generic `loop` node |
 | **loop** | Generic Imp node `loop<T: Loopable>` — marks a score or progression as unboundedly looped (modulus over cycle length at playback) |
 | **Tempo** | Beats per minute; a **data signal** (`tempo` port type) composed at translate time |
 | **TimeSignature** | Beats per bar and beat unit; a **data signal** (`time_signature` port type) composed at translate time |

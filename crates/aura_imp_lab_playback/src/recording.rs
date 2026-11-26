@@ -8,7 +8,7 @@
 
 use crate::{playback_registry, publish, PlaybackServiceError, SAMPLE_RATE};
 use aura_composition::click_bar;
-use aura_imp::{graph_from_json_str, NodeId, NOTATION_NODE_TYPE};
+use aura_imp::{Graph, NodeId, NOTATION_NODE_TYPE};
 use aura_integration::{
     score_from_notation_str, signal_from_score, translate_graph_with_bindings,
 };
@@ -100,7 +100,7 @@ pub fn click_signal(
     time_signature: TimeSignature,
     tempo: Tempo,
 ) -> Result<Box<dyn Signal>, PlaybackServiceError> {
-    let graph = graph_from_json_str(&click_graph_json())
+    let graph = serde_json::from_str::<Graph>(&click_graph_json())
         .map_err(|e| PlaybackServiceError::GraphJson(e.to_string()))?;
     let registry = playback_registry(None)?;
     let bindings = BTreeMap::from([(

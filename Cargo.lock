@@ -161,7 +161,7 @@ name = "aura_imp"
 version = "0.1.0"
 dependencies = [
  "imp_core_types",
- "imp_graph_library",
+ "imp_file",
  "imp_graph_resolve",
  "imp_registry",
  "imp_typecheck",
@@ -1025,7 +1025,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "imp_graph_library"
+name = "imp_file"
 version = "0.1.0"
 dependencies = [
  "imp_core_types",
@@ -1070,6 +1070,7 @@ name = "imp_registry"
 version = "0.1.0"
 dependencies = [
  "imp_core_types",
+ "serde_json",
  "thiserror 2.0.20",
 ]
 
@@ -2313,6 +2314,7 @@ name = "tome_db"
 version = "0.1.0"
 dependencies = [
  "imp_core_types",
+ "imp_file",
  "imp_mir",
  "notify",
  "serde",

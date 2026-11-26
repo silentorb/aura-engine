@@ -3,9 +3,9 @@
 
 use super::{translate_graph, StreamingProgram, TranslateError};
 use aura_dsp::{pan_gains, sine};
-use aura_imp::constraints::AUDIO;
+use aura_imp::types::{named, AUDIO};
 use aura_imp::{
-    aura_registry, aura_registry_with_libraries, graph_from_json_str, Graph, GraphLibrary,
+    aura_registry, aura_registry_with_files, Graph, ImpFile,
     NodeDefinition, Port,
 };
 use aura_render::{AudioSignal, Layout};
@@ -40,7 +40,7 @@ fn graph(nodes: &[(&str, &str, &str)], edges: &[(&str, &str, &str, &str, Option<
             )
         })
         .collect();
-    graph_from_json_str(&format!(
+    serde_json::from_str::<Graph>(&format!(
         r#"{{ "nodes": {{ {} }}, "edges": {{ {} }} }}"#,
         nodes.join(", "),
         edges.join(", ")
@@ -301,7 +301,7 @@ fn generic_graph_definitions_work_at_both_layouts() {
         name: None,
         type_params: vec![TypeParam {
             id: "A".into(),
-            bounds: vec![AUDIO.into()],
+            bounds: vec![named(AUDIO)],
         }],
         implementation: None,
         inputs: BTreeMap::from([port("audio")]),
@@ -312,9 +312,10 @@ fn generic_graph_definitions_work_at_both_layouts() {
             outputs: BTreeMap::from([("audio".into(), "result".into())]),
         }),
     };
-    let registry = aura_registry_with_libraries(&[GraphLibrary {
-        id: "test.generic".into(),
+    let registry = aura_registry_with_files(&[ImpFile {
+        id: Some("test.generic".into()),
         definitions: vec![half],
+        ..ImpFile::default()
     }])
     .expect("a generic graph definition type-checks");
 

@@ -5,6 +5,7 @@
 //! a host concern here: it belongs to Imp graph sources and Tome's node provider (`tome_imp`).
 
 use aura_imp::{graph_from_json_str, Graph};
+use imp_core_types::IMP_FILE_FORMAT;
 use imp_mir::{KindFn, SessionError, OpenOptions};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -13,16 +14,19 @@ use thiserror::Error;
 
 pub use imp_mir::{Session, StoreRecord};
 
-/// Kind function: Aura JSON `type` when present, otherwise `"unknown"`.
+/// Kind function: `"imp"` for Imp files (`format: "imp"`), else the Aura JSON `type`, else `"unknown"`.
 pub fn aura_json_kind_fn() -> KindFn {
     Arc::new(|_path, content| aura_json_kind(content))
 }
 
-/// Extract Aura document `type` from JSON text.
+/// Extract the record kind from JSON text: Imp files report their `format`; other Aura documents
+/// (e.g. notation) their `type`.
 pub fn aura_json_kind(content: &str) -> String {
     match serde_json::from_str::<Value>(content) {
         Ok(Value::Object(map)) => map
-            .get("type")
+            .get("format")
+            .filter(|format| format.as_str() == Some(IMP_FILE_FORMAT))
+            .or_else(|| map.get("type"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string(),
@@ -59,11 +63,11 @@ pub enum HostError {
     Session(#[from] SessionError),
     #[error("failed to prepare projection directory: {0}")]
     Io(#[from] std::io::Error),
-    #[error("pulled record `{id}` is not an Imp graph: {source}")]
+    #[error("pulled record `{id}` is not an Imp file: {source}")]
     GraphParse {
         id: String,
         #[source]
-        source: serde_json::Error,
+        source: aura_imp::ImpFileParseError,
     },
     #[error("no Mir record `{id}` in projection")]
     MissingRecord { id: String },
@@ -146,7 +150,8 @@ mod tests {
 
     #[test]
     fn aura_json_kind_reads_type() {
-        assert_eq!(aura_json_kind(r#"{"type":"imp-graph"}"#), "imp-graph");
+        assert_eq!(aura_json_kind(r#"{"format":"imp"}"#), "imp");
+        assert_eq!(aura_json_kind(r#"{"type":"notation"}"#), "notation");
         assert_eq!(aura_json_kind("not json"), "unknown");
     }
 
@@ -174,7 +179,7 @@ mod tests {
         fs::create_dir_all(&root).expect("mkdir");
         fs::write(
             root.join("demo-01.json"),
-            r#"{"type":"imp-graph","nodes":{"n":{"id":"n","type":"time","inputs":{}}},"edges":{}}"#,
+            r#"{"format":"imp","nodes":[{"id":"n","type":"time","inputs":{}}]}"#,
         )
         .expect("write");
         let db = dir.path().join("proj.db");
@@ -193,7 +198,7 @@ mod tests {
         fs::create_dir_all(&root).expect("mkdir");
         fs::write(
             root.join("demo-01.json"),
-            r#"{"type":"imp-graph","nodes":{"n":{"id":"n","type":"time","inputs":{}}},"edges":{}}"#,
+            r#"{"format":"imp","nodes":[{"id":"n","type":"time","inputs":{}}]}"#,
         )
         .expect("write");
 

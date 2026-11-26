@@ -690,9 +690,7 @@ impl StreamingControl {
 mod tests {
     use super::*;
     use crate::translate::{translate_graph, translate_graph_with_bindings};
-    use aura_imp::{
-        aura_registry_with_libraries, graph_from_json_str, graph_library_from_json_path,
-    };
+    use aura_imp::{aura_registry_with_files, imp_file_from_json_path, Graph};
     use aura_sequencing::{NoteParams, Semitone};
     use std::path::PathBuf;
 
@@ -706,9 +704,9 @@ mod tests {
 
     fn pack_registry() -> Registry {
         let library =
-            graph_library_from_json_path(&workspace("lab-pack/catalogs/instruments.json"))
+            imp_file_from_json_path(&workspace("lab-pack/catalogs/instruments.json"))
                 .expect("instruments library");
-        aura_registry_with_libraries(&[library]).expect("registry")
+        aura_registry_with_files(&[library]).expect("registry")
     }
 
     /// `notation → <voice>.score`, `time → <voice>.time`, `<voice>.audio → out`.
@@ -728,7 +726,7 @@ mod tests {
               }}
             }}"#
         );
-        graph_from_json_str(&json).expect("voice graph")
+        serde_json::from_str::<Graph>(&json).expect("voice graph")
     }
 
     fn live(semitone: i16) -> Arc<LiveNote> {
@@ -830,8 +828,8 @@ mod tests {
     #[test]
     fn mode_agnostic_graphs_render_identically_in_both_modes() {
         let json = std::fs::read_to_string(workspace("demos/sine.json")).expect("sine.json");
-        let graph = graph_from_json_str(&json).expect("graph");
-        let registry = aura_registry_with_libraries(&[]).expect("registry");
+        let graph = aura_imp::graph_from_json_str(&json).expect("graph");
+        let registry = aura_registry_with_files(&[]).expect("registry");
         let mut deterministic = translate_graph(&graph, &registry, RATE)
             .expect("deterministic")
             .into_mono()

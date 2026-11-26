@@ -1,7 +1,7 @@
 //! Aura DSP node library.
 
 use crate::node_def::primitive_node;
-use crate::constraints::AUDIO;
+use crate::types::{named, AUDIO};
 use crate::signals::{signal, ANY, AUDIO_MONO, AUDIO_STEREO, CONTROL, TIME};
 use imp_core_types::{type_var, NodeLibrary, Port, PrimitiveValue, TypeParam};
 use std::collections::BTreeMap;
@@ -35,7 +35,7 @@ pub fn dsp_node_library() -> NodeLibrary {
     let audio_param = || {
         vec![TypeParam {
             id: "A".into(),
-            bounds: vec![AUDIO.into()],
+            bounds: vec![named(AUDIO)],
         }]
     };
 
@@ -225,6 +225,7 @@ pub fn dsp_node_library() -> NodeLibrary {
     ];
 
     NodeLibrary {
+        types: Vec::new(),
         id: "aura.dsp".into(),
         definitions,
     }

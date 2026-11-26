@@ -40,7 +40,7 @@ use aura_render::{
 };
 use signals::*;
 use aura_sample::SampleRate;
-use aura_imp::constraints::AUDIO;
+use aura_imp::types::{named, AUDIO};
 use aura_imp::signals::AUDIO_STEREO;
 use aura_imp::{get_node_definition, Type};
 use imp_typecheck::{check_graph, resolve_type_args};
@@ -52,6 +52,10 @@ type TargetKey = (NodeId, String);
 
 #[derive(Debug, Error, PartialEq)]
 pub enum TranslateError {
+    #[error(
+        "audio layout of node `{node}` is not statically known (it resolves to a union of layouts); state the layout with typeArgs"
+    )]
+    UnresolvedLayout { node: NodeId },
     #[error("graph has no output node")]
     MissingOutput,
     #[error("multiple output nodes are not supported")]
@@ -330,7 +334,7 @@ impl PreparedGraph {
             .map_err(|message| TranslateError::Resolve { message })?;
         let output_node = find_output_node(&graph)?;
         let edges_by_target = index_edges_by_target(&graph);
-        let layouts = resolve_layouts(&graph, registry);
+        let layouts = resolve_layouts(&graph, registry)?;
         let reads = Arc::new(count_reads(&graph, &layouts));
         Ok(Self {
             graph,
@@ -1299,8 +1303,9 @@ fn invalid_signal_source(value: NodeValue, source: &str) -> TranslateError {
 }
 
 /// The resolved layout of every layout-polymorphic node (a type parameter bounded by `Audio`).
-/// Nodes left out are mono.
-fn resolve_layouts(graph: &Graph, registry: &Registry) -> BTreeMap<NodeId, Layout> {
+/// Nodes left out are mono. A layout that resolves to a union (e.g. fed by an `Audio`-typed port)
+/// has no runtime tag to decide it, so it is an error rather than a guess.
+fn resolve_layouts(graph: &Graph, registry: &Registry) -> Result<BTreeMap<NodeId, Layout>, TranslateError> {
     let mut layouts = BTreeMap::new();
     for node in graph.nodes.values() {
         let polymorphic = impls::node_impls()
@@ -1315,18 +1320,24 @@ fn resolve_layouts(graph: &Graph, registry: &Registry) -> BTreeMap<NodeId, Layou
         let Some(index) = definition
             .type_params
             .iter()
-            .position(|param| param.bounds.iter().any(|bound| bound == AUDIO))
+            .position(|param| param.bounds.contains(&named(AUDIO)))
         else {
             continue;
         };
-        let stereo = resolve_type_args(graph, &node.id, registry, None)
-            .and_then(|args| args.get(index).cloned())
-            .is_some_and(|arg| matches!(arg, Type::Concrete { id, .. } if id == AUDIO_STEREO));
-        if stereo {
-            layouts.insert(node.id.clone(), Layout::Stereo);
+        let arg = resolve_type_args(graph, &node.id, registry, None).and_then(|args| args.get(index).cloned());
+        match arg {
+            Some(Type::Union { .. }) => {
+                return Err(TranslateError::UnresolvedLayout {
+                    node: node.id.clone(),
+                })
+            }
+            Some(Type::Concrete { id, .. }) if id == AUDIO_STEREO => {
+                layouts.insert(node.id.clone(), Layout::Stereo);
+            }
+            _ => {}
         }
     }
-    layouts
+    Ok(layouts)
 }
 
 fn primitive_to_f64(
@@ -1381,7 +1392,7 @@ pub fn infer_score_duration_secs(graph: &Graph, sample_rate: SampleRate) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aura_imp::{aura_registry, aura_registry_with_libraries, discover_graph_libraries};
+    use aura_imp::{aura_registry, aura_registry_with_files, discover_imp_files};
     use std::path::PathBuf;
 
     fn workspace_demo_path(name: &str) -> PathBuf {
@@ -1545,8 +1556,8 @@ mod tests {
         let json = include_str!("../../../../demos/demo-01.json");
         let graph = aura_imp::graph_from_json_str(json).expect("graph");
         let graph_path = workspace_demo_path("demo-01.json");
-        let libraries = discover_graph_libraries(&graph_path).expect("libraries");
-        let registry = aura_registry_with_libraries(&libraries).expect("registry");
+        let libraries = discover_imp_files(&graph_path).expect("libraries");
+        let registry = aura_registry_with_files(&libraries).expect("registry");
         translate_graph(&graph, &registry, SampleRate::RATE_44100).expect("translate");
     }
 

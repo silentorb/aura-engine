@@ -5,7 +5,7 @@
 //! The host resolves the id when the graph is translated; see `docs/design/plugin-hosting.md`.
 
 use crate::node_def::primitive_node;
-use crate::constraints::AUDIO;
+use crate::types::{named, AUDIO};
 use crate::signals::{signal, AUDIO_STEREO, CONTROL, SCORE};
 use imp_core_types::{type_var, NodeLibrary, Port, PrimitiveValue, TypeParam};
 use std::collections::BTreeMap;
@@ -51,6 +51,7 @@ pub fn plugin_node_library() -> NodeLibrary {
     let stereo = signal(AUDIO_STEREO);
     let audio = type_var("A");
     NodeLibrary {
+        types: Vec::new(),
         id: "aura.plugin".into(),
         definitions: vec![
             primitive_node(
@@ -69,7 +70,7 @@ pub fn plugin_node_library() -> NodeLibrary {
                 PLUGIN_EFFECT,
                 vec![TypeParam {
                     id: "A".into(),
-                    bounds: vec![AUDIO.into()],
+                    bounds: vec![named(AUDIO)],
                 }],
                 None,
                 BTreeMap::from([

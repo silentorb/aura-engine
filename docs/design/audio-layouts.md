@@ -9,7 +9,7 @@ Aura signals are **mono** or **stereo**. Motivation: [`../scoping/stereo.md`](..
 | `audio_mono` | `Signal`: a range of frames → one buffer | One channel |
 | `audio_stereo` | `StereoSignal`: a range of frames → left and right buffers (planar) | Two channels |
 
-- The Aura type constraint **`Audio`** = `audio_mono | audio_stereo` (`aura.constraints`).
+- **`Audio`** is an Imp **union type**: `Audio = audio_mono | audio_stereo`, an Aura type definition shipped in the `aura.types` library (`aura_imp::types`). It is a real type, not just notation: it can bound a type parameter (`A: Audio`) or type a port directly. Layout-polymorphic node types use the bound, because a port typed plain `Audio` accepts either layout but loses "the output layout follows the input". Translation decides layouts statically, so a node whose layout resolves to the whole union (fed by an `Audio`-typed port) is a translation error (`UnresolvedLayout`); state its layout with `typeArgs`.
 - Control, time, score and other signals have no layout.
 
 ## Layout-polymorphic node types

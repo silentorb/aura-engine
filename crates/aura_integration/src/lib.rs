@@ -8,7 +8,7 @@ mod translate;
 
 use translate::{infer_score_duration_secs, translate_graph};
 use aura_imp::{
-    aura_registry_with_libraries, discover_graph_libraries, graph_from_json_path, Graph,
+    aura_registry_with_files, discover_imp_files, imp_file_from_json_path, imp_file_graph, Graph,
     GraphJsonError, Registry, RegistryError,
 };
 use aura_io_wav::{write_wav32_channels, WavError};
@@ -61,23 +61,28 @@ pub enum IntegrationError {
     ProjectSource(#[from] ProjectSourceError),
 }
 
-/// A graph loaded with its neighboring graph libraries and merged registry.
+/// A graph loaded with its neighboring library Imp files and merged registry.
 pub struct LoadedGraph {
     pub graph: Graph,
     pub registry: Registry,
 }
 
-/// Loads an Imp graph and neighboring graph libraries from a JSON file path.
+/// Loads an Imp file and its neighboring library Imp files from a JSON path. The file's own
+/// `types` and `definitions` are registered alongside the libraries'; its nodes and edges are the graph.
 pub fn load_graph(path: &Path) -> Result<LoadedGraph, IntegrationError> {
-    let graph = graph_from_json_path(path)?;
-    let libraries = discover_graph_libraries(path)?;
-    let registry = aura_registry_with_libraries(&libraries)?;
+    let file = imp_file_from_json_path(path)?;
+    let graph = imp_file_graph(&file);
+    let mut files = discover_imp_files(path)?;
+    if !file.types.is_empty() || !file.definitions.is_empty() {
+        files.push(file);
+    }
+    let registry = aura_registry_with_files(&files)?;
     Ok(LoadedGraph { graph, registry })
 }
 
-/// Loads an Imp graph from a JSON file path (graph only, no libraries).
+/// Loads the nodes and edges of an Imp file as a graph (no libraries).
 pub fn load_graph_only(path: &Path) -> Result<Graph, IntegrationError> {
-    Ok(graph_from_json_path(path)?)
+    Ok(imp_file_graph(&imp_file_from_json_path(path)?))
 }
 
 /// Translates an Imp graph into a deterministic signal (mono or stereo, by its output).

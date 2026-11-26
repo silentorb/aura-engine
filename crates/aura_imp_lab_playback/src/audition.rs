@@ -7,7 +7,7 @@
 //! deterministic transport playback.
 
 use crate::{playback_registry, PlaybackServiceError, SAMPLE_RATE};
-use aura_imp::{graph_from_json_str, NOTATION_NODE_TYPE};
+use aura_imp::{Graph, NOTATION_NODE_TYPE};
 use aura_integration::{StreamingControl, StreamingProgram};
 use aura_io_cpal::StreamingOutput;
 use aura_plugin_host::PluginResolver;
@@ -88,7 +88,7 @@ fn audition_graph_json() -> String {
 
 /// Prepares the audition instrument for streaming with the Lab pack's libraries.
 pub fn audition_program() -> Result<StreamingProgram, PlaybackServiceError> {
-    let graph = graph_from_json_str(&audition_graph_json())
+    let graph = serde_json::from_str::<Graph>(&audition_graph_json())
         .map_err(|e| PlaybackServiceError::GraphJson(e.to_string()))?;
     let registry = playback_registry(None)?;
     let plugins: Arc<dyn PluginResolver> = crate::plugin_host().clone();

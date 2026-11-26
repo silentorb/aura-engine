@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn score_from_notation_str_rejects_wrong_type() {
         let json = r#"{
-            "type": "imp-graph",
+            "type": "score",
             "version": 1,
             "tempoBpm": 120.0,
             "timeSignature": { "beatsPerBar": 4, "beatUnit": 4 },

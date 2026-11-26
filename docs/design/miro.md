@@ -5,9 +5,9 @@ Declarative requirements for Aura’s use of Mir/Miro. Motivation: multi-represe
 ## Requirements
 
 - Mir fabric and the generic Miro text→database→pull profile **must** live in **`imp_mir`** (hosted in tome-rust-server). Aura **must not** reimplement store registry, sync signals, or `mir.sync.store` wire-up.
-- Aura **must** treat on-disk Aura JSON (`imp-graph`, `notation`, `imp-graph-library`, …) as the Miro text source of truth for this product.
+- Aura **must** treat on-disk Aura JSON (Imp files with `"format": "imp"`, `notation`, …) as the Miro text source of truth for this product.
 - Aura **must** use SQLite as the Miro database projection (via `imp_mir`’s generic SQLite store).
-- Aura host helpers **may** map Aura JSON `type` into opaque Mir record `kind` and pull Imp `Graph` values through `aura_imp` JSON helpers.
+- Aura host helpers **may** map Aura JSON `format` (Imp files report kind `imp`) or `type` into opaque Mir record `kind` and pull Imp `Graph` values through `aura_imp` JSON helpers.
 - Direct `load_graph` / filesystem open paths **must** keep working; Miro is an additive parallel session path.
 - Mir `pull_record` takes an opaque Mir record id — never treat a NodeId as a filesystem path.
 - Aura **must not** resolve NodeIds a graph references but does not hold. That is an Imp and Tome concern: translation reads a graph source (the document layered with Tome's `tome_imp` node provider over a Tome project), and Aura only contributes node types (e.g. the notation node type, whose id is the Notation type node).

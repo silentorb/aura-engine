@@ -35,5 +35,5 @@ See [Silent Orb: Scoping and Design](https://silentorb.com/business/product/scop
 | [`playback-modes.md`](playback-modes.md) | Deterministic and streaming modes; per-node streaming implementations |
 | [`live-recording.md`](live-recording.md) | Live MIDI input: the adapter boundary, devices, monitoring, and recording takes into notation |
 | [`plugin-hosting.md`](plugin-hosting.md) | Third-party plugins (CLAP first): render caches, shared streaming stages, the protocol-neutral seam |
-| [`audio-layouts.md`](audio-layouts.md) | Mono and stereo signals: the `Audio` constraint, converters, the mono/stereo × deterministic/streaming implementation matrix, dual mono |
+| [`audio-layouts.md`](audio-layouts.md) | Mono and stereo signals: the `Audio` union type, converters, the mono/stereo × deterministic/streaming implementation matrix, dual mono |
 | [`../rust-style.md`](../rust-style.md) | Rust crate naming and layout conventions |

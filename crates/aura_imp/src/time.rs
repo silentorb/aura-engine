@@ -45,6 +45,7 @@ pub fn time_node_library() -> NodeLibrary {
     ];
 
     NodeLibrary {
+        types: Vec::new(),
         id: "aura.time".into(),
         definitions,
     }
